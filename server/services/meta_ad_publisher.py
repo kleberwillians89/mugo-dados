@@ -440,6 +440,95 @@ async def live_delivery_status(client_id: str, draft_id: str) -> Dict[str, Any]:
             "delivery": ids.get("delivery"), "joined": bool(ids.get("joined"))}
 
 
+async def _campaign_editor_context(client_id: str, draft_id: str) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    row = await _draft(client_id, draft_id)
+    ids = row.get("meta_ids") or {}
+    if row.get("status") != "publicada" or not ids.get("campaign_id"):
+        raise StudioError("AD_NOT_PUBLISHED_YET")
+    account = await _ad_account(client_id)
+    attached = str(ids.get("ad_account_id") or "")
+    if attached and attached.removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    camp = await _graph("GET", f"/{ids['campaign_id']}", token=account["token"],
+                        params={"fields": "id,name,account_id,status,effective_status"})
+    returned = str(camp.get("account_id") or "")
+    if returned and returned.removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    return row, account, camp
+
+
+async def _campaign_children(account: Dict[str, Any], campaign_id: str, level: str) -> List[Dict[str, Any]]:
+    """Load all objects up to a hard cap. Fail closed rather than hide additional items."""
+    if level not in ("adsets", "ads"):
+        raise StudioError("AD_NOT_READY", "Nível Meta inválido.")
+    fields = ("id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,start_time,end_time"
+              if level == "adsets" else
+              "id,name,campaign_id,adset_id,status,effective_status,creative{id,name,thumbnail_url}")
+    params: Dict[str, Any] = {"fields": fields, "limit": 100}
+    seen: set[str] = set()
+    rows: List[Dict[str, Any]] = []
+    for _ in range(5):
+        body = await _graph("GET", f"/{campaign_id}/{level}", token=account["token"], params=params)
+        for item in body.get("data") or []:
+            if str(item.get("campaign_id") or "") != str(campaign_id):
+                # Never display or change objects from another campaign/account.
+                raise StudioError("AD_ACCOUNT_CHANGED")
+            rows.append(item)
+        paging = body.get("paging") or {}
+        cursor = str((paging.get("cursors") or {}).get("after") or "")
+        if not paging.get("next"):
+            return rows
+        if not cursor or cursor in seen:
+            break
+        seen.add(cursor)
+        params["after"] = cursor
+    raise StudioError("AD_NOT_READY", "A campanha tem muitos itens; a leitura completa na Meta não foi possível.")
+
+
+async def live_campaign_structure(client_id: str, draft_id: str) -> Dict[str, Any]:
+    """Live campaign → adsets → ads, never inferred from the local draft."""
+    row, account, campaign = await _campaign_editor_context(client_id, draft_id)
+    campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
+    adsets, ads = await asyncio.gather(
+        _campaign_children(account, campaign_id, "adsets"),
+        _campaign_children(account, campaign_id, "ads"),
+    )
+    return {
+        "source": "meta_graph", "checked_at": _now(), "read_only": True,
+        "campaign": {k: campaign.get(k) for k in ("id", "name", "status", "effective_status")},
+        "adsets": [
+            {k: a.get(k) for k in ("id", "name", "campaign_id", "status", "effective_status",
+                                   "daily_budget", "lifetime_budget", "start_time", "end_time")}
+            for a in adsets
+        ],
+        "ads": [
+            {**{k: a.get(k) for k in ("id", "name", "campaign_id", "adset_id", "status", "effective_status")},
+             "creative": {k: (a.get("creative") or {}).get(k) for k in ("id", "name", "thumbnail_url")}}
+            for a in ads
+        ],
+    }
+
+
+async def change_live_object_status(client_id: str, draft_id: str, *,
+                                    level: str, object_id: str, active: bool) -> Dict[str, Any]:
+    """Edit exactly one Meta ad set or ad, with ancestry validation and read-back."""
+    if level not in ("adset", "ad") or not re.fullmatch(r"\d{5,30}", str(object_id or "")):
+        raise StudioError("AD_NOT_READY", "Objeto Meta inválido.")
+    row, account, _ = await _campaign_editor_context(client_id, draft_id)
+    campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
+    allowed = await _campaign_children(account, campaign_id, "adsets" if level == "adset" else "ads")
+    if str(object_id) not in {str(item["id"]) for item in allowed}:
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    expected = "ACTIVE" if active else "PAUSED"
+    await _graph("POST", f"/{object_id}", token=account["token"], data={"status": expected})
+    actual = await _graph("GET", f"/{object_id}", token=account["token"], params={"fields": "id,status,effective_status"})
+    if str(actual.get("id") or "") != object_id or str(actual.get("status") or "") != expected:
+        raise StudioError("AD_NOT_READY", "A Meta não confirmou a alteração; atualize o status antes de tentar outra vez.")
+    return {"id": object_id, "level": level, "requested_status": expected,
+            "status": actual.get("status"), "effective_status": actual.get("effective_status"),
+            "checked_at": _now(), "meta_confirmed": True}
+
+
 # ---------------------------------------------------------------- ativar / pausar / resultados
 
 RESULT_ACTIONS = {
