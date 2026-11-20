@@ -28,8 +28,8 @@ const FILTERS: { value: CampaignFilter; label: string }[] = [
   { value: "other", label: "Outros" },
 ];
 const labelFor = (state: CampaignFilter) => ({
-  all: "Todos", active: "Ativa", paused: "Pausada", finished: "Encerrada",
-  review: "Em análise", issues: "Com problemas", other: "Outro estado",
+  all: "Todos", active: "Ativa (anúncio apto)", paused: "Pausada", finished: "Encerrada",
+  review: "Em análise", issues: "Com problemas", other: "Sem anúncio ativo / não verificado",
 })[state];
 const money = (value: number | null) => value == null ? "—" : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -80,7 +80,7 @@ export default function MediaClientCampaigns() {
       <div>
         <span className="mediaAllClientsEyebrow">MÍDIA ON / CAMPANHAS DA EMPRESA</span>
         <h2 id="media-all-clients-heading">Campanhas de {clientName}</h2>
-        <p>Visualize e filtre campanhas desta empresa na Meta, sem alterar anúncios nem outras contas.</p>
+        <p>Status consultado diretamente na Meta para esta empresa. “Ativa” exige ao menos um anúncio apto; isso não comprova impressões recentes.</p>
       </div>
       <button className="ds-button" type="button" disabled={loading} onClick={() => setRefreshKey((k) => k + 1)}>Atualizar campanhas</button>
     </div>
@@ -111,7 +111,7 @@ export default function MediaClientCampaigns() {
           })}</tbody>
         </table>
       </div> : <p className="ds-noticeText">Nenhuma campanha corresponde aos filtros desta empresa. Confira sua conexão Meta ou tente outro status.</p>}
-      <p className="ds-footnote">Status da conta Meta desta empresa. Encerradas incluem campanhas arquivadas e aquelas com data de término vencida. Consulta somente leitura.</p>
+      <p className="ds-footnote">Dados consultados na Meta para a empresa selecionada. Ativa significa anúncio apto, não garantia de entrega ou gasto. Quando a verificação falha, a campanha não é apresentada como ativa.</p>
     </> : null}
   </section>;
 }

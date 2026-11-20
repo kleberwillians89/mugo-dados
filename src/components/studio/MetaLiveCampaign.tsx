@@ -55,7 +55,7 @@ export default function MetaLiveCampaign({ draft, adsCount }: { draft: AdDraft; 
   }
 
   const summary = deliverySummary(status);
-  const running = summary.tone === "ok" || status?.delivery?.state === "ativa";
+  // The saved last action is audit history, not current Meta delivery.\n  const running = summary.tone === "ok";
   const period_label = PERIODS.find((x) => x.id === period)?.label;
   return <section className="metaLive" aria-label={`Na Meta: ${p.name}`}>
     <div className={`metaLiveHead is-${summary.tone}`} role="status">

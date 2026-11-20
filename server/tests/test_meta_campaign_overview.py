@@ -16,6 +16,8 @@ class MetaOverviewTests(unittest.IsolatedAsyncioTestCase):
 
         async def graph(method, path, *, token, params):
             requests.append((path, dict(params)))
+            if path.endswith("/ads"):
+                return {"data": [{"id": "ad1", "effective_status": "ADSET_PAUSED"}]}
             if params.get("after") == "cursor2":
                 return {"data": [{"id": "2", "name": "Campanha encerrada", "effective_status": "ARCHIVED",
                                  "stop_time": "2026-11-01T00:00:00-0300"}]}
@@ -29,9 +31,47 @@ class MetaOverviewTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([item["id"] for item in campaigns], ["1", "2"])
         self.assertEqual(campaigns[1]["stop_time"], "2026-11-01T00:00:00-0300")
-        self.assertTrue(all(path == "/act_ruah/campaigns" for path, _ in requests))
+        self.assertTrue(all(path == "/act_ruah/campaigns" for path, _ in requests[:2]))
+        self.assertEqual(campaigns[0]["status"], "PAUSED")
         self.assertIn("ARCHIVED", json.loads(requests[0][1]["effective_status"]))
         self.assertEqual(requests[1][1]["after"], "cursor2")
+
+    async def test_only_active_ad_makes_campaign_eligible(self):
+        async def graph(method, path, *, token, params):
+            if path.endswith("/ads"):
+                return {"data": [{"id": "ad1", "effective_status": "ACTIVE"}]}
+            return {"data": [{"id": "camp1", "name": "Campanha ativa", "effective_status": "ACTIVE"}]}
+
+        with patch.object(pub, "_ad_account", AsyncMock(return_value={"act": "act_ruah", "token": "secret"})), \
+             patch.object(pub, "_imported_ids", AsyncMock(return_value=set())), \
+             patch.object(pub, "_graph", graph):
+            campaigns = await pub.list_meta_campaigns("ruah", include_finished=True)
+        self.assertEqual(campaigns[0]["status"], "ACTIVE")
+        self.assertTrue(campaigns[0]["delivery_checked"])
+
+    async def test_failed_ad_check_must_not_claim_active(self):
+        async def graph(method, path, *, token, params):
+            if path.endswith("/ads"):
+                raise pub.StudioError("AD_PERMISSION_MISSING")
+            return {"data": [{"id": "camp1", "name": "Ativa sem verificação", "effective_status": "ACTIVE"}]}
+
+        with patch.object(pub, "_ad_account", AsyncMock(return_value={"act": "act_ruah", "token": "secret"})), \
+             patch.object(pub, "_imported_ids", AsyncMock(return_value=set())), \
+             patch.object(pub, "_graph", graph):
+            campaigns = await pub.list_meta_campaigns("ruah", include_finished=True)
+        self.assertEqual(campaigns[0]["status"], "UNKNOWN")
+        self.assertFalse(campaigns[0]["delivery_checked"])
+
+    async def test_no_ads_does_not_claim_active(self):
+        graph = AsyncMock(side_effect=[
+            {"data": [{"id": "camp1", "name": "Sem anúncios", "effective_status": "ACTIVE"}]},
+            {"data": []},
+        ])
+        with patch.object(pub, "_ad_account", AsyncMock(return_value={"act": "act_ruah", "token": "secret"})), \
+             patch.object(pub, "_imported_ids", AsyncMock(return_value=set())), \
+             patch.object(pub, "_graph", graph):
+            campaigns = await pub.list_meta_campaigns("ruah", include_finished=True)
+        self.assertEqual(campaigns[0]["status"], "NO_ACTIVE_AD")
 
     async def test_existing_import_picker_keeps_default_behavior(self):
         graph = AsyncMock(return_value={"data": []})
