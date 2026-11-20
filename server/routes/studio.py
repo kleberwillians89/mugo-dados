@@ -2136,13 +2136,12 @@ class LibraryItemInput(BaseModel):
 
 @router.get("/library")
 async def read_library(client_id: str, authorization: str | None = Header(default=None)):
-    """Materiais (equipe e cliente) + arte dos posts aprovados, lida do Calendário."""
-    from services.studio_library import CATEGORIES, approved_posts, list_items
+    """Material da marca (equipe e cliente). Arte de post não entra mais aqui: fica no próprio post."""
+    from services.studio_library import CATEGORIES, list_items
     cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
     uid = await require_user_id(authorization)
     team = await is_agency_user(authorization, cid)
-    return {"items": await list_items(cid, user_id=uid, team=team), "approved": await approved_posts(cid),
-            "categories": CATEGORIES, "team": team}
+    return {"items": await list_items(cid, user_id=uid, team=team), "approved": [], "categories": CATEGORIES, "team": team}
 
 
 @router.post("/library/upload-url")

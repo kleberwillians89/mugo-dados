@@ -18,7 +18,8 @@ IA escreva a partir de fatos da conta e não de clichês:
 * MUNDO DO CLIENTE: saúde da marca (índice, sentimento, assuntos e alertas), voz do público
   (comentários, Direct e notícias agregados), concorrentes do Clipping e produtos que mais vendem.
 * O QUE A EQUIPE JÁ DECIDIU: briefings aprovados, planejamentos (grande ideia, estratégia, fases, KPIs) e
-  eventos que vêm por aí, e o acervo da Biblioteca (produto, logo, fotos, vídeos e referências por nome).
+  eventos que vêm por aí, e o material da marca na Biblioteca (logo, identidade, produto, fotos e vídeos da marca,
+  referências e documentos, por nome). Arte de post não conta.
 
 Nada é cortado em silêncio: quando o pacote passa do limite do prompt, as seções menos importantes são
 RESUMIDAS primeiro (listas e textos encurtados) e só depois omitidas, e o prompt diz à IA o que foi resumido.
@@ -626,13 +627,15 @@ async def _plans(client_id: str, today: date) -> Dict[str, Any]:
 
 
 async def _library(client_id: str) -> Dict[str, Any]:
-    """Acervo da Biblioteca por nome e categoria: o designer acha pelo nome; a IA cita o arquivo certo."""
+    """Material da MARCA na Biblioteca, por nome e categoria (logo, identidade, produto, fotos e vídeos da marca,
+    referências, documentos). Arte de post e de anúncio não conta: a IA aprende com o que foi publicado e o resultado."""
+    from .studio_library import POST_NOTES
     rows = await sb_select("studio_library", select="kind,category,title,note,side,mime_type", order="created_at.desc",
                            limit=80, filters={"client_id": f"eq.{client_id}"})
     groups: Dict[str, List[str]] = {}
     for r in rows:
         name = clean_text(r.get("title"), 100)
-        if not name:
+        if not name or str(r.get("note") or "").strip() in POST_NOTES:
             continue
         kind = "link" if r.get("kind") == "link" else str(r.get("mime_type") or "arquivo").split("/")[0]
         note = clean_text(r.get("note"), 120)
@@ -669,8 +672,9 @@ async def passages_for(client_id: str, *texts: str, limit: int = 4) -> str:
     return "\n".join(out)
 
 
-LIBRARY_RULE = ("Se a BIBLIOTECA dos DADOS tiver o arquivo certo (foto do produto, logo, vídeo bruto, referência), cite-o pelo "
-                "nome exato na ideia de imagem para a equipe achar; não invente arquivo que não está lá.")
+LIBRARY_RULE = ("A BIBLIOTECA dos DADOS é só material da marca (logo, identidade, produto, fotos e vídeos da marca, referências). "
+                "Se tiver o arquivo certo, cite-o pelo nome exato na ideia de imagem para a equipe achar; não invente arquivo "
+                "que não está lá. O que funcionou vem dos posts, anúncios e aprovações, não da Biblioteca.")
 PLANS_RULE = ("Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
               "que está em 'nao_fazer'. Evento próximo vira pauta de antes, durante e depois. As perguntas reais dos clientes "
               "(seção whatsapp e voz_do_publico) são ponto de partida para pauta, FAQ e objeção a quebrar. Ao usar um trecho de "

@@ -45,3 +45,24 @@
 .mediaAdCreation .metaAdsCampaignCard .metaAdsActions{border-top:1px solid var(--border,#e5eaed);padding-top:12px;display:flex;flex-wrap:wrap;gap:7px}
 @media(max-width:820px){.mediaHubGrid{grid-template-columns:minmax(0,1fr)}.mediaHubFacts{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:540px){.mediaHub{padding:13px}.mediaHubHeader .ds-button{width:100%}.mediaHubFacts{grid-template-columns:1fr 1fr}.mediaHubFacts>div:last-child{grid-column:span 2}.mediaHubAction{min-height:63px}.mediaAdCreation .metaAdsCampaignCard .metaAdsActions .ds-button{flex:1}.mediaAdCreation .metaAdsCampaignCards{grid-template-columns:1fr}}
+
+/* O que está sendo veiculado (visão do cliente) */
+.mediaLive h2{margin:0 0 4px}
+.mediaLiveGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:12px}
+.mediaLiveCard{display:flex;flex-direction:column;border:1px solid var(--border,#d1dade);border-radius:14px;overflow:hidden;background:var(--surface,#fff)}
+.mediaLiveMedia{position:relative;aspect-ratio:4/5;background:#eef2f1;display:grid;place-items:center;color:#62717c;font-size:13px}
+.mediaLiveMedia img,.mediaLiveMedia video{width:100%;height:100%;object-fit:cover}
+.mediaLiveCount{position:absolute;right:8px;bottom:8px;padding:3px 8px;border-radius:99px;background:rgba(0,0,0,.6);color:#fff;font-size:11px}
+.mediaLiveBody{display:grid;gap:6px;padding:12px 14px 14px}
+.mediaLiveBody h3{margin:0;font-size:16px}
+.mediaLiveBody small{color:var(--text-secondary,#62717c)}
+.mediaLiveState{justify-self:start;font-size:12px;font-weight:700;padding:3px 9px;border-radius:99px;background:#eef2f1}
+.mediaLiveState.is-on{background:#e6f4ea;color:#1e6b3a}
+.mediaLiveState.is-wait{background:#fff4d6;color:#7a5600}
+.mediaLiveState.is-bad{background:#fdecea;color:#9b2c22}
+.mediaLiveHeadline{font-size:14px}
+.mediaLiveText{margin:0;font-size:13px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.mediaLiveNumbers{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 0}
+.mediaLiveNumbers div{padding:8px;border-radius:8px;background:#f5f7f6}
+.mediaLiveNumbers dt{font-size:11px;color:var(--text-secondary,#62717c)}
+.mediaLiveNumbers dd{margin:2px 0 0;font-weight:800;font-size:15px}

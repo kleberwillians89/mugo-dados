@@ -4,7 +4,6 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import ContentMatrix from "../components/studio/ContentMatrix";
-import AgentPipeline from "../components/studio/AgentPipeline";
 import "../styles/studio.css";
 
 const Calendar = lazy(() => import("./Calendar"));
@@ -58,9 +57,6 @@ export default function Campaigns({
     if (new URLSearchParams(window.location.search).get("perfil") !== "1") return;
     window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
   }, []);
-  // Esteira de agentes terminou: recarrega a Matriz e o Calendário com o que ela criou.
-  const [agentsRound, setAgentsRound] = useState(0);
-  const onAgentsDone = useCallback(() => setAgentsRound((n) => n + 1), []);
 
   const openSection = useCallback((next: SocialMediaTab, updateUrl = true) => {
     const allowed = allowedSection(next, canViewSocial, canViewCalendar);
@@ -83,16 +79,13 @@ export default function Campaigns({
     {canViewSocial ? <BrandContextPanel clientId={clientId} /> : null}
     {canViewSocial ? <section id="social-matriz" className="socialWorkspaceSection" aria-labelledby="social-matriz-title">
       <header className="socialSectionHeader"><span>01</span><div><h2 id="social-matriz-title">Matriz Tática de Conteúdo</h2><p>Planejamento editorial do período escolhido (4 semanas por padrão, até 8).</p></div></header>
-      {isAgency && canManage && canManageCalendar ? <details className="agentPipelineWrap">
-        <summary>Esteira de agentes <small>· só a equipe Mugô vê</small></summary>
-        <AgentPipeline clientId={clientId} onDone={onAgentsDone} onOpenCalendar={() => openSection("calendario")} />
-      </details> : null}
-      <ContentMatrix key={`matrix:${clientId}:${agentsRound}`} canManage={canManage} onOpenCalendar={() => openSection("calendario")}
+      {/* A esteira de agentes roda só por dentro (pedido do Briefing etc.): não aparece para ninguém. */}
+      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => openSection("calendario")}
         onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openSection("calendario"); } : undefined} />
     </section> : null}
     {canViewCalendar ? <section id="social-calendario" className="socialWorkspaceSection" aria-labelledby="social-calendario-title">
       <header className="socialSectionHeader"><span>02</span><div><h2 id="social-calendario-title">Calendário de Postagens</h2><p>O que vai ser publicado e o que já foi, no dia e na hora. Os pilares da Matriz aparecem em cada post.</p></div></header>
-      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}:${agentsRound}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} showBrandContext={false} /></Suspense>
+      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} showBrandContext={false} /></Suspense>
     </section> : null}
   </div></Shell>;
 }

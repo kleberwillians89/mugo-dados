@@ -29,3 +29,18 @@
 .waBulkImportActions button:first-child{background:#00516d;color:#fff}
 .waBulkImportActions button:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:540px){.waBulkImportActions button{width:100%}}
+
+/* Envio liberado */
+.waBulkChip.is-on{background:#e6f4ea;color:#1e6b3a}
+.waBulkStatus{font-size:12px;font-weight:700;padding:3px 8px;border-radius:99px;background:#eef2f1;white-space:nowrap}
+.waBulkStatus.is-sending{background:#fff4d6;color:#7a5600}
+.waBulkStatus.is-sent{background:#e6f4ea;color:#1e6b3a}
+.waBulkStatus.is-partial,.waBulkStatus.is-failed{background:#fdecea;color:#9b2c22}
+.waBulkHistory article{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.waBulkHistory article>div{display:grid;gap:2px;min-width:0;flex:1 1 220px}
+.waBulkConfirm{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:16px;background:rgba(15,25,30,.45)}
+.waBulkConfirm>div{background:var(--surface,#fff);border-radius:14px;padding:20px;max-width:460px;width:100%;display:grid;gap:10px}
+.waBulkConfirm h3{margin:0}
+.waBulkConfirm p{margin:0;font-size:14px;line-height:1.45}
+.waBulkWarn{padding:10px;border-radius:8px;background:#fff4d6;color:#5d4718}
+.waBulkConfirmActions{display:flex;justify-content:flex-end;gap:8px}

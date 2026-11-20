@@ -198,3 +198,27 @@ label.waAiCheck{flex-direction:row;align-items:flex-start;gap:8px}
 /* Quem chega por anúncio recebe o link do grupo */
 .waAiGroup{border:1px solid var(--border-subtle,#e1e6e9);border-radius:10px;padding:10px 12px;margin:0;display:grid;gap:8px}
 .waAiGroup legend{font-weight:700;font-size:14px;padding:0 4px}
+
+/* Celular: navegação fixa e conversas como no app do WhatsApp (lista → conversa em tela cheia, com voltar). */
+.waBack,.waJourneyToggle{display:none}
+@media(max-width:760px){
+  .waPage{overflow-x:clip}
+  .waWorkspaceTabs{position:sticky;top:calc(56px + env(safe-area-inset-top));z-index:30;box-shadow:0 2px 8px rgba(0,0,0,.06);scrollbar-width:none}
+  .waWorkspaceTabs::-webkit-scrollbar{display:none}
+  .waInbox{display:block;min-height:0}
+  .waInboxList{max-height:calc(100dvh - 250px);overflow-y:auto;overscroll-behavior:contain;border-bottom:0}
+  .waInbox:not(.is-thread-open) .waThread,.waInbox:not(.is-thread-open) .waJourney{display:none}
+  .waInbox.is-thread-open .waInboxList{display:none}
+  .waInbox.is-thread-open .waThread{display:flex;height:calc(100dvh - 190px);min-height:380px;max-height:none}
+  .waInbox.is-thread-open .waJourney{display:none}
+  .waInbox.is-thread-open.is-journey-open .waJourney{display:flex}
+  .waInbox.is-thread-open.is-journey-open .waThread{height:auto;min-height:0}
+  .waInbox.is-thread-open.is-journey-open .waMessages,.waInbox.is-thread-open.is-journey-open .waComposer{display:none}
+  .waThreadHead{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .waThreadHead>div{flex:1;min-width:0}
+  .waThreadHead>div b,.waThreadHead>div small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .waBack{display:grid;place-items:center;width:36px;height:36px;margin-left:-6px;border:0;border-radius:50%;background:transparent;font-size:28px;line-height:1;color:inherit;cursor:pointer}
+  .waJourneyToggle{display:inline-block;border:1px solid var(--wa-line);border-radius:99px;background:var(--surface,#fff);padding:5px 10px;font:600 12px inherit;color:inherit;cursor:pointer}
+  .waMessages{overscroll-behavior:contain;padding:12px}
+  .waComposer{position:sticky;bottom:0;background:var(--surface,#fff)}
+}

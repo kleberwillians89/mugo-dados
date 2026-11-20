@@ -64,6 +64,9 @@ export default function WhatsApp() {
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Celular: lista e conversa são telas separadas (como no WhatsApp); a origem abre só quando pedir.
+  const [mobileThread, setMobileThread] = useState(false);
+  const [journeyOpen, setJourneyOpen] = useState(false);
   const [thread, setThread] = useState<{ id: string; messages: WaMessage[]; loading: boolean; error: boolean }>({ id: "", messages: [], loading: false, error: false });
   const [suggestionDraft, setSuggestionDraft] = useState<{ id: string; text: string } | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
@@ -351,7 +354,7 @@ export default function WhatsApp() {
         </div>
 
         {channel === "instagram" ? <InstagramInbox key={clientId} /> : null}
-        <section className="waCard waInbox" aria-labelledby="wa-inbox" hidden={channel !== "whatsapp"}>
+        <section className={`waCard waInbox${mobileThread ? " is-thread-open" : ""}${journeyOpen ? " is-journey-open" : ""}`} aria-labelledby="wa-inbox" hidden={channel !== "whatsapp"}>
           <div className="waInboxList">
             <div className="waInboxTools">
               <h2 id="wa-inbox">Conversas</h2>
@@ -374,7 +377,7 @@ export default function WhatsApp() {
             <ul className="waConvList">
               {conversations.map((conv) => (
                 <li key={conv.id} className={conv.id === openId ? "is-open" : ""}>
-                  <button type="button" onClick={() => void openConversation(conv.id)} aria-current={conv.id === openId ? "true" : undefined}>
+                  <button type="button" onClick={() => { setMobileThread(true); setJourneyOpen(false); void openConversation(conv.id); }} aria-current={conv.id === openId ? "true" : undefined}>
                     <span className="waConvTop"><b>{conv.contact.name || conv.contact.phone_masked}</b><small>{when(conv.last_message_at)}</small></span>
                     <span className="waConvPreview">
                       {conv.last_message ? `${isOutbound(conv.last_message.direction) ? (conv.attendance_mode === "bot" ? "IA: " : "Você: ") : ""}${conv.last_message.text}` : "Sem mensagens"}
@@ -397,10 +400,13 @@ export default function WhatsApp() {
             {open ? (
               <>
                 <header className="waThreadHead">
+                  <button type="button" className="waBack" aria-label="Voltar para as conversas" onClick={() => setMobileThread(false)}>‹</button>
                   <div><b>{open.contact.name || "Contato"}</b><small>{open.contact.phone_masked}{open.attendance_mode === "bot" ? " · atendida pela IA" : open.attendance_mode === "suggest" ? " · IA sugerindo respostas" : ""}</small></div>
                   <span className={windowOpen(open.service_window_expires_at) ? "waTag is-bought" : "waTag"}>
                     {windowOpen(open.service_window_expires_at) ? "Janela de 24h aberta" : "Fora da janela de 24h"}
                   </span>
+                  <button type="button" className="waJourneyToggle" aria-expanded={journeyOpen} onClick={() => setJourneyOpen((v) => !v)}>
+                    {journeyOpen ? "Fechar origem" : "Origem"}</button>
                 </header>
                 <ol className="waMessages">
                   {open.origin.bucket === "ad" ? <li className="waEvent">Veio do anúncio{open.origin.ad_headline ? ` “${open.origin.ad_headline}”` : ""}</li> : null}

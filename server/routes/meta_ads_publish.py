@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from services import meta_ad_publisher as pub
 from services.ig_supabase import sb_select
 from services.studio_calendar import StudioError
-from services.tenant import require_client_role, require_user_id
+from services.tenant import require_client_read, require_client_role, require_user_id
 
 router = APIRouter(prefix="/api/clients/{client_id}/studio/ads", tags=["meta-ads-publish"])
 AGENCY = ("agency_admin",)
@@ -30,15 +30,16 @@ ERRORS = {
     "AD_ACCOUNT_CHANGED": (409, "A conta de anúncios mudou desde a campanha original. Use Duplicar campanha."),
     "AD_ALREADY_IMPORTED": (409, "Esta campanha já está na Mídia On."),
     "AD_CONFIRM_BUDGET": (409, "Confirme a verba diária para ativar a campanha."),
+    "AD_AUDIENCE_INVALID": (422, "Público inválido."),
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu a campanha. Tente de novo."),
     "AI_RATE_LIMIT": (429, "Muitas gerações seguidas. Espere um pouco e tente de novo."),
 }
-PASS_MESSAGE = {"AD_META_REJECTED", "AD_NOT_READY"}
+PASS_MESSAGE = {"AD_META_REJECTED", "AD_NOT_READY", "AD_AUDIENCE_INVALID"}
 
 
 def _http(exc: StudioError) -> HTTPException:
     if exc.code in PASS_MESSAGE or (exc.code == "AD_PERMISSION_MISSING" and str(exc) != exc.code):
-        prefix = "O Meta recusou: " if exc.code != "AD_NOT_READY" else ""
+        prefix = "O Meta recusou: " if exc.code == "AD_META_REJECTED" else ""
         return HTTPException(status_code=422, detail=f"{prefix}{exc}")
     status, detail = ERRORS.get(exc.code, (502, "Não foi possível concluir agora."))
     return HTTPException(status_code=status, detail=detail)
@@ -62,6 +63,27 @@ async def read_drafts(client_id: str, authorization: Optional[str] = Header(defa
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
     try:
         return {"drafts": await pub.list_drafts(cid), "objectives": {k: v["label"] for k, v in pub.OBJECTIVES.items()}, "ctas": pub.CTAS}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class NewAudienceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(pattern=r"^(instagram|facebook|site|compradores|semelhante|lista)$")
+    name: Optional[str] = Field(default=None, max_length=120)
+    event: Optional[str] = Field(default=None, max_length=30)
+    days: Optional[int] = Field(default=None, ge=1, le=730)
+    url_contains: Optional[str] = Field(default=None, max_length=200)
+    origin_audience_id: Optional[str] = Field(default=None, max_length=30)
+    ratio: Optional[int] = Field(default=None, ge=1, le=10)
+
+
+@router.post("/audiences", status_code=201)
+async def create_audience(client_id: str, body: NewAudienceInput, authorization: Optional[str] = Header(default=None)):
+    """Cria um público na conta de anúncios (engajamento da marca, site, compradores, semelhante ou lista)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.create_account_audience(cid, body.model_dump(exclude_none=True))
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -218,6 +240,16 @@ async def duplicate_ad_draft(client_id: str, draft_id: UUID, into: Optional[str]
     uid = await require_user_id(authorization)
     try:
         return {"draft": await pub.duplicate_draft(cid, str(draft_id), uid, into_campaign=into == "campaign")}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/live")
+async def read_live_overview(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Cliente e equipe: o que está sendo veiculado no Meta (criativo, se está no ar e números). Somente leitura."""
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return await pub.client_overview(cid)
     except StudioError as exc:
         raise _http(exc) from None
 

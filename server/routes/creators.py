@@ -102,7 +102,12 @@ async def read_creators(
     cid, only = await reader(client_id, authorization)
     if only is None and scope != "bank":
         only = await creators.linked_ids(cid)
-    return {"scope": "bank" if only is None else "company", "creators": await creators.list_creators(network=network, q=q, min_followers=min_followers, limit=limit, offset=offset, only_ids=only)}
+    rows = await creators.list_creators(network=network, q=q, min_followers=min_followers, limit=limit, offset=offset, only_ids=only)
+    try:
+        rows = await creators.repair_avatars(cid, rows)
+    except Exception:  # noqa: BLE001 - a lista vale mais que a foto
+        pass
+    return {"scope": "bank" if only is None else "company", "creators": rows}
 
 
 @router.post("/lookup")

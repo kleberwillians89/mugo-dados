@@ -1,0 +1,234 @@
+"""Disparo em massa de WhatsApp: envia um template aprovado pela Meta para a base da origem escolhida.
+
+Decisão da agência (20/11/2026): vai para TODOS os contatos com telefone da origem, não só para quem tem aceite
+registrado. A tela avisa o risco ao número (qualidade/bloqueio pela Meta) antes de enviar. Mesmo assim:
+- quem respondeu SAIR/PARAR/STOP no WhatsApp da marca nunca recebe;
+- o mesmo telefone recebe uma vez por campanha (retomar continua de onde parou, sem reenviar);
+- só templates com até 1 variável ({{1}} = primeiro nome, ou "cliente").
+Telefone nunca aparece na tela nem no log: só o hash fica registrado por destinatário.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import re
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Set
+
+from .crypto import decrypt_secret
+from .ig_supabase import sb_insert, sb_select, sb_update
+
+DRAFTS = "whatsapp_campaign_drafts"
+SENDS = "whatsapp_campaign_sends"
+PAGE = 1000
+MAX_RECIPIENTS = 50000
+CONCURRENCY = 4
+SAVE_EVERY = 25
+STALE_AFTER = timedelta(minutes=20)  # "enviando" sem progresso há mais que isso pode ser retomado
+OPT_OUT = ("sair", "parar", "pare", "stop", "cancelar", "descadastrar", "remover")
+_RUNNING: Set[str] = set()
+
+
+class BulkSendError(Exception):
+    def __init__(self, message: str, status: int = 422):
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
+def normalize_phone(value: Any) -> Optional[str]:
+    """Só dígitos, com 55 quando o número é brasileiro sem DDI. Inválido devolve None."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) in (10, 11) and not digits.startswith("55"):
+        digits = "55" + digits
+    return digits if 12 <= len(digits) <= 15 else None
+
+
+def phone_hash(client_id: str, digits: str) -> str:
+    return hashlib.sha256(f"{client_id}:wa-bulk:{digits}".encode()).hexdigest()
+
+
+def _plain(value: Any) -> str:
+    if not value:
+        return ""
+    try:
+        return decrypt_secret(str(value))
+    except RuntimeError:
+        return ""
+
+
+def first_name(name: Any) -> str:
+    text = re.sub(r"\s+", " ", str(name or "")).strip()
+    word = text.split(" ")[0] if text else ""
+    return word[:40].capitalize() if word and not any(ch.isdigit() for ch in word) else "cliente"
+
+
+async def _pages(table: str, select: str, filters: Dict[str, str], order: str) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for offset in range(0, MAX_RECIPIENTS, PAGE):
+        chunk = await sb_select(table, select=select, filters=filters, order=order, limit=PAGE, offset=offset)
+        rows.extend(chunk)
+        if len(chunk) < PAGE:
+            break
+    return rows
+
+
+async def recipients(client_id: str, provider: str) -> List[Dict[str, str]]:
+    """Telefones (sem repetir) da origem escolhida, com o nome quando houver."""
+    out: Dict[str, Dict[str, str]] = {}
+
+    def add(phone: Any, name: Any) -> None:
+        digits = normalize_phone(phone)
+        if digits and digits not in out:
+            out[digits] = {"phone": digits, "name": first_name(name)}
+
+    if provider in ("all", "shopify", "fbits"):
+        filters = {"client_id": f"eq.{client_id}", "phone_ciphertext": "not.is.null"}
+        if provider != "all":
+            filters["provider"] = f"eq.{provider}"
+        for r in await _pages("relationship_contacts", "provider,phone_ciphertext,name_ciphertext", filters, "identity_hash.asc"):
+            add(_plain(r.get("phone_ciphertext")), _plain(r.get("name_ciphertext")))
+    if provider in ("all", "whatsapp"):
+        for r in await _pages("whatsapp_threads", "wa_id,profile_name", {"client_id": f"eq.{client_id}"}, "first_seen_at.asc"):
+            add(r.get("wa_id"), r.get("profile_name"))
+    if provider in ("all", "capture"):
+        for r in await _pages("lead_capture_events", "phone_ciphertext",
+                              {"client_id": f"eq.{client_id}", "phone_ciphertext": "not.is.null"}, "id.asc"):
+            add(_plain(r.get("phone_ciphertext")), None)
+    return list(out.values())[:MAX_RECIPIENTS]
+
+
+async def opted_out(client_id: str) -> Set[str]:
+    """Telefones que pediram para sair (responderam SAIR, PARAR, STOP… no WhatsApp da marca)."""
+    words = ",".join(f"text.ilike.{w}" for w in OPT_OUT)
+    msgs = await _pages("whatsapp_messages", "thread_id",
+                        {"client_id": f"eq.{client_id}", "direction": "eq.in", "or": f"({words})"}, "sent_at.desc")
+    thread_ids = sorted({str(m["thread_id"]) for m in msgs if m.get("thread_id")})
+    phones: Set[str] = set()
+    for start in range(0, len(thread_ids), 100):
+        rows = await sb_select("whatsapp_threads", select="wa_id", limit=100,
+                               filters={"client_id": f"eq.{client_id}", "id": f"in.({','.join(thread_ids[start:start + 100])})"})
+        phones.update(d for r in rows if (d := normalize_phone(r.get("wa_id"))))
+    return phones
+
+
+async def count_sendable(client_id: str, provider: str) -> Dict[str, int]:
+    people = await recipients(client_id, provider)
+    blocked = await opted_out(client_id)
+    return {"sendable_count": sum(1 for p in people if p["phone"] not in blocked), "opted_out_count": len(blocked)}
+
+
+async def _draft(client_id: str, draft_id: str) -> Dict[str, Any]:
+    rows = await sb_select(DRAFTS, select="*", limit=1, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"})
+    if not rows:
+        raise BulkSendError("Campanha não encontrada.", 404)
+    return rows[0]
+
+
+async def _template_variables(client_id: str, name: str, language: str) -> int:
+    from .whatsapp_native import list_templates
+    templates = await list_templates(client_id)
+    match = next((t for t in templates if t.get("name") == name and t.get("language") == language), None)
+    if not match or str(match.get("status") or "").upper() != "APPROVED":
+        raise BulkSendError("O modelo desta campanha não está aprovado na Meta. Escolha outro modelo.")
+    return int(match.get("variables") or 0)
+
+
+async def start(client_id: str, draft_id: str) -> Dict[str, Any]:
+    """Começa (ou retoma) o envio. Devolve na hora; o envio segue em segundo plano."""
+    from .whatsapp_native import _active_number, WhatsAppNativeError
+    draft = await _draft(client_id, draft_id)
+    status = draft.get("status") or "draft"
+    if status == "sent":
+        raise BulkSendError("Esta campanha já foi enviada para todos.")
+    if draft_id in _RUNNING:
+        raise BulkSendError("Esta campanha já está sendo enviada.", 409)
+    if status == "sending" and draft.get("started_at"):
+        started = datetime.fromisoformat(str(draft["started_at"]).replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) - started < STALE_AFTER:
+            raise BulkSendError("Esta campanha já está sendo enviada. Aguarde.", 409)
+    try:
+        await _active_number(client_id, None)
+    except WhatsAppNativeError:
+        raise BulkSendError("Esta empresa não tem número de WhatsApp ativo no MUGOVERSO para disparar.", 409) from None
+    variables = await _template_variables(client_id, draft["template_name"], draft["language"])
+    if variables > 1:
+        raise BulkSendError("O disparo em massa aceita modelos com até 1 variável ({{1}} vira o primeiro nome). "
+                            "Crie um modelo mais simples na aba Modelos.")
+    people = await recipients(client_id, draft.get("audience_provider") or "all")
+    if not people:
+        raise BulkSendError("Nenhum contato com telefone nesta origem. Importe os contatos antes.")
+    await sb_update(DRAFTS, filters={"id": f"eq.{draft_id}", "client_id": f"eq.{client_id}"}, returning="minimal",
+                    patch={"status": "sending", "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None,
+                           "recipients_count": len(people), "last_error": None})
+    _RUNNING.add(draft_id)
+    asyncio.create_task(run(client_id, draft, people, variables))
+    return {"status": "sending", "recipients_count": len(people)}
+
+
+async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]], variables: int) -> Dict[str, int]:
+    from .whatsapp_native import WhatsAppNativeError, send_template
+    draft_id = str(draft["id"])
+    try:
+        done_rows = await _pages(SENDS, "phone_hash,status", {"draft_id": f"eq.{draft_id}"}, "created_at.asc")
+        done = {r["phone_hash"]: r["status"] for r in done_rows}
+        counts = {s: sum(1 for v in done.values() if v == s) for s in ("sent", "failed", "skipped")}
+        blocked = await opted_out(client_id)
+        last_error: Optional[str] = None
+        gate = asyncio.Semaphore(CONCURRENCY)
+        progress = 0
+
+        async def save(final: bool = False) -> None:
+            patch: Dict[str, Any] = {"sent_count": counts["sent"], "failed_count": counts["failed"],
+                                     "skipped_count": counts["skipped"], "last_error": last_error}
+            if final:
+                patch["finished_at"] = datetime.now(timezone.utc).isoformat()
+                patch["status"] = "sent" if counts["failed"] == 0 else "partial" if counts["sent"] else "failed"
+            await sb_update(DRAFTS, filters={"id": f"eq.{draft_id}", "client_id": f"eq.{client_id}"}, patch=patch, returning="minimal")
+
+        async def one(person: Dict[str, str]) -> None:
+            async with gate:  # envio e registro juntos: no máximo CONCURRENCY por vez
+                await deliver(person)
+
+        async def deliver(person: Dict[str, str]) -> None:
+            nonlocal last_error, progress
+            key = phone_hash(client_id, person["phone"])
+            if done.get(key) in ("sent", "skipped"):
+                return
+            row: Dict[str, Any] = {"client_id": client_id, "draft_id": draft_id, "phone_hash": key}
+            if person["phone"] in blocked:
+                row["status"] = "skipped"; row["error"] = "Pediu para sair"
+            else:
+                try:
+                    row["provider_message_id"] = await send_template(
+                        client_id, number_id=None, to=person["phone"], template=draft["template_name"],
+                        language=draft["language"], params=[person["name"]] if variables == 1 else [])
+                    row["status"] = "sent"
+                except WhatsAppNativeError as exc:
+                    row["status"] = "failed"; row["error"] = str(exc.message)[:300]
+                    last_error = row["error"]
+                except Exception as exc:  # noqa: BLE001 - um número com problema não para a campanha
+                    row["status"] = "failed"; row["error"] = str(exc)[:300] or "Erro ao enviar"
+                    last_error = row["error"]
+            if done.get(key) == "failed":
+                await sb_update(SENDS, filters={"draft_id": f"eq.{draft_id}", "phone_hash": f"eq.{key}"},
+                                patch={k: v for k, v in row.items() if k in ("status", "error", "provider_message_id")}, returning="minimal")
+                counts["failed"] -= 1
+            else:
+                await sb_insert(SENDS, row, returning="minimal")
+            counts[row["status"]] += 1
+            progress += 1
+            if progress % SAVE_EVERY == 0:
+                await save()
+
+        for start_at in range(0, len(people), 200):  # em blocos: não abre 50 mil tarefas de uma vez
+            await asyncio.gather(*(one(p) for p in people[start_at:start_at + 200]))
+        await save(final=True)
+        return counts
+    except Exception as exc:  # noqa: BLE001
+        await sb_update(DRAFTS, filters={"id": f"eq.{draft_id}", "client_id": f"eq.{client_id}"}, returning="minimal",
+                        patch={"status": "partial", "last_error": f"Envio interrompido: {str(exc)[:200]}",
+                               "finished_at": datetime.now(timezone.utc).isoformat()})
+        raise
+    finally:
+        _RUNNING.discard(draft_id)

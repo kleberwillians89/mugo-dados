@@ -10,7 +10,7 @@ import PageHeader from "../components/data/PageHeader";
 import "../styles/studio.css";
 
 const DESTINATIONS: { key: BriefDestination; label: string; route: AppRoute; hint: string }[] = [
-  { key: "social_media", label: "Social Media", route: "campaigns", hint: "Roda a esteira de agentes com este foco" },
+  { key: "social_media", label: "Social Media", route: "campaigns", hint: "Gera a Matriz e os posts com este foco" },
   { key: "midia_on", label: "Mídia On", route: "media", hint: "Gera a estratégia de mídia paga" },
   { key: "clipping", label: "Clipping", route: "clipping", hint: "Passa a monitorar os termos" },
   { key: "redacao", label: "Redação", route: "redacao", hint: "Abre um documento com o briefing" },

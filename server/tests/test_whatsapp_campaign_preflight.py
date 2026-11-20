@@ -1,4 +1,4 @@
-"""Pré-envio WhatsApp não dispara mensagens e exige template aprovado."""
+"""A pré-validação não dispara mensagens: só diz se o modelo aprovado pode ser usado no envio."""
 import asyncio
 from unittest.mock import AsyncMock
 
@@ -16,7 +16,7 @@ def test_whatsapp_preflight_approved_without_send(monkeypatch):
         "tenant-a", routes.WhatsAppTemplatePreflight(template_name="campanha_vip"), authorization="Bearer test"
     ))
     assert result["template_approved"] is True
-    assert result["can_send"] is False
+    assert result["can_send"] is True
     assert result["messages_sent"] == 0
 
 

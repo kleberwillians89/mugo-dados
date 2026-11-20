@@ -1,9 +1,9 @@
 import { Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, useEffectEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, useEffectEvent } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  STUDIO_FORMATS, STUDIO_STATUS, createCalendarItem, getPublisher, deleteCalendarItem, getBrandProfile,
+  STUDIO_STATUS, createCalendarItem, getPublisher, deleteCalendarItem, getBrandProfile,
   BRAND_PROFILE_SAVED, decideCalendarItem, getCalendar, localParts, saveBrandProfile, sendForApproval, toSaoPauloIso, updateCalendarItem,
   basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
@@ -16,8 +16,6 @@ import BrandProfileFields from "../components/studio/BrandProfileFields";
 import ClientHub from "../components/studio/ClientHub";
 import ImportCalendar from "../components/studio/ImportCalendar";
 import PostModal from "../components/studio/PostModal";
-import { listLibrary, previewKind } from "../app/library";
-import { artList } from "../app/artLinks";
 import MeetingsStrip from "../components/studio/MeetingsStrip";
 import ApprovalDelivery from "../components/studio/ApprovalDelivery";
 import Approval from "./Approval";
@@ -56,13 +54,6 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   const [notes, setNotes] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [modal, setModal] = useState<{ item: CalendarItem | null; draft: PostDraft } | null>(null);
-  const librarySelectionHandled = useRef(false);
-  const [libraryTransfer, setLibraryTransfer] = useState<{ urls: string[]; names: string[] } | null>(null);
-  const [libraryTargetMonth, setLibraryTargetMonth] = useState(() => todayKey().slice(0, 7));
-  const [libraryTargets, setLibraryTargets] = useState<CalendarItem[]>([]);
-  const [libraryTargetsLoading, setLibraryTargetsLoading] = useState(false);
-  const [libraryTargetError, setLibraryTargetError] = useState<string | null>(null);
-  const [libraryReplaceArt, setLibraryReplaceArt] = useState(false);
   const [profile, setProfile] = useState<BrandProfile | null>(null);
   const [publisherUrl, setPublisherUrl] = useState<string | null>(null);
   // Business Suite já na Página desta marca; troca junto com a empresa ativa.
@@ -101,75 +92,6 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   }, [months, clientId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { getBrandProfile().then((d) => setProfile(d.profile)).catch(() => undefined); }, [clientId]);
-  // Biblioteca → Calendário: resolve IDs dentro da empresa e permite escolher
-  // uma pauta existente, sem criar publicações duplicadas.
-  useEffect(() => {
-    if (!team || embedded || librarySelectionHandled.current || !window.location.pathname.startsWith("/calendario")) return;
-    const raw = new URLSearchParams(window.location.search).get("library_ids");
-    if (!raw) return;
-    librarySelectionHandled.current = true;
-    const requested = [...new Set(raw.split(",").filter((id) =>
-      /^[0-9a-f-]{36}$/i.test(id)))].slice(0, 12);
-    if (!requested.length) {
-      setError("Nenhuma imagem válida foi selecionada na Biblioteca.");
-      return;
-    }
-    let alive = true;
-    void listLibrary().then((result) => {
-      if (!alive || getActiveClientId() !== clientId) return;
-      const byId = new Map(result.items.filter((it) =>
-        it.kind === "arquivo" && previewKind(it) === "image").map((it) => [it.id, it]));
-      const selected = requested.map((id) => byId.get(id)).filter((it) => it !== undefined);
-      if (selected.length !== requested.length) {
-        setError("Algumas imagens não pertencem a esta empresa ou não estão mais disponíveis. Selecione novamente.");
-        return;
-      }
-      setLibraryTransfer({ urls: selected.map((it) => it.url), names: selected.map((it) => it.title) });
-      window.history.replaceState(window.history.state, "", window.location.pathname);
-    }).catch(() => { if (alive) setError("Não foi possível recuperar as imagens da Biblioteca."); });
-    return () => { alive = false; };
-  }, [team, embedded, clientId]);
-
-  // Busca a pauta no mês escolhido, independentemente do mês visível ao fundo.
-  useEffect(() => {
-    if (!libraryTransfer) return;
-    let alive = true;
-    setLibraryTargetsLoading(true);
-    setLibraryTargetError(null);
-    void getCalendar(libraryTargetMonth).then((r) => {
-      if (!alive || getActiveClientId() !== clientId) return;
-      setLibraryTargets(r.items.filter((item) => !["aprovado", "publicado"].includes(item.status))
-        .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)));
-    }).catch((cause) => {
-      if (alive) setLibraryTargetError(message(cause, "Não foi possível carregar as publicações."));
-    }).finally(() => { if (alive) setLibraryTargetsLoading(false); });
-    return () => { alive = false; };
-  }, [libraryTransfer, libraryTargetMonth, clientId]);
-
-  function choosePublication(item: CalendarItem) {
-    if (!libraryTransfer || ["aprovado", "publicado"].includes(item.status)) return;
-    const existing = artList(item.art_url);
-    const combined = libraryReplaceArt ? libraryTransfer.urls : [...existing, ...libraryTransfer.urls];
-    const unique = [...new Set(combined)];
-    if (unique.length > 12) {
-      setLibraryTargetError("Este post ficaria com mais de 12 imagens. Marque 'Substituir artes' para trocar as imagens existentes.");
-      return;
-    }
-    const art_url = unique.join("\n");
-    if (art_url.length > 1000) {
-      setLibraryTargetError("Os links ultrapassam o limite permitido. Selecione menos imagens.");
-      return;
-    }
-    setLibraryTransfer(null);
-    setLibraryTargets([]);
-    setLibraryReplaceArt(false);
-    setError(null);
-    setCursor(item.scheduled_at.slice(0, 10));
-    setView("dia");
-    setModal({ item, draft: { ...draftFrom(item), art_url,
-      ...(unique.length > 1 && item.format === "imagem" ? { format: "carrossel" as const } : {}) } });
-  }
-
   // Pedido de fora ("abrir perfil da marca"): reage só a um pedido novo, usando o openProfile/team atuais.
   const onProfileRequest = useEffectEvent(() => { if (team) void openProfile(); });
   useEffect(() => { if (openProfileRequest > 0) onProfileRequest(); }, [openProfileRequest]);
@@ -408,40 +330,6 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     {view === "fluxo" ? <Approval embedded month={month} tabs={["funil"]} canManage={canManage} isAgency={isAgency}
       onOpenItem={(id) => { const it = items.find((i) => i.id === id); if (it) openItem(it); }} onChanged={() => void load()} /> : null}
 
-
-    {libraryTransfer && team ? <div className="libTargetOverlay" role="dialog" aria-modal="true" aria-label="Escolher publicação do Calendário">
-      <section className="libTargetPicker">
-        <header className="libTargetPickerHead">
-          <div>
-            <h2>Qual publicação deve receber estas imagens?</h2>
-            <p>{libraryTransfer.urls.length} {libraryTransfer.urls.length === 1 ? "imagem selecionada" : "imagens selecionadas"} da Biblioteca de {clientName}.</p>
-          </div>
-          <button className="ds-button" type="button" onClick={() => setLibraryTransfer(null)}>Cancelar</button>
-        </header>
-        <div className="libTargetThumbs">{libraryTransfer.urls.map((url, i) =>
-          <img key={url} src={url} alt={libraryTransfer.names[i]} loading="lazy" />)}</div>
-        <div className="libTargetOptions">
-          <label>Publicações de
-            <input type="month" value={libraryTargetMonth} onChange={(event) => setLibraryTargetMonth(event.target.value)} />
-          </label>
-          <label className="libTargetCheck">
-            <input type="checkbox" checked={libraryReplaceArt} onChange={(event) => {
-              setLibraryReplaceArt(event.target.checked); setLibraryTargetError(null);
-            }} /> Substituir imagens existentes (caso contrário, adicionar ao final)
-          </label>
-        </div>
-        {libraryTargetError ? <p className="studioError" role="alert">{libraryTargetError}</p> : null}
-        {libraryTargetsLoading ? <p>Carregando publicações…</p>
-          : libraryTargets.length ? <div className="libTargetPosts">{libraryTargets.map((item) => <button
-            key={item.id} type="button" onClick={() => choosePublication(item)}>
-            <strong>{item.title}</strong>
-            <small>{localParts(item.scheduled_at).date} · {STUDIO_STATUS[item.status]} · {STUDIO_FORMATS[item.format]}
-              {artList(item.art_url).length ? " · " + artList(item.art_url).length + " arte(s)" : ""}</small>
-          </button>)}</div>
-          : <p>Nenhuma pauta editável neste mês. Escolha outro mês ou crie a pauta diretamente no Calendário.</p>}
-        <small>Publicações aprovadas ou já publicadas não aparecem aqui para preservar a aprovação. Após escolher, confira as imagens e clique em Salvar alterações.</small>
-      </section>
-    </div> : null}
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
       canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent}
