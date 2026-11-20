@@ -10,7 +10,6 @@ from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import HTTPException, FastAPI
-from fastapi.routing import APIRoute
 from starlette.requests import Request
 from starlette.routing import Match
 
@@ -35,11 +34,10 @@ def signed_request(shop: str, form: dict, *, secret="test-shopify-app-secret"):
 class ShopifyProxyCaptureTests(unittest.IsolatedAsyncioTestCase):
     async def test_both_proxy_paths_match_without_redirect(self):
         from routes.roove_first_access import router
-        app = FastAPI()
-        app.include_router(router)
         for path in ("/api/shopify/lead-capture", "/api/shopify/lead-capture/"):
             scope = {"type": "http", "method": "POST", "path": path, "root_path": ""}
-            matches = [route for route in app.routes if isinstance(route, APIRoute) and route.matches(scope)[0] == Match.FULL]
+            # Rotas do próprio router (o FastAPI novo embrulha o router incluído no app e esconde o endpoint).
+            matches = [route for route in router.routes if route.matches(scope)[0] == Match.FULL]
             self.assertEqual(len(matches), 1, f"{path} must resolve without a redirect")
             self.assertEqual(matches[0].endpoint, generic_shopify_lead_capture)
 

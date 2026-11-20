@@ -1365,6 +1365,19 @@ class DecisionInput(BaseModel):
     reviewer_name: Optional[str] = Field(default=None, max_length=120)
 
 
+public_reports_router = APIRouter(prefix="/api/public/reports", tags=["studio-public"])
+
+
+@public_reports_router.get("/{token}")
+async def public_monthly_report(token: str):
+    """Relatório do mês pelo link (sem login). Só mês liberado; o link some se o mês voltar para rascunho."""
+    from services.monthly_report import public
+    try:
+        return await public(token)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @public_router.get("/{token}")
 async def public_approval(token: str):
     try:
@@ -1588,11 +1601,79 @@ ERRORS.update({
 
 @router.get("/social-report/{month}")
 async def social_report_read(client_id: str, month: str, authorization: str | None = Header(default=None)):
-    """Relatório do mês já gerado (com os links das imagens renovados). Qualquer membro da marca lê."""
+    """Relatório do mês já gerado (com os links das imagens renovados). Cliente só vê o mês liberado pela equipe."""
+    from services.monthly_report import client_can_see
     from services.social_report import load
     cid = await require_client_read(client_id, authorization)
+    if not await is_agency_user(authorization) and not await client_can_see(cid, month[:7]):
+        return {"month": month[:7], "built": False, "pending_release": True}
     try:
         return await load(cid, month)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+ERRORS.update({
+    "REPORT_MONTH_INVALID": (422, "Mês inválido."),
+    "REPORT_NOT_RELEASED": (409, "Libere o relatório para o cliente antes de criar o link."),
+    "REPORT_NOT_FOUND": (404, "Relatório não encontrado ou link desativado."),
+})
+
+
+@router.get("/monthly-report/{month}")
+async def monthly_report_read(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    """Mídia paga, WhatsApp, vendas e resumo do mês. Cliente só vê o que foi liberado."""
+    from services.monthly_report import get_row, view
+    cid = await require_client_read(client_id, authorization)
+    agency = await is_agency_user(authorization)
+    row = await get_row(cid, month[:7])
+    if not agency and row and row.get("status") != "liberado":
+        return {"exists": True, "status": "rascunho", "hidden": True}
+    return view(row, agency=agency)
+
+
+@router.post("/monthly-report/{month}/close")
+async def monthly_report_close(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    """Equipe: fecha (ou refaz) o mês. Busca os números e escreve o resumo; o status não muda."""
+    from services.monthly_report import close, view
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return view(await close(cid, month[:7]), agency=True)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class MonthlySummaryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    summary: str = Field(default="", max_length=4000)
+
+
+@router.put("/monthly-report/{month}/summary")
+async def monthly_report_summary(client_id: str, month: str, body: MonthlySummaryInput, authorization: str | None = Header(default=None)):
+    from services.monthly_report import save_summary, view
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return view(await save_summary(cid, month[:7], body.summary), agency=True)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/monthly-report/{month}/{action}")
+async def monthly_report_status(client_id: str, month: str, action: str, authorization: str | None = Header(default=None)):
+    """Equipe: liberar para o cliente, voltar para rascunho ou criar o link para quem não tem login."""
+    from services.monthly_report import set_status, share, view
+    if action not in ("release", "unrelease", "share"):
+        raise HTTPException(status_code=404, detail="Ação inválida.")
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        if action == "share":
+            return {"share_token": await share(cid, month[:7])}
+        return view(await set_status(cid, month[:7], release=action == "release",
+                                     user_name=_chat_author(authorization, uid) or uid), agency=True)
     except StudioError as exc:
         raise _http(exc) from None
 

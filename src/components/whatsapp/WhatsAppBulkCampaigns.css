@@ -44,3 +44,10 @@
 .waBulkConfirm p{margin:0;font-size:14px;line-height:1.45}
 .waBulkWarn{padding:10px;border-radius:8px;background:#fff4d6;color:#5d4718}
 .waBulkConfirmActions{display:flex;justify-content:flex-end;gap:8px}
+.waBulkStatus.is-queued{background:#e8f0fb;color:#1f4f8a}
+.waBulkWhen{display:grid;gap:6px;font-size:14px}
+.waBulkWhen label{display:flex;align-items:center;gap:6px}
+.waBulkWhen input[type="datetime-local"]{max-width:240px}
+.waBulkReport{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 10px;border-radius:8px;background:#f3f7f5;font-size:13px}
+.waBulkReport small{flex-basis:100%;color:var(--text-secondary,#62717c)}
+.waBulkHeaderPreview{max-width:160px;border-radius:8px;margin-top:6px}

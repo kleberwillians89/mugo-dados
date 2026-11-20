@@ -12,7 +12,8 @@ import MetaPixelPicker from "./MetaPixelPicker";
 import MetaWhatsappNumber from "./MetaWhatsappNumber";
 import MetaImportCampaign from "./MetaImportCampaign";
 import CampaignTrackingFields from "./CampaignTrackingFields";
-import MetaPlacementPicker, { DEFAULT_META_PLACEMENTS } from "./MetaPlacementPicker";
+import MetaPlacementPicker from "./MetaPlacementPicker";
+import { DEFAULT_META_PLACEMENTS } from "./metaPlacements";
 import { META_STEPS, accountAudienceText, metaStepIssues, type MetaStep } from "./metaCampaignWizard";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);

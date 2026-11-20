@@ -61,7 +61,7 @@ from routes.creators import router as creators_router
 from routes.radar import router as radar_router
 from routes.benchmark import router as benchmark_router
 from routes.automations import client_router as automations_client_router, router as automations_router
-from routes.studio import public_router as studio_public_router, router as studio_router
+from routes.studio import public_reports_router as studio_public_reports_router, public_router as studio_public_router, router as studio_router
 from routes.sales_origin import router as sales_origin_router
 from routes.whatsapp import router as whatsapp_router
 from routes.customers import router as customers_router
@@ -216,7 +216,6 @@ default_allow_origin = ",".join(
 )
 raw = (os.getenv("ALLOW_ORIGIN") or default_allow_origin).strip()
 allow_origins = [o.strip() for o in raw.split(",") if o.strip()]
-# Only the public RUAH lead form may be called cross-origin from its storefront.
 allow_origins = list(dict.fromkeys([*allow_origins, "https://ruahparfums.com.br", "https://www.ruahparfums.com.br"]))
 allow_all_origins = "*" in allow_origins
 
@@ -387,6 +386,7 @@ app.include_router(automations_router)
 app.include_router(automations_client_router)
 app.include_router(studio_router)
 app.include_router(studio_public_router)
+app.include_router(studio_public_reports_router)
 app.include_router(crm_router)
 app.include_router(hooks_router)
 app.include_router(lead_capture_router)

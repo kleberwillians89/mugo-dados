@@ -29,10 +29,10 @@ const monthOf = (dayKey: string) => dayKey.slice(0, 7);
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const dayLabel = (key: string) => fromKey(key).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 
-function firstOfNextMonth() {
+/** Abre sempre no mês de hoje (no celular, na semana de hoje). */
+function firstOfThisMonth() {
   const now = new Date();
-  const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 export default function Calendar({ canManage, isAgency = false, embedded = false, openProfileRequest = 0, showBrandContext = true }: { canManage: boolean; isAgency?: boolean; embedded?: boolean; openProfileRequest?: number; showBrandContext?: boolean }) {
@@ -45,7 +45,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   // /aprovacao (endereço antigo) abre direto o Fluxo de aprovação.
   const [view, setView] = useState<ViewMode>(() => (typeof window !== "undefined" && window.location.pathname.startsWith("/aprovacao") ? "fluxo" : isMobile ? "semana" : "mes"));
   // No celular abre na 1ª semana cheia do próximo mês (a semana do dia 1º costuma ser quase toda do mês anterior).
-  const [cursor, setCursor] = useState(() => { const first = firstOfNextMonth(); return isMobile ? addDays(mondayOf(first), mondayOf(first) === first ? 0 : 7) : first; });
+  const [cursor, setCursor] = useState(() => (isMobile ? mondayOf(todayKey()) : firstOfThisMonth()));
   const month = monthOf(cursor);
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [loading, setLoading] = useState(true);

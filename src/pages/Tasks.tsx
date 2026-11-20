@@ -3,7 +3,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import Shell from "../components/Shell";
 import { getCentral, type CentralView } from "../app/studio";
 import { formatInteger } from "../app/dataFormat";
-import { buildDashboardSummary } from "./Central";
+import { buildDashboardSummary } from "../app/centralSummary";
 import PageHeader from "../components/data/PageHeader";
 import ClientTasks from "../components/studio/ClientTasks";
 import TaskBoard from "../components/studio/TaskBoard";
@@ -17,8 +17,6 @@ function TasksSummary() {
 
   useEffect(() => {
     let active = true;
-    setView(null);
-    setLoading(true);
     const month = new Date();
     const monthKey = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
     void getCentral(monthKey).then((data) => {

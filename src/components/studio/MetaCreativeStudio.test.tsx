@@ -62,10 +62,10 @@ describe("Mídia On — Estúdio de criativos", () => {
     act(() => root.unmount());
   });
   it("carrossel: marca várias imagens em ordem, cada cartão com título, e mostra 1/2 na prévia", async () => {
-    let latest = ad();
+    const seen: AdPayload["ad"][] = [];
     function Host() {
       const [value, setValue] = useState<AdPayload["ad"]>({ ...ad(), format: "carousel", cards: [] });
-      latest = value;
+      seen.push(value);
       return <MetaCreativeStudio clientId="roove" month="2026-11" calendar={calendar} ad={value} onChoose={(p) => setValue((v) => ({ ...v, ...p }))} />;
     }
     host = document.createElement("div"); document.body.appendChild(host);
@@ -75,15 +75,15 @@ describe("Mídia On — Estúdio de criativos", () => {
     const pick = (title: string) => [...host.querySelectorAll("button")].find((b) => b.title === title) as HTMLButtonElement;
     await act(async () => pick("Arte calendário").click());
     await act(async () => pick("Arte da Roove").click());
-    expect(latest.cards?.map((c) => c.image_url)).toEqual(["https://cdn.example.org/calendar.jpg", "https://cdn.example.org/roove.jpg"]);
+    expect(seen[seen.length - 1].cards?.map((c) => c.image_url)).toEqual(["https://cdn.example.org/calendar.jpg", "https://cdn.example.org/roove.jpg"]);
     expect(pick("Arte da Roove").querySelector(".metaCreativeOrder")?.textContent).toBe("2");
     expect(host.querySelector(".metaCreativeSlideCount")?.textContent).toBe("1/2");
     const up = host.querySelector('[aria-label="Mover imagem 2 para antes"]') as HTMLButtonElement;
     await act(async () => up.click());
-    expect(latest.cards?.[0].image_url).toBe("https://cdn.example.org/roove.jpg");
-    expect(latest.image_url).toBe("https://cdn.example.org/roove.jpg");
+    expect(seen[seen.length - 1].cards?.[0].image_url).toBe("https://cdn.example.org/roove.jpg");
+    expect(seen[seen.length - 1].image_url).toBe("https://cdn.example.org/roove.jpg");
     await act(async () => pick("Arte da Roove").click());
-    expect(latest.cards?.length).toBe(1);
+    expect(seen[seen.length - 1].cards?.length).toBe(1);
     act(() => root.unmount());
   });
 

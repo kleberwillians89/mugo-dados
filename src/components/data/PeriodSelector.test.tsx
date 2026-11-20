@@ -47,7 +47,7 @@ beforeEach(() => {
   const stored = new Map<string, string>();
   vi.stubGlobal("localStorage", { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value), clear: () => stored.clear() });
   clearDashboardCacheByPrefix("read-model-period-v3"); sessionStorage.clear(); mock.calls.length = 0; mock.campaigns = 0;
-  localStorage.setItem("mugo.period", JSON.stringify({ start: "2026-09-06", end: "2026-10-05" }));
+  sessionStorage.setItem("mugo.period", JSON.stringify({ start: "2026-09-06", end: "2026-10-05" }));
   node = document.createElement("div"); root = createRoot(node);
 });
 afterEach(() => { act(() => root.unmount()); vi.useRealTimers(); });

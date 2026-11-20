@@ -18,7 +18,8 @@ vi.mock("../components/clipping/HealthIndexCard", () => ({ default: ({ compact }
 vi.mock("../components/home/HomeChannels", () => ({ default: () => <div>Canais operacionais</div> }));
 vi.mock("../components/data/PageSkeleton", () => ({ default: ({ label }: { label: string }) => <p>{label}</p> }));
 
-import Central, { buildDashboardSummary, isCurrentClientRequest } from "./Central";
+import Central from "./Central";
+import { buildDashboardSummary, isCurrentClientRequest } from "../app/centralSummary";
 
 const fixture: CentralView = {
   month: "2026-11", agency: true,

@@ -93,3 +93,78 @@ def test_start_recusa_modelo_com_muitas_variaveis():
             raise AssertionError("deveria recusar")
         except send.BulkSendError as exc:
             assert "até 1 variável" in exc.message
+
+
+def test_enviar_poe_na_fila_e_agendar_valida_data():
+    draft = {"id": "d1", "status": "draft", "template_name": "bf", "language": "pt_BR", "audience_provider": "all"}
+    updates = []
+    with patch.object(send, "sb_select", AsyncMock(return_value=[draft])), \
+            patch.object(send, "sb_update", AsyncMock(side_effect=lambda t, **kw: updates.append(kw["patch"]) or [])), \
+            patch.object(send, "recipients", AsyncMock(return_value=[{"phone": "5511988887777", "name": "Ana"}])), \
+            patch("services.whatsapp_native._active_number", AsyncMock(return_value={})), \
+            patch("services.whatsapp_native.list_templates", AsyncMock(return_value=[
+                {"name": "bf", "language": "pt_BR", "status": "APPROVED", "variables": 1}])):
+        out = asyncio.run(send.start("roove", "d1"))
+        assert out["status"] == "queued" and updates[-1]["scheduled_at"] is None
+        from datetime import datetime, timedelta, timezone
+        tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        out = asyncio.run(send.start("roove", "d1", tomorrow))
+        assert out["status"] == "queued" and updates[-1]["scheduled_at"]
+        try:
+            asyncio.run(send.start("roove", "d1", "2099-01-01T10:00:00-03:00"))
+            raise AssertionError("deveria recusar data longe demais")
+        except send.BulkSendError as exc:
+            assert "60 dias" in exc.message
+    try:
+        with patch.object(send, "sb_select", AsyncMock(return_value=[draft])):
+            asyncio.run(send.start("roove", "d1", "2020-01-01T10:00:00-03:00"))
+        raise AssertionError("deveria recusar data no passado")
+    except send.BulkSendError as exc:
+        assert "futuro" in exc.message
+
+
+def test_modelo_com_imagem_exige_arquivo():
+    try:
+        send._check_template({"variables": 0, "header": "IMAGE"}, None)
+        raise AssertionError("deveria exigir a imagem")
+    except send.BulkSendError as exc:
+        assert "imagem" in exc.message
+    send._check_template({"variables": 0, "header": "IMAGE"}, "https://x/a.jpg")
+
+
+def test_job_pega_a_fila_uma_vez_e_manda_a_imagem_do_topo():
+    from datetime import datetime, timezone
+    draft = {"id": "d1", "client_id": "roove", "status": "queued", "template_name": "bf", "language": "pt_BR",
+             "audience_provider": "all", "header_media_url": "https://x/a.jpg"}
+
+    async def select(table, **kw):
+        return [draft] if kw["filters"].get("status") == "eq.queued" else []
+    claims = AsyncMock(side_effect=[[{"id": "d1"}]])
+    runner = AsyncMock(return_value={"sent": 1, "failed": 0, "skipped": 0})
+    with patch.object(send, "sb_select", AsyncMock(side_effect=select)), patch.object(send, "sb_update", claims), \
+            patch.object(send, "recipients", AsyncMock(return_value=[{"phone": "5511988887777", "name": "Ana"}])), \
+            patch.object(send, "run", runner), \
+            patch("services.whatsapp_native.list_templates", AsyncMock(return_value=[
+                {"name": "bf", "language": "pt_BR", "status": "APPROVED", "variables": 0, "header": "IMAGE"}])):
+        out = asyncio.run(send.process_due(datetime(2026, 11, 20, 12, tzinfo=timezone.utc)))
+    assert out["campaigns"] == 1
+    assert claims.await_args.kwargs["filters"]["status"] == "eq.queued"  # troca condicionada: só uma execução pega
+    assert runner.await_args.args[4] == {"type": "image", "link": "https://x/a.jpg"}
+
+
+def test_relatorio_responderam_e_compraram():
+    from services.whatsapp_insights import phone_key
+    key = phone_key("+5511988887777", international=True)
+    draft = {"id": "d1", "status": "sent", "started_at": "2026-11-10T12:00:00+00:00", "sent_count": 2}
+
+    async def select(table, **kw):
+        if kw.get("offset", 0):
+            return []
+        return {"whatsapp_campaign_drafts": [draft], "whatsapp_campaign_sends": [{"phone_key": key, "status": "sent"},
+                                                                                   {"phone_key": "f" * 32, "status": "sent"}],
+                "whatsapp_threads": [{"phone_key": key, "last_inbound_at": "2026-11-10T13:00:00+00:00"}]}[table]
+    orders = [{"value": 199.9, "phone": "11988887777"}]
+    with patch.object(send, "sb_select", AsyncMock(side_effect=select)), \
+            patch("services.whatsapp_insights._shopify_orders", AsyncMock(return_value=(orders, False))):
+        out = asyncio.run(send.report("roove", "d1"))
+    assert (out["replied"], out["buyers"], out["revenue"], out["reply_rate"]) == (1, 1, 199.9, 50.0)

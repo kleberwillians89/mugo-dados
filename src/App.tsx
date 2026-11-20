@@ -12,6 +12,7 @@ import {
 import { getMyPendingInvitations, listClients, openPlatformCompany, setApiAccessToken, type ClientMembership, type PendingInvitation, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
+  getPathForRoute,
   getPublicAppRouteFromPath,
   navigateToAppRoute,
   type AppRoute, approvalTokenFromPath,
@@ -20,6 +21,7 @@ import { routeAfterInvitationAccepted, shouldOpenMetaAfterSignIn } from "./app/a
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
 import { canViewAppRoute, OPT_IN_CODES } from "./app/teamRules";
+import { reportTokenFromPath } from "./app/monthlyReport";
 import type { MyAccess } from "./app/team";
 import AppNavigation, { type NavigationUser } from "./components/shell/AppNavigation";
 import Login from "./pages/Login";
@@ -64,6 +66,7 @@ const AiActions = lazy(() => import("./pages/AiActions"));
 const Plan = lazy(() => import("./pages/Plan"));
 const PlansAdmin = lazy(() => import("./pages/PlansAdmin"));
 const ClientApproval = lazy(() => import("./pages/ClientApproval"));
+const PublicReport = lazy(() => import("./pages/PublicReport"));
 const GoalsSummary = lazy(() => import("./components/GoalsSummary"));
 const SalesOrigin = lazy(() => import("./pages/SalesOrigin"));
 const WhatsApp = lazy(() => import("./pages/WhatsApp"));
@@ -248,11 +251,27 @@ async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: 
   return { platformAdmin, agencyAdmin, clients };
 }
 
+/**
+ * Toda vez que o app abre (aba nova), começa no Dashboard. Recarregar a página no meio do uso mantém onde estava,
+ * e link direto com parâmetros (tarefa, conexão de integração) também é respeitado.
+ */
+function openingRoute(): AppRoute {
+  try {
+    const first = !sessionStorage.getItem("mugo.opened");
+    sessionStorage.setItem("mugo.opened", "1");
+    if (first && !window.location.search && !window.location.hash && getCurrentAppRoute() !== "central") {
+      window.history.replaceState(window.history.state, "", getPathForRoute("central"));
+      return "central";
+    }
+  } catch { /* sem sessionStorage: segue a URL */ }
+  return getCurrentAppRoute();
+}
+
 function PrivateApp() {
   const authBootstrapError = getSupabaseBootstrapError();
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<AppView>("loading");
-  const [route, setRoute] = useState<AppRoute>(() => getCurrentAppRoute());
+  const [route, setRoute] = useState<AppRoute>(openingRoute);
   const [bootError, setBootError] = useState<string | null>(authBootstrapError);
   const [authInitializing, setAuthInitializing] = useState(true);
   const [localMode, setLocalMode] = useState(() => isLocalAuthEnabled());
@@ -1000,7 +1019,7 @@ function PrivateApp() {
       ) : route === "redacao" ? (
         <RedacaoPage key={`redacao:${activeClientId}`} canManage={canEdit("social_media")} />
       ) : route === "media" ? (
-        <MediaOn key={`media:${activeClientId}`} canManage={teamHere} canManageCampaigns={teamHere || canEdit("media")} />
+        <MediaOn key={`media:${activeClientId}`} canManage={teamHere} canManageCampaigns={teamHere} />
       ) : route === "briefing" ? (
         <BriefingPage key={`briefing:${activeClientId}`} />
       ) : route === "library" ? (
@@ -1113,6 +1132,8 @@ export default function App() {
     if (window.location.pathname !== `/aprovar/${approvalToken}`) window.history.replaceState(null, "", `/aprovar/${approvalToken}`);
     return <Suspense fallback={<AppLoading />}><ClientApproval token={approvalToken} /></Suspense>;
   }
+  const reportToken = reportTokenFromPath(window.location.pathname);
+  if (reportToken) return <Suspense fallback={<AppLoading />}><PublicReport token={reportToken} /></Suspense>;
   const publicRoute = getPublicAppRouteFromPath(window.location.pathname);
   if (publicRoute === "privacy") return <PrivacyPage />;
   if (publicRoute === "data_deletion") return <DataDeletionPage />;
