@@ -21,6 +21,7 @@ from .studio_calendar import StudioError
 
 MAX_OFFSET_MS = 15 * 60 * 1000  # Reels pela API: até 15 minutos
 COVER_MODES = ("frame", "image")
+CONVERTIBLE = (".png", ".webp", ".heic", ".heif")  # capa nesses formatos é convertida para JPG ao publicar
 TRIALS = {"off": None, "manual": "MANUAL", "auto": "SS_PERFORMANCE"}
 _DRIVE_FILE = re.compile(r"^https://drive\.google\.com/(?:file/d/([\w-]{10,})|open\?id=([\w-]{10,})|uc\?(?:.*&)?id=([\w-]{10,}))")
 
@@ -112,8 +113,11 @@ def apply_reels_options(plan: Dict[str, Any], raw: Any) -> Optional[str]:
         link = _cover_link(opts["cover_url"])
         if link:
             fields["cover_url"] = link
+        elif opts["cover_url"].split("?", 1)[0].lower().endswith(CONVERTIBLE):
+            # PNG/WebP/HEIC: vira JPG na hora de publicar (ig_publish.ensure_jpeg), em vez de cair no frame.
+            fields["cover_url"] = opts["cover_url"]
         else:
-            warning = "a capa do Reels precisa ser JPG; o Reels sai com o frame escolhido"
+            warning = "a capa do Reels precisa ser imagem (JPG ou PNG) ou arquivo do Drive; o Reels sai com o frame escolhido"
     if "cover_url" not in fields and opts.get("thumb_offset_ms") is not None:
         fields["thumb_offset"] = str(opts["thumb_offset_ms"])
     if "share_to_feed" in opts:
@@ -128,6 +132,27 @@ def apply_reels_options(plan: Dict[str, Any], raw: Any) -> Optional[str]:
     elif opts.get("audio_name"):
         fields["audio_name"] = opts["audio_name"]
     return warning
+
+
+def describe(plan: Dict[str, Any], raw: Any) -> Optional[str]:
+    """O que foi junto no Reels, para o histórico: música e capa (ou o motivo de não ter ido)."""
+    if not plan or plan.get("type") != "reels":
+        return None
+    fields = plan.get("fields") or {}
+    try:
+        opts = clean_reels_options(raw)
+    except StudioError:
+        opts = {}
+    parts = []
+    music = opts.get("music")
+    if "audio_configuration" in fields and music:
+        name = " · ".join(x for x in (music.get("title"), music.get("artist")) if x) or f"áudio {music['audio_id']}"
+        parts.append(f"música “{name}”")
+    if "cover_url" in fields:
+        parts.append("capa por imagem")
+    elif "thumb_offset" in fields:
+        parts.append(f"capa no frame {int(fields['thumb_offset']) / 1000:.1f}s".replace(".", ","))
+    return ("publicou o Reels com " + " e ".join(parts)) if parts else None
 
 
 def first_comment(item: Dict[str, Any]) -> Optional[str]:

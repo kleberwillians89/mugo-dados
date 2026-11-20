@@ -674,6 +674,31 @@ def clean_art_url(value: Any) -> Optional[str]:
     return text
 
 
+def _same_instant(a: Any, b: Any) -> bool:
+    try:
+        return datetime.fromisoformat(str(a).replace("Z", "+00:00")) == datetime.fromisoformat(str(b).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+
+
+async def _schedule_changed(client_id: str, item_id: str, clean: Dict[str, Any]) -> bool:
+    """O agendamento confirmado só cai quando a data/hora ou a plataforma MUDAM de verdade (ou a pauta sai de
+    aprovado). A tela manda a data em todo "Salvar": trocar a música ou a capa não pode desagendar o post."""
+    if clean.get("status", "aprovado") != "aprovado":
+        return True
+    if "scheduled_at" not in clean and "channel" not in clean:
+        return False
+    try:
+        rows = await sb_select(ITEMS_TABLE, select="scheduled_at,channel", limit=1,
+                               filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
+    except Exception:  # noqa: BLE001 — na dúvida, desagenda (comportamento antigo, mais seguro)
+        return True
+    current = rows[0] if rows else {}
+    if "scheduled_at" in clean and not _same_instant(current.get("scheduled_at"), clean["scheduled_at"]):
+        return True
+    return "channel" in clean and str(current.get("channel") or "instagram") != clean["channel"]
+
+
 async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, user_id: str) -> Dict[str, Any]:
     clean = {k: v for k, v in patch.items() if k in EDITABLE and v is not None}
     if "art_url" in clean:
@@ -717,7 +742,7 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
         except Exception as exc:  # noqa: BLE001
             print(f"[studio_calendar] estado_anterior_indisponivel {type(exc).__name__}")
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}
-    if "scheduled_at" in clean or "channel" in clean or clean.get("status", "aprovado") != "aprovado":
+    if await _schedule_changed(client_id, item_id, clean):
         # Data ou plataforma mudou, ou saiu de "aprovado": o agendamento confirmado não vale mais.
         try:
             rows = await sb_update(ITEMS_TABLE, filters=filters, patch={**clean, "schedule_confirmed_at": None, "schedule_confirmed_by": None,

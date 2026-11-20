@@ -248,11 +248,11 @@ async def ensure_jpeg(plan: Dict[str, Any], client_id: str) -> int:
     """Troca no plano as imagens que não são JPG por uma cópia JPG pública (Storage do MUGOVERSO). Devolve quantas trocou."""
     import hashlib
     from .ig_supabase import sb_upload_public
-    targets = [plan["fields"], *plan.get("children", [])]
+    targets = [(plan["fields"], "image_url"), (plan["fields"], "cover_url"), *((c, "image_url") for c in plan.get("children", []))]
     changed = 0
-    for target in targets:
-        url = target.get("image_url")
-        if not url or url.split("?", 1)[0].lower().endswith((".jpg", ".jpeg")):
+    for target, key in targets:
+        url = target.get(key)
+        if not url or "drive.google.com" in url or url.split("?", 1)[0].lower().endswith((".jpg", ".jpeg")):
             continue
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             got = await client.get(url)
@@ -262,7 +262,7 @@ async def ensure_jpeg(plan: Dict[str, Any], client_id: str) -> int:
             raise StudioError("IG_PUBLISH_FAILED", "Imagem maior que 30 MB: envie uma versão menor.")
         jpeg = _to_jpeg(got.content)
         safe = re.sub(r"[^a-zA-Z0-9_-]", "", client_id)[:80]
-        target["image_url"] = await sb_upload_public(f"ig-publish/{safe}/{hashlib.sha1(url.encode()).hexdigest()[:20]}.jpg", jpeg, "image/jpeg")
+        target[key] = await sb_upload_public(f"ig-publish/{safe}/{hashlib.sha1(url.encode()).hexdigest()[:20]}.jpg", jpeg, "image/jpeg")
         changed += 1
     return changed
 
@@ -300,6 +300,10 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         if creds["scopes"] and PUBLISH_SCOPE not in creds["scopes"]:
             raise StudioError("IG_PUBLISH_FAILED", "A conexão do Instagram desta marca não tem a permissão de publicar. Reconecte em Integrações.")
         converted = await ensure_jpeg(container, client_id)
+        if container["type"] == "reels":
+            # Diagnóstico: quais opções foram no contêiner (nomes dos campos, sem token nem links).
+            print(f"[ig_publish] reels item={item['id']} fields={sorted(container['fields'])} "
+                  f"options={sorted((item.get('reels_options') or {}).keys()) if isinstance(item.get('reels_options'), dict) else 'sem_coluna'}")
         from .ig_shop import TAG_SCOPE, has_tags, strip_tags
         untagged = None
         if has_tags(container) and creds["scopes"] and TAG_SCOPE not in creds["scopes"]:
@@ -319,6 +323,10 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         if converted:
             await record(item["client_id"], item["id"], f"converteu {converted} imagem(ns) para JPG (o Instagram só aceita JPG)",
                          actor_name="Publicação automática", side="sistema")
+        from .ig_reels import describe
+        sent = describe(container, item.get("reels_options"))
+        if sent:
+            await record(item["client_id"], item["id"], sent, actor_name="Publicação automática", side="sistema")
         if container.get("warning"):
             await record(item["client_id"], item["id"], f"publicou o Reels, mas {container['warning']}",
                          actor_name="Publicação automática", side="sistema")
@@ -360,6 +368,7 @@ async def publish_due(*, now: Optional[datetime] = None) -> Dict[str, int]:
             items = await sb_select(ITEMS_TABLE, select=f"{base}{extra}", **query)
             break
         except Exception:  # noqa: BLE001
+            print(f"[ig_publish] select_sem_colunas extra={extra} (migração pendente: música/capa/produtos podem não ir)")
             continue
     if items is None:
         items = await sb_select(ITEMS_TABLE, select=base, **query)
