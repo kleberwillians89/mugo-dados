@@ -535,6 +535,51 @@ async def live_results(client_id: str, draft_id: str, period: str = "maximum") -
             "daily_budget": payload["daily_budget"], "read_only": True}
 
 
+STATE_LABEL = {"ACTIVE": "no_ar", "PAUSED": "pausada", "CAMPAIGN_PAUSED": "pausada", "ADSET_PAUSED": "pausada",
+               "IN_PROCESS": "em_analise", "PENDING_REVIEW": "em_analise", "WITH_ISSUES": "com_problema",
+               "DISAPPROVED": "reprovada", "ARCHIVED": "encerrada", "DELETED": "encerrada"}
+
+
+async def client_overview(client_id: str, limit: int = 12) -> Dict[str, Any]:
+    """Visão do CLIENTE (somente leitura): o que a agência colocou no Meta pela Mídia On, com o criativo,
+    se está no ar e os números desde o início. Sem verba editável, sem botões, sem IDs internos."""
+    rows = [r for r in await list_drafts(client_id) if (r.get("meta_ids") or {}).get("campaign_id")][:limit]
+
+    async def one(row: Dict[str, Any]) -> Dict[str, Any]:
+        payload, ad = row["payload"], row["payload"]["ad"]
+        units = ad_units(ad)
+        creatives = []
+        for unit in units:
+            cards = unit.get("cards") or []
+            creatives.append({"format": "carrossel" if unit.get("format") == "carousel" else "vídeo" if unit.get("media_type") == "video" else "imagem",
+                              "image_url": (cards[0].get("image_url") if cards else unit.get("image_url")) or None,
+                              "video_url": unit.get("video_url") or None, "cards": len(cards) or None})
+        item: Dict[str, Any] = {
+            "id": row["id"], "name": payload.get("name"), "objective": payload.get("objective"),
+            "daily_budget": payload.get("daily_budget"), "start_date": payload.get("start_date"), "end_date": payload.get("end_date"),
+            "primary_text": ad.get("primary_text"), "headline": ad.get("headline"), "link": ad.get("link") or None,
+            "creatives": creatives, "state": "desconhecido", "results": None,
+        }
+        try:
+            status = await live_delivery_status(client_id, row["id"])
+            effective = str(((status.get("objects") or {}).get("campaign") or {}).get("effective_status") or "").upper()
+            item["state"] = STATE_LABEL.get(effective, "desconhecido")
+        except Exception:  # noqa: BLE001 - sem status, a campanha aparece mesmo assim
+            pass
+        try:
+            r = await live_results(client_id, row["id"], "maximum")
+            item["results"] = {k: r.get(k) for k in ("spend", "reach", "impressions", "link_clicks", "ctr", "results",
+                                                     "result_label", "cost_per_result", "checked_at")}
+        except Exception:  # noqa: BLE001
+            pass
+        return item
+
+    items = await asyncio.gather(*(one(r) for r in rows))
+    order = {"no_ar": 0, "em_analise": 1, "com_problema": 2, "pausada": 3}
+    items = sorted(items, key=lambda i: order.get(i["state"], 4))
+    return {"campaigns": items, "checked_at": _now(), "read_only": True}
+
+
 async def list_pixels(client_id: str, draft_id: Optional[str] = None) -> Dict[str, Any]:
     """Conjuntos de dados (pixels) da conta, com o recomendado (o que está recebendo eventos) e o que a campanha usa."""
     account = await _ad_account(client_id)
@@ -1030,19 +1075,182 @@ def audience_view(row: Dict[str, Any], saved: bool = False) -> Dict[str, Any]:
             "ready": code == 200, "status": _text(status.get("description"), 200) if code != 200 else ""}
 
 
+def foreign_source(row: Dict[str, Any], page_id: str, ig_id: str) -> str:
+    """Público de engajamento criado com OUTRO perfil (ex.: Instagram de um parceiro): o Meta só aceita esse público
+    em anúncio daquele perfil. Devolve o tipo da origem estranha ("instagram"/"facebook") ou "" se está tudo certo."""
+    try:
+        rule = json.loads(row.get("rule") or "{}") if isinstance(row.get("rule"), str) else (row.get("rule") or {})
+    except ValueError:
+        return ""
+    for part in ((rule.get("inclusions") or {}).get("rules") or []) if isinstance(rule, dict) else []:
+        for source in part.get("event_sources") or []:
+            kind, sid = str(source.get("type") or ""), str(source.get("id") or "")
+            if kind == "ig_business" and ig_id and sid and sid != str(ig_id):
+                return "instagram"
+            if kind == "page" and page_id and sid and sid != str(page_id):
+                return "facebook"
+    return ""
+
+
+async def _brand_profiles(client_id: str) -> Dict[str, str]:
+    try:
+        from .ig_engagement import credentials
+        creds = await credentials(client_id)
+        return {"page_id": str(creds.get("page_id") or ""), "ig_id": str(creds.get("ig_user_id") or "")}
+    except Exception:  # noqa: BLE001 - sem o Instagram conectado, não dá para conferir a origem
+        return {"page_id": "", "ig_id": ""}
+
+
 async def list_account_audiences(client_id: str) -> Dict[str, Any]:
     """Públicos que já existem na conta de anúncios do cliente, para escolher em vez de escrever o público."""
     account = await _ad_account(client_id)
     token, act = account["token"], account["act"]
     size = "approximate_count_lower_bound,approximate_count_upper_bound"
-    custom = await _paged(f"/{act}/customaudiences", token, f"id,name,subtype,delivery_status,{size}")
+    custom = await _paged(f"/{act}/customaudiences", token, f"id,name,subtype,delivery_status,rule,{size}")
     try:
         saved = await _paged(f"/{act}/saved_audiences", token, f"id,name,{size}", pages=1)
     except MetaAdError:
         saved = []  # algumas contas não liberam a leitura de públicos salvos; os personalizados seguem
-    views = [audience_view(row) for row in custom if row.get("id")]
+    brand = await _brand_profiles(client_id)
+    views = []
+    for row in custom:
+        if not row.get("id"):
+            continue
+        view = audience_view(row)
+        other = foreign_source(row, brand["page_id"], brand["ig_id"])
+        if other:
+            view["ready"] = False
+            view["foreign"] = True
+            view["status"] = (f"Criado com outro perfil do {'Instagram' if other == 'instagram' else 'Facebook'} (de um parceiro, por exemplo): "
+                              "o Meta só aceita em anúncio daquele perfil. Crie um igual com o perfil da marca.")
+        views.append(view)
     views.sort(key=lambda a: (not a["ready"], a["kind"] != "LOOKALIKE", a["name"].lower()))
     return {"account": act, "saved": [audience_view(row, saved=True) for row in saved if row.get("id")], "custom": views}
+
+
+# ---------------------------------------------------------------- criar público (igual ao Gerenciador)
+
+IG_EVENTS = {"tudo": "ig_business_profile_all", "engajou": "ig_business_profile_engaged",
+             "visitou_perfil": "ig_business_profile_visit", "salvou": "ig_business_profile_ad_saved"}
+FB_EVENTS = {"tudo": "page_engaged", "visitou_perfil": "page_visited"}
+NEW_AUDIENCE_KINDS = ("instagram", "facebook", "site", "compradores", "semelhante", "lista")
+
+
+def _days(value: Any, maximum: int) -> int:
+    try:
+        return max(1, min(maximum, int(value)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def engagement_rule(source_type: str, source_id: str, event: str, days: int) -> Dict[str, Any]:
+    return {"inclusions": {"operator": "or", "rules": [{
+        "event_sources": [{"id": source_id, "type": source_type}], "retention_seconds": days * 86400,
+        "filter": {"operator": "and", "filters": [{"field": "event", "operator": "eq", "value": event}]}}]}}
+
+
+def site_rule(pixel_id: str, days: int, url_contains: str = "") -> Dict[str, Any]:
+    return {"inclusions": {"operator": "or", "rules": [{
+        "event_sources": [{"id": pixel_id, "type": "pixel"}], "retention_seconds": days * 86400,
+        "filter": {"operator": "and", "filters": [{"field": "url", "operator": "i_contains", "value": url_contains}]}}]}}
+
+
+def _sha(value: str) -> str:
+    import hashlib
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+async def _customer_rows(client_id: str) -> List[List[str]]:
+    """Clientes da base do MUGOVERSO (loja e Wake) para a lista do Meta: e-mail e telefone normalizados e com hash
+    SHA-256 (o Meta só recebe o hash)."""
+    from .crypto import decrypt_secret
+    rows: List[List[str]] = []
+    for offset in range(0, 100_000, 1000):
+        chunk = await sb_select("relationship_contacts", select="email_ciphertext,phone_ciphertext", limit=1000, offset=offset,
+                                filters={"client_id": f"eq.{client_id}", "provider": "in.(shopify,fbits)"}, order="identity_hash.asc")
+        for r in chunk:
+            def plain(v: Any) -> str:
+                try:
+                    return decrypt_secret(str(v)) if v else ""
+                except RuntimeError:
+                    return ""
+            email = plain(r.get("email_ciphertext")).strip().lower()
+            phone = re.sub(r"\D", "", plain(r.get("phone_ciphertext")))
+            if len(phone) in (10, 11):
+                phone = "55" + phone
+            if email or phone:
+                rows.append([_sha(email) if "@" in email else "", _sha(phone) if len(phone) >= 12 else ""])
+        if len(chunk) < 1000:
+            break
+    return [r for r in rows if r[0] or r[1]]
+
+
+async def create_account_audience(client_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+    """Cria um público na conta de anúncios, como no Gerenciador: engajamento no Instagram/Facebook da MARCA,
+    visitantes do site, compradores (pixel), semelhante (lookalike) ou lista de clientes do MUGOVERSO."""
+    kind = str(spec.get("kind") or "")
+    if kind not in NEW_AUDIENCE_KINDS:
+        raise StudioError("AD_AUDIENCE_INVALID", "Tipo de público inválido.")
+    account = await _ad_account(client_id)
+    token, act = account["token"], account["act"]
+    name = _text(spec.get("name"), 120)
+    data: Dict[str, Any] = {"description": "Criado pela Mídia On (MUGOVERSO)"}
+    if kind in ("instagram", "facebook"):
+        brand = await _brand_profiles(client_id)
+        source_id = brand["ig_id"] if kind == "instagram" else brand["page_id"]
+        if not source_id:
+            raise StudioError("AD_PAGE_MISSING")
+        events = IG_EVENTS if kind == "instagram" else FB_EVENTS
+        event = events.get(str(spec.get("event") or "tudo"), events["tudo"])
+        days = _days(spec.get("days"), 730)
+        data.update({"name": name or f"Mugô · {'Instagram' if kind == 'instagram' else 'Facebook'} · engajou {days} dias",
+                     "rule": json.dumps(engagement_rule("ig_business" if kind == "instagram" else "page", source_id, event, days))})
+    elif kind in ("site", "compradores"):
+        pixel = best_pixel(await _pixels(act, token))
+        if not pixel:
+            raise StudioError("AD_PIXEL_MISSING")
+        days = _days(spec.get("days"), 180)
+        if kind == "site":
+            url = _text(spec.get("url_contains"), 200)
+            data.update({"name": name or f"Mugô · Visitantes do site {days} dias{' · ' + url if url else ''}",
+                         "rule": json.dumps(site_rule(str(pixel["id"]), days, url)), "prefill": "1"})
+        else:
+            data.update({"name": name or f"Mugô · Compradores {days} dias",
+                         "rule": json.dumps(audience_rule(str(pixel["id"]), days, "Purchase")), "prefill": "1"})
+    elif kind == "semelhante":
+        origin = str(spec.get("origin_audience_id") or "")
+        if not re.fullmatch(r"\d{5,30}", origin):
+            raise StudioError("AD_AUDIENCE_INVALID", "Escolha o público de origem do semelhante.")
+        try:
+            ratio = max(1, min(10, int(spec.get("ratio") or 1)))
+        except (TypeError, ValueError):
+            ratio = 1
+        data.update({"name": name or f"Mugô · Semelhante {ratio}% (BR)", "subtype": "LOOKALIKE", "origin_audience_id": origin,
+                     "lookalike_spec": json.dumps({"type": "similarity" if ratio == 1 else "custom_ratio", "ratio": ratio / 100,
+                                                   "country": "BR"})})
+    else:  # lista de clientes do MUGOVERSO
+        people = await _customer_rows(client_id)
+        if len(people) < 100:
+            raise StudioError("AD_AUDIENCE_INVALID", "A lista precisa de pelo menos 100 clientes com e-mail ou telefone. "
+                              "Importe os clientes da loja em Relacionamento.")
+        data.update({"name": name or "Mugô · Clientes da loja", "subtype": "CUSTOM", "customer_file_source": "USER_PROVIDED_ONLY"})
+    try:
+        made = await _graph("POST", f"/{act}/customaudiences", token=token, data=data)
+    except MetaAdError as exc:
+        text = str(exc)
+        if "terms" in text.lower() or "termos" in text.lower():
+            raise StudioError("AD_META_REJECTED", "A conta precisa aceitar os Termos de Públicos Personalizados no Gerenciador "
+                              "(Públicos → Criar público) uma vez. Depois tente de novo.") from None
+        raise
+    audience_id = str(made.get("id") or "")
+    if kind == "lista" and audience_id:
+        for start in range(0, len(people), 10000):
+            batch = people[start:start + 10000]
+            await _graph("POST", f"/{audience_id}/users", token=token, data={"payload": json.dumps(
+                {"schema": ["EMAIL_SHA256", "PHONE_SHA256"], "data": batch})})
+    return {"id": audience_id, "name": data["name"], "kind": kind,
+            "note": "O Meta leva de alguns minutos a algumas horas para preencher o público." if kind != "lista"
+            else f"{len(people)} clientes enviados (só o hash). O Meta leva algumas horas para casar com as contas."}
 
 
 async def saved_targeting(saved_id: str, token: str) -> Dict[str, Any]:

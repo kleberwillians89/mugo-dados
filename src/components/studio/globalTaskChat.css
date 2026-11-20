@@ -23,3 +23,13 @@
 /* A modal editor's footer always has priority over floating assistance. */
 body:has(.drawerBackdrop) .globalTaskChat{visibility:hidden;pointer-events:none}
 @media(max-width:600px){.globalTaskChat{right:auto;bottom:auto}.globalTaskChatPanel{bottom:auto}}
+.globalTaskChatTrigger i{font-style:normal}
+.globalTaskChatTrigger .gtcShort{display:none}
+/* Celular: botão pequeno fixo no canto de baixo (não cobre o topo da tela) e o painel abre como folha de baixo. */
+@media (max-width:760px){
+  .globalTaskChat{left:12px!important;top:auto!important;right:auto!important;bottom:calc(12px + env(safe-area-inset-bottom))!important}
+  .globalTaskChatTrigger{padding:9px 13px;font-size:13px;box-shadow:0 3px 12px #0003}
+  .globalTaskChatTrigger .gtcFull{display:none}
+  .globalTaskChatTrigger .gtcShort{display:inline}
+  .globalTaskChatPanel{position:fixed!important;left:8px!important;right:8px!important;top:auto!important;bottom:calc(64px + env(safe-area-inset-bottom))!important;width:auto!important;max-height:72vh!important}
+}

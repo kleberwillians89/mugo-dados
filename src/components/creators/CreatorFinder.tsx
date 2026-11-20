@@ -21,6 +21,7 @@ export default function CreatorFinder({ network, isAgency, busy, onPick }: {
   const [text, setText] = useState("");
   const [saved, setSaved] = useState<CreatorPick[]>([]);
   const [exact, setExact] = useState<CreatorPick | null>(null);
+  const [similar, setSimilar] = useState<CreatorPick[]>([]);
   const [people, setPeople] = useState<{ query: string; list: CreatorPick[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -37,8 +38,8 @@ export default function CreatorFinder({ network, isAgency, busy, onPick }: {
     const timer = window.setTimeout(() => {
       setLoading(true);
       resolveCreator(network, q)
-        .then((res) => { if (seq.current === mine) { setSaved(res.saved || []); setExact(res.exact); setActive(0); } })
-        .catch(() => { if (seq.current === mine) { setSaved([]); setExact(null); } })
+        .then((res) => { if (seq.current === mine) { setSaved(res.saved || []); setExact(res.exact); setSimilar(res.similar || []); setActive(0); } })
+        .catch(() => { if (seq.current === mine) { setSaved([]); setExact(null); setSimilar([]); } })
         .finally(() => { if (seq.current === mine) setLoading(false); });
     }, 350);
     return () => window.clearTimeout(timer);
@@ -50,6 +51,8 @@ export default function CreatorFinder({ network, isAgency, busy, onPick }: {
   const options: Option[] = short ? [] : [
     ...saved.map((pick) => ({ key: `s:${pick.handle}`, pick, group: "Já salvos" })),
     ...(exact && !exact.missing && !saved.some((s) => s.handle === exact.handle) ? [{ key: `e:${exact.handle}`, pick: exact, group: "Perfil com este @" }] : []),
+    ...similar.filter((pick) => pick.handle !== exact?.handle && !saved.some((s) => s.handle === pick.handle))
+      .map((pick) => ({ key: `m:${pick.handle}`, pick, group: "@ parecidos" })),
     ...peopleHere.map((pick) => ({ key: `p:${pick.handle}`, pick, group: `Resultado para “${q}” no Instagram` })),
     ...(isAgency && network === "instagram" && !peopleHere.length ? [{ key: "people", action: "people" as const, label: `Procurar “${q}” pelo nome no Instagram`, group: "Não achou?" }] : []),
   ];

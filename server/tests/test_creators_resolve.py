@@ -49,7 +49,8 @@ class ResolveTests(unittest.IsolatedAsyncioTestCase):
     async def test_saved_and_exact_preview(self):
         saved = [{"id": "1", "network": "instagram", "handle": "ana.treino", "display_name": "Ana", "avatar_url": "u", "followers": 10}]
         meta = AsyncMock(return_value={"network": "instagram", "handle": "bia_fit", "display_name": "Bia", "avatar_url": "p", "followers": 99, "posts": []})
-        with patch.object(creators, "list_creators", AsyncMock(return_value=saved)), patch.object(creators, "_meta_profile", meta):
+        with patch.object(creators, "list_creators", AsyncMock(return_value=saved)), patch.object(creators, "_meta_profile", meta), \
+                patch.object(creators, "similar_profiles", AsyncMock(return_value=[])):
             out = await creators.resolve("roove", "instagram", "@bia_fit", None)
             again = await creators.resolve("roove", "instagram", "@bia_fit", None)
         self.assertEqual(out["saved"][0]["handle"], "ana.treino")

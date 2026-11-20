@@ -18,6 +18,7 @@ import SegmentedControl from "../components/data/SegmentedControl";
 import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsPanel";
 import GoogleAdsPanel, { type GooglePrepareRequest } from "../components/studio/GoogleAdsPanel";
 import MediaCampaignHub from "../components/studio/MediaCampaignHub";
+import MediaLiveCampaigns from "../components/studio/MediaLiveCampaigns";
 import { listBriefs, type Brief } from "../app/briefs";
 import "../styles/studio.css";
 import "../styles/mediaCampaignHub.css";
@@ -258,6 +259,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
       <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
     </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
+    {!canManage ? <MediaLiveCampaigns /> : null}
     {canManageCampaigns ? <MediaCampaignHub
       briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
       canManage={canManage} busy={Boolean(busy)} onSelect={setSelectedBriefId}

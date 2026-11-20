@@ -13,7 +13,7 @@ import httpx
 
 from . import creators_providers as providers
 from .business_context import load_business_context
-from .ig_supabase import sb_delete, sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_upload_public, sb_upsert
+from .ig_supabase import sb_delete, sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_update, sb_upload_public, sb_upsert
 from .integration_errors import IntegrationError
 from .meta_tokens import ensure_valid_meta_token, get_active_connection_for_client
 
@@ -339,6 +339,24 @@ async def list_creators(*, network: Optional[str], q: Optional[str], min_followe
     return await sb_select("creators", filters=filters, order="followers.desc.nullslast", limit=limit, offset=offset)
 
 
+async def repair_avatars(client_id: str, rows: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+    """Foto que não está no storage do MUGOVERSO (vazia ou link do Instagram que já expirou): busca de novo na Meta
+    (grátis) e guarda a cópia permanente. Poucas por vez, para a lista não demorar."""
+    todo = [r for r in rows if r.get("network") == "instagram" and r.get("handle") and not _stored(r.get("avatar_url"))][:limit]
+
+    async def fix(row: Dict[str, Any]) -> None:
+        try:
+            profile = await asyncio.wait_for(_meta_profile(client_id, row["handle"]), timeout=8)
+            stored = await persist_avatar("instagram", row["handle"], profile.get("avatar_url"))
+            if stored and _stored(stored):
+                row["avatar_url"] = stored
+                await sb_update("creators", filters={"id": f"eq.{row['id']}"}, patch={"avatar_url": stored}, returning="minimal")
+        except Exception as exc:  # noqa: BLE001 - sem foto, o criador aparece com a inicial
+            print(f"[creators] avatar_repair_failed {type(exc).__name__}")
+    await asyncio.gather(*(fix(r) for r in todo))
+    return rows
+
+
 async def get_creator(creator_id: str, only_ids: Visible = None) -> Optional[Dict[str, Any]]:
     if not _visible(creator_id, only_ids):
         return None
@@ -462,6 +480,52 @@ _PREVIEW_CACHE: Dict[str, tuple] = {}
 PREVIEW_TTL = 3600
 
 
+def handle_variants(handle: str, limit: int = 4) -> List[str]:
+    """@ parecidos com o digitado (o jeito mais comum de errar ou de o perfil oficial ser outro): com/sem ponto e
+    sublinhado, com "oficial", sem números no fim. Só formatos válidos do Instagram."""
+    import re
+    base = handle.lower().strip("._")
+    core = re.sub(r"[._]", "", base)
+    stem = re.sub(r"\d+$", "", base).strip("._")
+    out: List[str] = []
+    for v in (core, base.replace(".", "_"), base.replace("_", "."), f"{base}oficial", f"{base}.oficial", f"{base}_oficial",
+              f"{core}oficial", stem, f"oficial{core}", f"{base}_", f"_{base}"):
+        v = v[:30]
+        if v and v != handle and re.fullmatch(r"[a-z0-9._]{2,30}", v) and v not in out:
+            out.append(v)
+    return out[:limit]
+
+
+async def similar_profiles(client_id: str, handle: str, only_ids: Visible, skip: set) -> List[Dict[str, Any]]:
+    """Perfis que existem com @ parecido: variações conferidas na Meta (grátis) e criadores do banco com o mesmo começo."""
+    found: List[Dict[str, Any]] = []
+    prefix = handle[:5]
+    if len(prefix) >= 3:
+        for c in await list_creators(network="instagram", q=prefix, min_followers=None, limit=5, offset=0, only_ids=only_ids):
+            if c.get("handle") not in skip:
+                skip.add(c["handle"])
+                found.append({k: c.get(k) for k in ("id", "network", "handle", "display_name", "avatar_url", "followers")})
+
+    async def check(variant: str) -> Optional[Dict[str, Any]]:
+        key = f"{client_id}:{variant}"
+        hit = _PREVIEW_CACHE.get(key)
+        if hit and time.monotonic() - hit[0] < PREVIEW_TTL:
+            return hit[1] if hit[1] and not hit[1].get("missing") else None
+        try:
+            profile = await asyncio.wait_for(_meta_profile(client_id, variant), timeout=6)
+            view = {k: profile.get(k) for k in ("network", "handle", "display_name", "avatar_url", "followers", "biography")}
+        except (IntegrationError, asyncio.TimeoutError):
+            view = {"network": "instagram", "handle": variant, "missing": True}
+        _PREVIEW_CACHE[key] = (time.monotonic(), view)
+        return None if view.get("missing") else view
+
+    for view in await asyncio.gather(*(check(v) for v in handle_variants(handle) if v not in skip)):
+        if view and view["handle"] not in skip:
+            skip.add(view["handle"])
+            found.append(view)
+    return sorted(found, key=lambda c: -(c.get("followers") or 0))[:6]
+
+
 async def resolve(client_id: str, network: str, query: str, only_ids: Visible) -> Dict[str, Any]:
     """Sugestões enquanto a pessoa digita: criadores já salvos (nome ou @, com foto) e, quando o texto já é um @
     válido do Instagram, a prévia oficial da Meta (grátis). Nada é salvo aqui: salvar é o "Analisar"."""
@@ -487,8 +551,15 @@ async def resolve(client_id: str, network: str, query: str, only_ids: Visible) -
                 exact = {"network": network, "handle": handle, "missing": True,
                          "reason": "Não é conta profissional ou não existe." if exc.code == "CREATOR_NOT_FOUND" else "A Meta não respondeu agora."}
             _PREVIEW_CACHE[key] = (time.monotonic(), exact)
+    similar: List[Dict[str, Any]] = []
+    if handle and len(handle) >= 4 and network == "instagram" and " " not in text:
+        skip = {c.get("handle") for c in saved} | {handle}
+        try:
+            similar = await similar_profiles(client_id, handle, only_ids, skip)
+        except Exception:  # noqa: BLE001 - sugestão extra; a busca principal segue
+            similar = []
     return {"saved": [{k: c.get(k) for k in ("id", "network", "handle", "display_name", "avatar_url", "followers", "engagement_rate")} for c in saved],
-            "exact": exact}
+            "exact": exact, "similar": similar}
 
 
 async def people_search(client_id: str, query: str, limit: int = 8) -> Dict[str, Any]:

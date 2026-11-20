@@ -491,3 +491,8 @@
   html.is-sidebar-collapsed .appSidebarNav > .appNavGroup{ padding-top: 0; border-top: 0; }
 }
 @media (max-width: 1023px){ .appNavGroupLink, .appNavToggle{ min-height: 44px; } .appNavToggle{ width: 44px; height: 44px; } }
+
+/* Celular: nada empurra a tela para os lados (a navegação fica parada; tabelas e abas rolam dentro delas). */
+@media (max-width: 1023px){
+  .appFrameMain{ overflow-x: clip; }
+}

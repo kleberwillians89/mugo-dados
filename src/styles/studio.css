@@ -1878,3 +1878,13 @@
 .reelsMusicList li.is-on{background:#eef6f7}
 .reelsMusicList .ds-button{min-height:32px;padding:0 10px}
 @media (max-width:560px){.reelsMusicVolumes{grid-template-columns:1fr}}
+
+/* Criar público (igual ao Gerenciador) */
+.metaAudCreate{display:grid;gap:8px;margin:8px 0}
+.metaAudCreate>.ds-button{justify-self:start}
+.metaAudCreateBox{display:grid;gap:10px;padding:12px;border:1px solid var(--border,#d1dade);border-radius:12px}
+.metaAudKinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.metaAudKinds button{display:grid;gap:2px;text-align:left;padding:10px;border:1px solid var(--border,#d1dade);border-radius:10px;background:var(--surface,#fff);font:inherit;cursor:pointer;color:inherit}
+.metaAudKinds button small{font-size:12px;color:var(--text-secondary,#62717c)}
+.metaAudKinds button.is-on{border-color:#0b6073;box-shadow:0 0 0 1px #0b6073;background:#eef6f7}
+.metaAudCreateBox>.ds-button.is-primary{justify-self:start}

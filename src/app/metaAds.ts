@@ -46,7 +46,16 @@ export type AdDraft = {
 };
 export type AudienceRef = { id: string; name: string };
 /** Público que já existe na conta de anúncios do cliente. ready=false: o Meta não entrega (pequeno ou preparando). */
-export type AccountAudience = AudienceRef & { kind: string; kind_label: string; size: string; ready: boolean; status: string };
+export type AccountAudience = AudienceRef & { kind: string; kind_label: string; size: string; ready: boolean; status: string; foreign?: boolean };
+export type NewAudience = {
+  kind: "instagram" | "facebook" | "site" | "compradores" | "semelhante" | "lista";
+  name?: string; event?: string; days?: number; url_contains?: string; origin_audience_id?: string; ratio?: number;
+};
+/** Cria um público na conta de anúncios, como no Gerenciador. */
+export function createAdAudience(input: NewAudience) {
+  return http<{ id: string; name: string; kind: string; note: string }>(clientClientPath("/studio/ads/audiences"),
+    { method: "POST", body: JSON.stringify(input), timeoutMs: 120_000 });
+}
 export type AccountAudiences = { account: string; saved: AccountAudience[]; custom: AccountAudience[] };
 export type AdsList = { drafts: AdDraft[]; objectives: Record<string, string>; ctas: Record<string, string> };
 
@@ -133,3 +142,17 @@ export type MetaAccountCampaign = { id: string; name: string; objective: string;
 export const readMetaCampaigns = () => http<{ campaigns: MetaAccountCampaign[] }>(base("/meta-campaigns"), { timeoutMs: 45_000 });
 export const importMetaCampaign = (campaignId: string) =>
   http<{ draft: AdDraft }>(base("/import"), { method: "POST", body: JSON.stringify({ campaign_id: campaignId }), timeoutMs: 60_000 });
+
+/** Visão do cliente (somente leitura): o que está sendo veiculado no Meta pela Mídia On. */
+export type LiveCampaignState = "no_ar" | "pausada" | "em_analise" | "com_problema" | "reprovada" | "encerrada" | "desconhecido";
+export type LiveCampaign = {
+  id: string; name: string; objective: string; daily_budget: number; start_date: string; end_date: string;
+  primary_text: string; headline: string; link: string | null;
+  creatives: { format: string; image_url: string | null; video_url: string | null; cards: number | null }[];
+  state: LiveCampaignState;
+  results: { spend: number; reach: number; impressions: number; link_clicks: number; ctr: number; results: number;
+    result_label: string; cost_per_result: number | null; checked_at: string } | null;
+};
+export function getLiveCampaigns() {
+  return http<{ campaigns: LiveCampaign[]; checked_at: string; read_only: true }>(base("/live"), { timeoutMs: 60_000 });
+}

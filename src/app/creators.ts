@@ -41,7 +41,7 @@ export const searchCreators = (network: CreatorNetwork, query: string, limit = 1
 export type CreatorPick = { id?: string; network: CreatorNetwork; handle: string; display_name: string | null; avatar_url: string | null;
   followers: number | null; engagement_rate?: number | null; verified?: boolean; private?: boolean; missing?: boolean; reason?: string };
 export const resolveCreator = (network: CreatorNetwork, q: string) =>
-  http<{ saved: CreatorPick[]; exact: CreatorPick | null }>(path(`/resolve?${new URLSearchParams({ network, q })}`));
+  http<{ saved: CreatorPick[]; exact: CreatorPick | null; similar?: CreatorPick[] }>(path(`/resolve?${new URLSearchParams({ network, q })}`));
 /** Busca por NOME no Instagram (Apify, só a equipe Mugô). */
 export const searchPeople = (query: string) => http<{ query: string; people: CreatorPick[] }>(path("/people-search"), post({ query }, SLOW_MS));
 export type CreatorSuggestion = { creator: Creator; reason: string };

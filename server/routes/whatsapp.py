@@ -5,6 +5,7 @@ Caixa de entrada e mensagens: agência e admin da marca — é conversa com clie
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Optional
 
@@ -367,12 +368,12 @@ async def whatsapp_template_preflight(client_id: str, payload: WhatsAppTemplateP
     approved = bool(matched and str(matched.get("status", "")).upper() == "APPROVED")
     return {"ok": True, "provider": provider, "template_found": bool(matched),
             "template_approved": approved, "template_status": matched.get("status") if matched else None,
-            "can_send": False, "reason": "Campanhas WhatsApp ainda exigem listas com opt-in específico, fila e homologação.",
+            "can_send": approved, "reason": "Modelo aprovado: a campanha pode ser enviada." if approved else "Modelo não aprovado na Meta.",
             "messages_sent": 0}
 
 
 
-# ---- Campanhas: prévia e rascunhos; nenhum endpoint de envio em massa.
+# ---- Campanhas: prévia, rascunho e envio em massa (template aprovado, todos os contatos menos quem pediu para sair).
 class BulkCampaignDraftIn(BaseModel):
     name: str = Field(min_length=3, max_length=120)
     template_name: str = Field(min_length=3, max_length=81)
@@ -384,16 +385,16 @@ class BulkCampaignDraftIn(BaseModel):
 async def whatsapp_campaign_draft_list(client_id: str, authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
     from services.whatsapp_campaign_drafts import list_drafts
-    return {"ok": True, "drafts": await list_drafts(cid), "sending_enabled": False}
+    return {"ok": True, "drafts": await list_drafts(cid), "sending_enabled": True}
 
 
 @router.get("/campaigns/audience-preview")
 async def whatsapp_campaign_audience_preview(client_id: str, provider: str = "all",
                                               authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
-    from services.whatsapp_campaign_drafts import audience_preview
+    from services.whatsapp_campaign_drafts import audience_with_sendable
     try:
-        return {"ok": True, **await audience_preview(cid, provider)}
+        return {"ok": True, **await audience_with_sendable(cid, provider)}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -411,7 +412,20 @@ async def whatsapp_campaign_create_draft(client_id: str, payload: BulkCampaignDr
         result = await save_draft(cid, payload.model_dump(), approved=bool(validated["template_approved"]))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"ok": True, **result, "sending_enabled": False}
+    return {"ok": True, **result, "sending_enabled": True}
+
+
+@router.post("/campaigns/drafts/{draft_id}/send")
+async def whatsapp_campaign_send(client_id: str, draft_id: str, authorization: Optional[str] = Header(None)):
+    """Envia (ou retoma) a campanha para todos os contatos com telefone da origem, menos quem pediu para sair."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    if not re.fullmatch(r"[0-9a-f-]{36}", draft_id):
+        raise HTTPException(status_code=404, detail="Campanha não encontrada.")
+    from services.whatsapp_campaign_send import BulkSendError, start
+    try:
+        return {"ok": True, **await start(cid, draft_id)}
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
 
 # ---- Instagram Direct da marca na mesma tela (gravado pelo webhook instagram-webhook).
 class InstagramReply(BaseModel):
