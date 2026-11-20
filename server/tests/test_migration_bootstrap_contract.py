@@ -147,7 +147,9 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)), "Migration filenames must be unique")
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         unique_numbers = sorted(set(logical_numbers))
-        self.assertEqual(unique_numbers, list(range(1, max(unique_numbers) + 1)))
+        # The repository intentionally has no migrations 000123..000129. Do not invent/reapply old scripts.
+        expected_numbers = list(range(1, 123)) + list(range(130, max(unique_numbers) + 1))
+        self.assertEqual(unique_numbers, expected_numbers)
 
         # Existing collision: both scripts were already published.
         # Never rename or reapply them solely to make a test pass.
@@ -164,7 +166,7 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         })
         self.assertEqual(
             [int(name.split("_", 2)[1]) for name in names if int(name.split("_", 2)[1]) > 117],
-            list(range(118, max(unique_numbers) + 1)),
+            list(range(118, 123)) + list(range(130, max(unique_numbers) + 1)),
         )
 
     def test_shopify_coverage_uses_completed_query_end(self):
