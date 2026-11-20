@@ -26,7 +26,7 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
   const [notice, setNotice] = useState("");
   const ids = draft.meta_ids || {};
   const singleImage = draft.status === "publicada" && !!ids.ad_id &&
-    (ids.ad_ids || [ids.ad_id]).length === 1 &&
+    (!Array.isArray(ids.ad_ids) || ids.ad_ids.length === 1) &&
     (draft.payload.ad.format || "single") === "single" &&
     draft.payload.ad.media_type !== "video";
 
@@ -116,7 +116,7 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
             <strong>{c.code}</strong> · {c.title || "Promoção"} · {c.status || "Status indisponível"}
             <button type="button" className="ds-button" style={{ marginLeft: 8 }}
               onClick={() => { navigator.clipboard?.writeText(c.code); }}>Copiar</button>
-            {singleImage ? <button type="button" className="ds-button" style={{ marginLeft: 8 }}
+            {singleImage && c.status === "ACTIVE" ? <button type="button" className="ds-button" style={{ marginLeft: 8 }}
               onClick={() => setAd((prev) => ({ ...prev, primary_text: `${prev.primary_text.trim()}\nCupom: ${c.code}` }))}>
               Inserir no texto
             </button> : null}
