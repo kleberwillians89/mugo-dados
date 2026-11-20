@@ -16,7 +16,7 @@ const SOURCES: { value: Provider; title: string }[] = [
   { value: "shopify", title: "Shopify" },
   { value: "fbits", title: "Wake / FBITS" },
   { value: "whatsapp", title: "Conversas WhatsApp" },
-  { value: "capture", title: "Captação / Landing Pages (First Access)" },
+  { value: "capture", title: "Captação / Landing Pages" },
 ];
 const fmt = (n: number) => new Intl.NumberFormat("pt-BR").format(n);
 const STATUS: Record<WaCampaignDraft["status"], string> = {
@@ -272,7 +272,7 @@ export default function WhatsAppBulkCampaigns() {
         </label> : null}
         {audience && (provider === "capture" || provider === "all") ? <p className="waBulkHelp" role="status">
           Captação / Landing Pages: {fmt(audience.consent_claimed_count || 0)} aceite(s) WhatsApp declarado(s).
-          Todos os cadastros com telefone desta origem recebem a campanha.
+          Esta contagem não confirma destinatários aptos. Confira a prévia antes de enviar.
         </p> : null}
         {audience ? <p className="waBulkHelp">{audience.reason} {audience.truncated ? "Consulta incompleta." : ""}</p> : null}
         {preflight ? <p role="status" className={preflight.approved ? "waBulkSuccess" : "waBulkError"}>{preflight.note}</p> : null}
