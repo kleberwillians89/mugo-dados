@@ -126,6 +126,33 @@ def net_sentiment(split: Dict[str, int]) -> Optional[int]:
     return round((split.get("positivo", 0) - split.get("negativo", 0)) / analyzed * 100)
 
 
+PRIOR_MENTIONS = 20  # menções neutras imaginárias: amostra pequena não vira nota extrema (ajuste de confiança)
+SOURCE_WEIGHT = {"news": 1.0, "comments": 0.5, "direct": 1.0}  # comentário no próprio perfil pesa metade (é fã)
+
+
+def splits_by_source(rows: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("source") or "news"), []).append(row)
+    return {src: _split(r) for src, r in grouped.items()}
+
+
+def weighted_net(splits: Dict[str, Dict[str, int]]) -> Optional[int]:
+    """Sentimento líquido para NOTA: peso por fonte e ajuste de confiança (encolhe para o neutro).
+
+    O número mostrado como "sentimento líquido" continua o bruto; este é só o que entra nas notas."""
+    pos = neg = analyzed = 0.0
+    for source, split in splits.items():
+        w = SOURCE_WEIGHT.get(source, 1.0)
+        pos += w * split.get("positivo", 0)
+        neg += w * split.get("negativo", 0)
+        analyzed += w * sum(split.get(s, 0) for s in SENTIMENTS)
+    if not analyzed:
+        return None
+    value = (pos - neg) / (analyzed + PRIOR_MENTIONS) * 100
+    return int(value + 0.5) if value >= 0 else -int(-value + 0.5)
+
+
 def alert_score(alerts: List[Dict[str, Any]]) -> int:
     penalty = sum(25 if a.get("severity") == "alto" else 10 for a in alerts if a.get("status", "aberto") == "aberto")
     return max(0, 100 - penalty)
@@ -193,7 +220,8 @@ async def summary(client_id: str, *, start: date, end: date, grain: str, sources
     split, prev_split = _split(cur), _split(prev)
     total, prev_total = sum(split.values()), sum(prev_split.values())
     net, prev_net = net_sentiment(split), net_sentiment(prev_split)
-    index, prev_index = health_index(net, alerts), health_index(prev_net, alerts)
+    index = health_index(weighted_net(splits_by_source(cur)), alerts)
+    prev_index = health_index(weighted_net(splits_by_source(prev)), alerts)
     analyzed = total - split["sem_analise"]
 
     by_bucket: Dict[str, List[Dict[str, Any]]] = {}
