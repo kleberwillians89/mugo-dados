@@ -171,6 +171,18 @@ async def read_meta_campaign_overview(client_id: str, authorization: Optional[st
         raise _http(exc) from None
 
 
+@router.get("/promotion-codes")
+async def read_media_promotion_codes(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Read-only Shopify discount codes belonging to the authorized tenant."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    from services.integration_errors import IntegrationError
+    from services.shopify_discount_codes import list_shopify_promo_codes
+    try:
+        return await list_shopify_promo_codes(cid)
+    except IntegrationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+
+
 class ImportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     campaign_id: str = Field(pattern=r"^\d{5,30}$")
