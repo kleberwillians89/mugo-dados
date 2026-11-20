@@ -56,11 +56,43 @@ class ContainerTests(unittest.TestCase):
         plan, _ = media_for(reels(cover_mode="image", cover_url="https://drive.google.com/file/d/abcdefghijk123/view"))
         self.assertEqual(plan["fields"]["cover_url"], "https://drive.google.com/uc?export=download&id=abcdefghijk123")
 
-    def test_png_cover_falls_back_to_frame_with_warning(self):
+    def test_png_cover_goes_for_jpeg_conversion(self):
+        # Antes a capa PNG caía no frame sem avisar direito; agora vai e vira JPG na publicação (ensure_jpeg).
         plan, _ = media_for(reels(cover_mode="image", cover_url="https://x.com/capa.png", thumb_offset_ms=7000))
+        self.assertEqual(plan["fields"]["cover_url"], "https://x.com/capa.png")
+        self.assertNotIn("thumb_offset", plan["fields"])
+        self.assertNotIn("warning", plan)
+
+    def test_cover_that_is_not_an_image_falls_back_to_frame(self):
+        plan, _ = media_for(reels(cover_mode="image", cover_url="https://www.canva.com/design/x/view", thumb_offset_ms=7000))
         self.assertNotIn("cover_url", plan["fields"])
         self.assertEqual(plan["fields"]["thumb_offset"], "7000")
-        self.assertIn("JPG", plan["warning"])
+        self.assertIn("frame", plan["warning"])
+
+    def test_png_cover_is_converted_before_publishing(self):
+        import asyncio
+        from io import BytesIO
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from PIL import Image
+        from services import ig_publish
+        buf = BytesIO(); Image.new("RGBA", (20, 30), (255, 0, 0, 128)).save(buf, "PNG")
+        plan, _ = media_for(reels(cover_mode="image", cover_url="https://x.com/capa.png"))
+        client = MagicMock(); client.__aenter__ = AsyncMock(return_value=client); client.__aexit__ = AsyncMock(return_value=False)
+        client.get = AsyncMock(return_value=MagicMock(status_code=200, content=buf.getvalue()))
+        upload = AsyncMock(return_value="https://x.supabase.co/capa.jpg")
+        with patch.object(ig_publish.httpx, "AsyncClient", return_value=client), \
+             patch("services.ig_supabase.sb_upload_public", upload):
+            changed = asyncio.run(ig_publish.ensure_jpeg(plan, "ruah"))
+        self.assertEqual(changed, 1)
+        self.assertEqual(plan["fields"]["cover_url"], "https://x.supabase.co/capa.jpg")
+        self.assertEqual(plan["fields"]["video_url"], "https://x.supabase.co/storage/v1/object/public/ig-media/a.mp4")
+
+    def test_describe_tells_what_went_with_the_reels(self):
+        from services.ig_reels import describe
+        music = {"audio_id": "123", "title": "Lofi", "artist": "Ana"}
+        raw = {"cover_mode": "image", "cover_url": COVER, "music": music}
+        plan, _ = media_for(reels(**raw))
+        self.assertEqual(describe(plan, raw), "publicou o Reels com música “Lofi · Ana” e capa por imagem")
 
     def test_trial_audio_and_feed(self):
         plan, _ = media_for(reels(trial="manual", audio_name="Áudio CuraClube", share_to_feed=False))
