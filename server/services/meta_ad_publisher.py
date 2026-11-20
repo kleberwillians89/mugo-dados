@@ -677,6 +677,41 @@ async def _imported_ids(client_id: str) -> set:
     return {str((r.get("meta_ids") or {}).get("campaign_id") or "") for r in rows} - {""}
 
 
+async def _effective_campaign_delivery(campaign_id: str, token: str) -> str:
+    """Classify ad delivery based on ad effective_status, not campaign ACTIVE alone.
+
+    ACTIVE means an ad is eligible for delivery, not proof of recent impressions.
+    Unknown/incomplete API reads must never become a positive ACTIVE signal.
+    """
+    params: Dict[str, Any] = {"fields": "id,effective_status", "limit": 100}
+    seen: set[str] = set()
+    states: List[str] = []
+    for _ in range(3):
+        body = await _graph("GET", f"/{campaign_id}/ads", token=token, params=params)
+        states.extend(str(ad.get("effective_status") or "").upper() for ad in body.get("data") or [])
+        if "ACTIVE" in states:
+            return "ACTIVE"
+        paging = body.get("paging") or {}
+        cursor = str((paging.get("cursors") or {}).get("after") or "")
+        if not paging.get("next"):
+            break
+        if not cursor or cursor in seen:
+            return "UNKNOWN"
+        seen.add(cursor)
+        params["after"] = cursor
+    else:
+        # More ads might exist. We cannot affirm all are inactive or paused.
+        return "UNKNOWN"
+    if not states:
+        return "NO_ACTIVE_AD"
+    for key in ("WITH_ISSUES", "DISAPPROVED", "PENDING_REVIEW", "IN_PROCESS"):
+        if key in states:
+            return key
+    if all(v in {"PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED"} for v in states):
+        return "PAUSED"
+    return "UNKNOWN"
+
+
 async def list_meta_campaigns(client_id: str, *, include_finished: bool = False) -> List[Dict[str, Any]]:
     """Campanhas da conta de anúncios; a visão geral inclui arquivadas e datas de encerramento."""
     account = await _ad_account(client_id)
@@ -709,6 +744,24 @@ async def list_meta_campaigns(client_id: str, *, include_finished: bool = False)
             break
         seen_cursors.add(cursor)
         params["after"] = cursor
+    if include_finished:
+        # A campaign can be ACTIVE while every ad or ad set is paused.
+        # Verify ad effective status for each ACTIVE campaign without modifying delivery.
+        semaphore = asyncio.Semaphore(5)
+
+        async def verify(row: Dict[str, Any]) -> None:
+            if row["status"].upper() != "ACTIVE":
+                row["delivery_checked"] = False
+                return
+            async with semaphore:
+                try:
+                    row["status"] = await _effective_campaign_delivery(row["id"], account["token"])
+                    row["delivery_checked"] = row["status"] != "UNKNOWN"
+                except Exception:
+                    row["status"] = "UNKNOWN"
+                    row["delivery_checked"] = False
+
+        await asyncio.gather(*(verify(row) for row in out))
     return out
 
 
