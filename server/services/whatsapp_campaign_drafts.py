@@ -115,15 +115,20 @@ async def audience_with_sendable(client_id: str, provider: str = "all") -> dict[
 
 BASE_FIELDS = "id,client_id,name,template_name,language,provider,audience_provider,audience_source,status,simulated_count,created_at"
 SEND_FIELDS = ",sent_count,failed_count,skipped_count,recipients_count,started_at,finished_at,last_error"
+QUEUE_FIELDS = ",scheduled_at,header_media_url"
 
 
 async def list_drafts(client_id: str) -> list[dict]:
     try:
-        rows = await sb_select(DRAFTS, select=BASE_FIELDS + SEND_FIELDS,
+        rows = await sb_select(DRAFTS, select=BASE_FIELDS + SEND_FIELDS + QUEUE_FIELDS,
                                filters={"client_id": f"eq.{client_id}"}, order="created_at.desc", limit=100)
-    except Exception:  # noqa: BLE001 - migration 000137 ainda não rodou
-        rows = await sb_select(DRAFTS, select=BASE_FIELDS,
-                               filters={"client_id": f"eq.{client_id}"}, order="created_at.desc", limit=100)
+    except Exception:  # noqa: BLE001 - migration 000138 (ou 000137) ainda não rodou
+        try:
+            rows = await sb_select(DRAFTS, select=BASE_FIELDS + SEND_FIELDS,
+                                   filters={"client_id": f"eq.{client_id}"}, order="created_at.desc", limit=100)
+        except Exception:  # noqa: BLE001
+            rows = await sb_select(DRAFTS, select=BASE_FIELDS,
+                                   filters={"client_id": f"eq.{client_id}"}, order="created_at.desc", limit=100)
     return [r for r in rows if r.get("client_id") == client_id]
 
 
@@ -140,6 +145,9 @@ async def save_draft(client_id: str, payload: dict, *, approved: bool) -> dict:
         raise ValueError("Idioma inválido.")
     if not approved:
         raise ValueError("O modelo precisa estar aprovado pela Meta para salvar a campanha.")
+    header = str(payload.get("header_media_url") or "").strip() or None
+    if header and (not header.startswith("https://") or len(header) > 1000):
+        raise ValueError("Link da imagem do topo inválido.")
     audience = await audience_preview(client_id, provider)
     if audience["truncated"]:
         raise ValueError("Público incompleto. Escolha uma origem menor.")
@@ -149,5 +157,6 @@ async def save_draft(client_id: str, payload: dict, *, approved: bool) -> dict:
         "audience_source": "lead_capture_events" if provider == "capture" else "relationship_contacts",
         "audience_provider": provider, "status": "draft",
         "simulated_count": 0,
+        **({"header_media_url": header} if header else {}),
     })
     return {"draft": row, "audience": audience, "messages_sent": 0}

@@ -18,7 +18,8 @@ vi.mock("../components/clipping/HealthIndexCard", () => ({ default: ({ compact }
 vi.mock("../components/home/HomeChannels", () => ({ default: () => <div>Canais operacionais</div> }));
 vi.mock("../components/data/PageSkeleton", () => ({ default: ({ label }: { label: string }) => <p>{label}</p> }));
 
-import Central, { buildDashboardSummary, isCurrentClientRequest } from "./Central";
+import Central from "./Central";
+import { buildDashboardSummary, isCurrentClientRequest } from "../app/centralSummary";
 
 const fixture: CentralView = {
   month: "2026-11", agency: true,
@@ -65,7 +66,7 @@ describe("Dashboard gerencial", () => {
     expect(container.textContent).toContain("Maison Demo, em perspectiva.");
     expect(container.textContent).toContain("Saúde compacta: true");
     expect(container.textContent).toContain("Faturamento da loja");
-    expect(container.textContent).toContain("R$ 8.300,00");
+    expect(container.textContent?.replace(/\u00a0/g, " ")).toContain("R$ 8.300,00");
     expect(container.textContent).toContain("Ticket médio estimado");
     expect(container.textContent).not.toContain("Trabalhos em andamento");
     const hero = container.querySelector(".clientExecutiveWelcome");

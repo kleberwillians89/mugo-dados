@@ -541,20 +541,31 @@ async def list_templates(client_id: str, number_id: Optional[str] = None) -> Lis
     out = []
     for t in body.get("data") or []:
         text = next((str(c.get("text") or "") for c in t.get("components") or [] if str(c.get("type") or "").upper() == "BODY"), "")
+        header = next((c for c in t.get("components") or [] if str(c.get("type") or "").upper() == "HEADER"), None) or {}
+        header_format = str(header.get("format") or "").upper() or None
         out.append({"name": t.get("name"), "language": t.get("language"), "status": t.get("status"),
                     "category": t.get("category"), "body": text[:1024],
-                    "variables": len(set(re.findall(r"\{\{\s*([^}\s]+)\s*\}\}", text)))})
+                    "variables": len(set(re.findall(r"\{\{\s*([^}\s]+)\s*\}\}", text))),
+                    # Topo do modelo: IMAGE/VIDEO/DOCUMENT exigem o arquivo no envio; TEXT com {{1}} exige o texto.
+                    "header": header_format,
+                    "header_variables": len(set(re.findall(r"\{\{\s*([^}\s]+)\s*\}\}", str(header.get("text") or ""))))})
     return out
 
 
 async def send_template(client_id: str, *, number_id: Optional[str], to: str, template: str, language: str,
-                        params: List[str]) -> str:
-    """Envia um template aprovado para um número (fora da janela de 24 h). Devolve o id da mensagem na Meta."""
+                        params: List[str], header_media: Optional[Dict[str, str]] = None) -> str:
+    """Envia um template aprovado para um número (fora da janela de 24 h). Devolve o id da mensagem na Meta.
+    ``header_media`` = {"type": "image"|"video"|"document", "link": "https://..."} para modelo com mídia no topo."""
     digits = re.sub(r"\D", "", str(to or ""))
     if len(digits) < 10:
         raise WhatsAppNativeError("INVALID_PHONE", "Telefone inválido.")
     number = await _active_number(client_id, number_id)
-    components = [{"type": "body", "parameters": [{"type": "text", "text": str(p)[:1000] or "-"} for p in params]}] if params else []
+    components: List[Dict[str, Any]] = []
+    if header_media and header_media.get("link"):
+        kind = header_media.get("type") if header_media.get("type") in ("image", "video", "document") else "image"
+        components.append({"type": "header", "parameters": [{"type": kind, kind: {"link": header_media["link"]}}]})
+    if params:
+        components.append({"type": "body", "parameters": [{"type": "text", "text": str(p)[:1000] or "-"} for p in params]})
     out = await _graph("POST", f"{number['phone_number_id']}/messages", number["access_token"],
                        json_body={"messaging_product": "whatsapp", "to": digits, "type": "template",
                                   "template": {"name": template, "language": {"code": language or "pt_BR"}, "components": components}})

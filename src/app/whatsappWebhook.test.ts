@@ -78,7 +78,7 @@ describe("webhook do WhatsApp nativo", () => {
   });
 
   it("repassa ao CRM só o que não é número do MUGOVERSO, com a assinatura original", () => {
-    expect(webhook).toMatch(/if \(!number\) \{ if \(app\.legacy\) foreign = true; continue \}/);
+    expect(webhook).toMatch(/if \(!number\) \{ (unmatched \+= 1; )?if \(app\.legacy\) foreign = true; continue \}/);
     expect(webhook).toMatch(/'x-hub-signature-256': signature/);
     expect(webhook).toMatch(/if \(foreign && signature && app\.legacy\) inBackground\(forward\(raw, signature\)\)/);
     expect(webhook).toMatch(/return text\('unauthorized', 401\)/);

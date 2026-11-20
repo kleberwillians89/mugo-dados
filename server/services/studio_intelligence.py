@@ -261,6 +261,12 @@ async def _paid_creatives(client_id: str, days: int = PAID_DAYS) -> Dict[str, An
             "melhores": [view(a) for a in best], "piores": [view(a) for a in worst]}
 
 
+async def _brand_lessons(client_id: str) -> List[Dict[str, Any]]:
+    """Conclusões guardadas pelo ciclo fechado (brand_learnings): o que cada post e anúncio rendeu contra a média."""
+    from .brand_learnings import recent
+    return await recent(client_id)
+
+
 async def _mugo_ad_copies(client_id: str) -> Dict[str, Dict[str, Any]]:
     """Texto, título e formato de cada anúncio que o Mídia On criou (ID do anúncio na Meta → criativo)."""
     from .meta_ad_publisher import ad_units, clean_payload
@@ -351,7 +357,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     month = today.replace(day=1)
     (profile, business, snap, posts, timing, goals, analysis, learnings,
      origin, media, campaigns, clipping, calendar_month, references,
-     health, voice, competitors, products, briefs, plans, library, whatsapp, creatives) = await asyncio.gather(
+     health, voice, competitors, products, briefs, plans, library, whatsapp, creatives, brand_lessons) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -375,6 +381,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("biblioteca", gaps, lambda: _library(client_id), {}),
         _safe("whatsapp", gaps, lambda: _whatsapp(client_id), {}),
         _safe("criativos_pagos", gaps, lambda: _paid_creatives(client_id), {}),
+        _safe("aprendizados_da_marca", gaps, lambda: _brand_lessons(client_id), []),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -385,6 +392,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "kpis": snap.get("metricas") or [],
         "campanhas_que_mais_venderam": snap.get("campanhas") or [],
         "criativos_pagos": creatives,
+        "aprendizados_da_marca": brand_lessons,
         "funil_do_site": snap.get("funil_do_site") or {},
         "posts": posts,
         "horarios": timing,
@@ -697,7 +705,10 @@ async def passages_for(client_id: str, *texts: str, limit: int = 4) -> str:
 LIBRARY_RULE = ("A BIBLIOTECA dos DADOS é só material da marca (logo, identidade, produto, fotos e vídeos da marca, referências). "
                 "Se tiver o arquivo certo, cite-o pelo nome exato na ideia de imagem para a equipe achar; não invente arquivo "
                 "que não está lá. O que funcionou vem dos posts, anúncios e aprovações, não da Biblioteca.")
-PLANS_RULE = ("Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
+PLANS_RULE = ("Use os aprendizados_da_marca (o que já funcionou ou não nesta marca) antes de qualquer ideia nova. No 'por que' de "
+              "cada post, pauta ou anúncio, comece com 'Baseado em:' e cite o aprendizado, post ou anúncio dos DADOS que sustenta "
+              "a ideia (ex.: 'Baseado em: Reels de 12/11 com 2,1× o alcance médio'); se for teste sem histórico, diga 'Teste: ...'. "
+              "Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
               "que está em 'nao_fazer'. Evento próximo vira pauta de antes, durante e depois. As perguntas reais dos clientes "
               "(seção whatsapp e voz_do_publico) são ponto de partida para pauta, FAQ e objeção a quebrar. Ao usar um trecho de "
               "documento da marca, cite o nome do documento (entre colchetes nos trechos) na justificativa.")
@@ -729,7 +740,7 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
 # Ordem de importância: quando o contexto passa do limite, o FIM da lista é resumido (e, se preciso, omitido) primeiro.
 # Resultado real (aprovações, posts, anúncios) vem logo depois da marca e do que a equipe decidiu; a lista de arquivos
 # da Biblioteca fica por último.
-PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "aprendizados", "posts", "criativos_pagos",
+PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "aprendizados", "aprendizados_da_marca", "posts", "criativos_pagos",
                 "referencias_do_cliente", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia",
                 "kpis", "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes",
                 "clipping", "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas", "biblioteca"]

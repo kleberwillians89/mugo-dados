@@ -18,23 +18,28 @@ def _row(i, campaign_id):
 
 def test_so_campanhas_no_meta_com_estado_e_numeros_no_ar_primeiro():
     rows = [_row(1, "c1"), _row(2, None), _row(3, "c3")]
-    status = {"d1": "PAUSED", "d3": "ACTIVE"}
+    status = {"/c1": "PAUSED", "/c3": "ACTIVE"}
+
+    async def graph(method, path, **kw):
+        return {"effective_status": status[path], "insights": {"data": [{"spend": "3.59", "reach": "539", "impressions": "1000",
+                                                                         "clicks": "20", "inline_link_clicks": "15",
+                                                                         "actions": [{"action_type": "link_click", "value": "15"}]}]}}
+    graph_mock = AsyncMock(side_effect=graph)
     with patch.object(pub, "list_drafts", AsyncMock(return_value=rows)), \
-            patch.object(pub, "live_delivery_status", AsyncMock(side_effect=lambda cid, did: {"objects": {"campaign": {"effective_status": status[did]}}})), \
-            patch.object(pub, "live_results", AsyncMock(return_value={"spend": 3.59, "reach": 539, "results": 15, "result_label": "Cliques no link",
-                                                                      "cost_per_result": 0.24, "secret": "x"})):
+            patch.object(pub, "_ad_account", AsyncMock(return_value={"token": "t", "act": "act_1"})), patch.object(pub, "_graph", graph_mock):
         out = asyncio.run(pub.client_overview("ruah"))
+    assert graph_mock.await_count == 2  # uma chamada por campanha
     names = [c["name"] for c in out["campaigns"]]
     assert names == ["Camp 3", "Camp 1"]
     first = out["campaigns"][0]
     assert first["state"] == "no_ar" and first["creatives"][0]["image_url"] == "https://x/a.jpg"
-    assert first["results"]["reach"] == 539 and "secret" not in first["results"]
+    assert first["results"]["reach"] == 539 and first["results"]["cost_per_result"] == 0.24
     assert "meta_ids" not in first and out["read_only"] is True
 
 
 def test_sem_numeros_da_meta_a_campanha_aparece_mesmo_assim():
     with patch.object(pub, "list_drafts", AsyncMock(return_value=[_row(1, "c1")])), \
-            patch.object(pub, "live_delivery_status", AsyncMock(side_effect=pub.StudioError("AD_ACCOUNT_MISSING"))), \
-            patch.object(pub, "live_results", AsyncMock(side_effect=RuntimeError("meta fora"))):
+            patch.object(pub, "_ad_account", AsyncMock(return_value={"token": "t", "act": "act_1"})), \
+            patch.object(pub, "_graph", AsyncMock(side_effect=RuntimeError("meta fora"))):
         out = asyncio.run(pub.client_overview("ruah"))
     assert out["campaigns"][0]["state"] == "desconhecido" and out["campaigns"][0]["results"] is None

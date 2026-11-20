@@ -3,9 +3,11 @@ import { getActiveClientId } from "../../app/activeClient";
 import {
   createWhatsAppCampaignDraft, listWhatsAppCampaignDrafts, listWhatsAppTemplates,
   getWhatsAppContactImportStatus, importExistingCommerceContacts, importExistingWhatsAppConversations,
-  preflightWhatsAppCampaignTemplate, previewWhatsAppCampaignAudience, sendWhatsAppCampaign,
+  preflightWhatsAppCampaignTemplate, previewWhatsAppCampaignAudience, sendWhatsAppCampaign, cancelWhatsAppCampaign,
+  getWhatsAppCampaignReport, type WaCampaignReport,
   type WaCampaignAudience, type WaCampaignDraft, type WaTemplate, type WaContactImportStatus,
 } from "../../app/whatsapp";
+import { uploadArt } from "../../app/artUpload";
 import "./WhatsAppBulkCampaigns.css";
 
 type Provider = "all" | "shopify" | "fbits" | "whatsapp" | "capture";
@@ -18,8 +20,15 @@ const SOURCES: { value: Provider; title: string }[] = [
 ];
 const fmt = (n: number) => new Intl.NumberFormat("pt-BR").format(n);
 const STATUS: Record<WaCampaignDraft["status"], string> = {
-  draft: "Pronta para enviar", sending: "Enviando…", sent: "Enviada", partial: "Enviada em parte", failed: "Falhou",
+  draft: "Pronta para enviar", queued: "Na fila", sending: "Enviando…", sent: "Enviada", partial: "Enviada em parte", failed: "Falhou",
 };
+const MEDIA_HEADERS = new Set(["IMAGE", "VIDEO", "DOCUMENT"]);
+const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+function statusLabel(d: WaCampaignDraft) {
+  if (d.status === "queued") return d.scheduled_at && new Date(d.scheduled_at) > new Date() ? `Agendada · ${stamp(d.scheduled_at)}` : "Na fila · começa em até 5 min";
+  return STATUS[d.status] || d.status;
+}
 
 export default function WhatsAppBulkCampaigns() {
   const tenant = getActiveClientId();
@@ -41,6 +50,11 @@ export default function WhatsAppBulkCampaigns() {
   const [draftsError, setDraftsError] = useState("");
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<WaCampaignDraft | null>(null);
+  const [when, setWhen] = useState<"now" | "later">("now");
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [headerUrl, setHeaderUrl] = useState("");
+  const [headerBusy, setHeaderBusy] = useState(false);
+  const [reports, setReports] = useState<Record<string, WaCampaignReport | "loading" | string>>({});
 
   const approved = useMemo(() => templates.filter((t) => t.status.toUpperCase() === "APPROVED"), [templates]);
   const selected = approved.find((t) => `${t.name}::${t.language}` === templateKey);
@@ -75,7 +89,7 @@ export default function WhatsAppBulkCampaigns() {
     return () => { active = false; };
   }, [tenant]);
 
-  const anySending = drafts.some((d) => d.status === "sending");
+  const anySending = drafts.some((d) => d.status === "sending" || d.status === "queued");
   useEffect(() => {
     if (!anySending) return;
     const timer = window.setInterval(() => {
@@ -85,15 +99,43 @@ export default function WhatsAppBulkCampaigns() {
   }, [anySending, tenant]);
 
   async function send(draft: WaCampaignDraft) {
+    if (when === "later" && !scheduleAt) { setError("Escolha a data e a hora do envio."); return; }
     setConfirming(null); setSendingId(draft.id); setError(""); setNotice("");
     try {
-      const r = await sendWhatsAppCampaign(draft.id);
+      const r = await sendWhatsAppCampaign(draft.id, when === "later" ? new Date(scheduleAt).toISOString() : null);
       if (getActiveClientId() !== tenant) return;
-      setNotice(`Envio começou para ${fmt(r.recipients_count)} contatos. Acompanhe no histórico.`);
+      setNotice(r.scheduled_at
+        ? `Agendada para ${stamp(r.scheduled_at)} (${fmt(r.recipients_count)} contatos). Dá para cancelar até lá.`
+        : `Na fila para ${fmt(r.recipients_count)} contatos: o envio começa em até 5 minutos e segue mesmo com a tela fechada.`);
       await refresh();
     } catch (cause) {
       if (getActiveClientId() === tenant) setError(cause instanceof Error ? cause.message : "Não foi possível começar o envio.");
     } finally { setSendingId(null); }
+  }
+
+  async function cancelDraft(draft: WaCampaignDraft) {
+    setSendingId(draft.id); setError("");
+    try { await cancelWhatsAppCampaign(draft.id); await refresh(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível cancelar."); }
+    finally { setSendingId(null); }
+  }
+
+  async function loadReport(draft: WaCampaignDraft) {
+    setReports((r) => ({ ...r, [draft.id]: "loading" }));
+    try {
+      const rep = await getWhatsAppCampaignReport(draft.id);
+      setReports((r) => ({ ...r, [draft.id]: rep }));
+    } catch (cause) {
+      setReports((r) => ({ ...r, [draft.id]: cause instanceof Error ? cause.message : "Relatório indisponível agora." }));
+    }
+  }
+
+  async function uploadHeader(file: File | undefined) {
+    if (!file) return;
+    setHeaderBusy(true); setError("");
+    try { setHeaderUrl(await uploadArt(null, file)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível enviar o arquivo."); }
+    finally { setHeaderBusy(false); }
   }
 
   useEffect(() => {
@@ -153,6 +195,7 @@ export default function WhatsAppBulkCampaigns() {
       if (!t.template_approved) return;
       const response = await createWhatsAppCampaignDraft({
         name: name.trim(), template_name: selected.name, language: selected.language, provider,
+        ...(selected.header && MEDIA_HEADERS.has(selected.header) && headerUrl ? { header_media_url: headerUrl } : {}),
       });
       if (getActiveClientId() !== tenant) return;
       setNotice(`Campanha "${response.draft.name}" pronta. Confira no histórico e clique em Enviar.`);
@@ -222,6 +265,11 @@ export default function WhatsAppBulkCampaigns() {
           <p>{selected.body || "Este modelo não disponibilizou prévia de texto."}</p>
           {selected.variables ? <small>{selected.variables} variável(is) exigem parametrização antes de qualquer envio real.</small> : null}
         </div> : <p className="waBulkHelp">Se não houver modelos aprovados, crie um na aba Modelos e aguarde aprovação da Meta.</p>}
+        {selected?.header && MEDIA_HEADERS.has(selected.header) ? <label>{selected.header === "IMAGE" ? "Imagem do topo" : selected.header === "VIDEO" ? "Vídeo do topo" : "Arquivo do topo"} (o modelo pede)
+          <input type="file" accept={selected.header === "IMAGE" ? "image/png,image/jpeg" : selected.header === "VIDEO" ? "video/mp4" : "application/pdf"}
+            disabled={headerBusy} onChange={(e) => void uploadHeader(e.currentTarget.files?.[0])} />
+          {headerBusy ? <small>Enviando…</small> : headerUrl ? (selected.header === "IMAGE" ? <img className="waBulkHeaderPreview" src={headerUrl} alt="" /> : <small>Arquivo pronto.</small>) : null}
+        </label> : null}
         {audience && (provider === "capture" || provider === "all") ? <p className="waBulkHelp" role="status">
           Captação / Landing Pages: {fmt(audience.consent_claimed_count || 0)} aceite(s) WhatsApp declarado(s).
           Todos os cadastros com telefone desta origem recebem a campanha.
@@ -230,7 +278,8 @@ export default function WhatsAppBulkCampaigns() {
         {preflight ? <p role="status" className={preflight.approved ? "waBulkSuccess" : "waBulkError"}>{preflight.note}</p> : null}
         {notice ? <p role="status" className="waBulkSuccess">{notice}</p> : null}
         {error ? <p role="alert" className="waBulkError">{error}</p> : null}
-        <button type="submit" className="waBulkPrimary" disabled={loading || busy || !selected || !name.trim() || !audience || audience.truncated}>
+        <button type="submit" className="waBulkPrimary" disabled={loading || busy || !selected || !name.trim() || !audience || audience.truncated
+          || Boolean(selected?.header && MEDIA_HEADERS.has(selected.header) && !headerUrl)}>
           {busy ? "Verificando..." : "Salvar campanha"}
         </button>
         <p className="waBulkHelp">Salvar não envia nada. O envio começa só quando você clica em Enviar no histórico.
@@ -248,10 +297,19 @@ export default function WhatsAppBulkCampaigns() {
                 {d.failed_count ? ` · ${fmt(d.failed_count)} falharam` : ""}{d.skipped_count ? ` · ${fmt(d.skipped_count)} pediram para sair` : ""}
               </small> : null}
               {d.last_error && d.status !== "sent" ? <small className="waBulkError">Último erro: {d.last_error}</small> : null}</div>
-            <span className={`waBulkStatus is-${d.status}`}>{STATUS[d.status] || d.status}</span>
+            <span className={`waBulkStatus is-${d.status}`}>{statusLabel(d)}</span>
             {["draft", "partial", "failed"].includes(d.status) ? <button type="button" className="waBulkPrimary"
-              disabled={Boolean(sendingId)} onClick={() => setConfirming(d)}>
-              {sendingId === d.id ? "Começando…" : d.status === "draft" ? "Enviar" : "Retomar envio"}</button> : null}
+              disabled={Boolean(sendingId)} onClick={() => { setWhen("now"); setScheduleAt(""); setConfirming(d); }}>
+              {sendingId === d.id ? "Começando…" : d.status === "draft" ? "Enviar ou agendar" : "Retomar envio"}</button> : null}
+            {d.status === "queued" ? <button type="button" disabled={Boolean(sendingId)} onClick={() => void cancelDraft(d)}>Cancelar</button> : null}
+            {["sent", "partial"].includes(d.status) ? <button type="button" onClick={() => void loadReport(d)}
+              disabled={reports[d.id] === "loading"}>{reports[d.id] === "loading" ? "Calculando…" : "Ver resultado"}</button> : null}
+            {typeof reports[d.id] === "object" ? (() => { const r = reports[d.id] as WaCampaignReport; return <div className="waBulkReport" role="status">
+              <span><b>{fmt(r.sent)}</b> enviadas</span>
+              <span><b>{fmt(r.replied)}</b> responderam ({r.reply_rate.toLocaleString("pt-BR")}%)</span>
+              {r.sales_available ? <span><b>{fmt(r.buyers)}</b> compraram em 7 dias · {brl(r.revenue)}</span> : <span>Vendas: loja não conectada</span>}
+              <small>{r.window} · cruzado pelo telefone</small>
+            </div>; })() : typeof reports[d.id] === "string" && reports[d.id] !== "loading" ? <small className="waBulkError">{reports[d.id] as string}</small> : null}
           </article>)}
         </div> : <p className="waBulkEmpty">Nenhuma campanha planejada ainda.</p>}
       </section>
@@ -261,11 +319,16 @@ export default function WhatsAppBulkCampaigns() {
         <h3>Enviar "{confirming.name}"?</h3>
         <p>Vai para <b>todos os contatos com telefone</b> da origem {SOURCES.find((s) => s.value === (confirming.audience_provider || "all"))?.title || "escolhida"},
           {audience && provider === (confirming.audience_provider || "all") ? ` cerca de ${fmt(audience.sendable_count)} pessoas,` : ""} usando o modelo {confirming.template_name}.</p>
+        <div className="waBulkWhen" role="radiogroup" aria-label="Quando enviar">
+          <label><input type="radio" checked={when === "now"} onChange={() => setWhen("now")} /> Enviar agora (começa em até 5 min)</label>
+          <label><input type="radio" checked={when === "later"} onChange={() => setWhen("later")} /> Agendar</label>
+          {when === "later" ? <input type="datetime-local" aria-label="Data e hora do envio" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} /> : null}
+        </div>
         <p className="waBulkWarn">Quem não aceitou receber WhatsApp da marca pode denunciar a mensagem. Muitas denúncias derrubam a
           qualidade do número e a Meta pode limitar ou bloquear o WhatsApp da marca. Não dá para desfazer depois de enviado.</p>
         <div className="waBulkConfirmActions">
           <button type="button" onClick={() => setConfirming(null)}>Cancelar</button>
-          <button type="button" className="waBulkPrimary" onClick={() => void send(confirming)}>Enviar agora</button>
+          <button type="button" className="waBulkPrimary" onClick={() => void send(confirming)}>{when === "later" ? "Agendar envio" : "Enviar agora"}</button>
         </div>
       </div>
     </div> : null}

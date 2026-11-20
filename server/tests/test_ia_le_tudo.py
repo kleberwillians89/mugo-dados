@@ -37,7 +37,7 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(si.PROMPT_ORDER[2:4], ["briefings_aprovados", "planos_aprovados"])
 
     def test_results_before_everything_else_and_library_last(self):
-        self.assertEqual(si.PROMPT_ORDER[4:7], ["aprendizados", "posts", "criativos_pagos"])
+        self.assertEqual(si.PROMPT_ORDER[4:8], ["aprendizados", "aprendizados_da_marca", "posts", "criativos_pagos"])
         self.assertEqual(si.PROMPT_ORDER[-1], "biblioteca")
 
     def test_logs_size_and_what_was_cut_without_data(self):

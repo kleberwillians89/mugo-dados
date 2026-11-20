@@ -151,6 +151,8 @@ export function verifyRooveMetaCode(numberId: string, code: string, confirmed: b
 /** Each tenant manages only its own WhatsApp Business Account message templates. */
 export type WaTemplate = {
   name: string; language: string; status: string; category: string; body: string; variables: number;
+  /** Topo do modelo: IMAGE/VIDEO/DOCUMENT pedem o arquivo no disparo. */
+  header?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | null; header_variables?: number;
 };
 export type WaTemplateInput = {
   number_id?: string | null; name: string; category: "MARKETING" | "UTILITY";
@@ -191,15 +193,27 @@ export type WaCampaignAudience = {
 };
 export type WaCampaignDraft = {
   id: string; name: string; template_name: string; language: string;
-  status: "draft" | "sending" | "sent" | "partial" | "failed"; simulated_count: number; created_at: string;
+  status: "draft" | "queued" | "sending" | "sent" | "partial" | "failed"; simulated_count: number; created_at: string;
+  scheduled_at?: string | null; header_media_url?: string | null;
   audience_provider?: string;
   sent_count?: number; failed_count?: number; skipped_count?: number; recipients_count?: number;
   started_at?: string | null; finished_at?: string | null; last_error?: string | null;
 };
 /** Envia (ou retoma) a campanha para todos os contatos com telefone da origem, menos quem pediu para sair. */
-export function sendWhatsAppCampaign(draftId: string) {
-  return http<{ ok: true; status: "sending"; recipients_count: number }>(
-    base(`/campaigns/drafts/${encodeURIComponent(draftId)}/send`), { method: "POST" });
+export function sendWhatsAppCampaign(draftId: string, scheduledAt?: string | null) {
+  return http<{ ok: true; status: "queued"; scheduled_at: string | null; recipients_count: number }>(
+    base(`/campaigns/drafts/${encodeURIComponent(draftId)}/send`),
+    { method: "POST", body: JSON.stringify({ scheduled_at: scheduledAt || null }) });
+}
+export function cancelWhatsAppCampaign(draftId: string) {
+  return http<{ ok: true; status: "draft" }>(base(`/campaigns/drafts/${encodeURIComponent(draftId)}/cancel`), { method: "POST" });
+}
+export type WaCampaignReport = {
+  sent: number; failed: number; skipped: number; replied: number; reply_rate: number;
+  buyers: number; orders: number; revenue: number; sales_available: boolean; window: string;
+};
+export function getWhatsAppCampaignReport(draftId: string) {
+  return http<{ ok: true } & WaCampaignReport>(base(`/campaigns/drafts/${encodeURIComponent(draftId)}/report`), { timeoutMs: 60_000 });
 }
 export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" = "all") {
   return http<WaCampaignAudience>(base(`/campaigns/audience-preview?provider=${encodeURIComponent(provider)}`));
@@ -218,6 +232,7 @@ export function preflightWhatsAppCampaignTemplate(template_name: string, languag
 export function createWhatsAppCampaignDraft(input: {
   name: string; template_name: string; language: string;
   provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture";
+  header_media_url?: string | null;
 }) {
   return http<{ ok: true; sending_enabled: boolean; draft: WaCampaignDraft; messages_sent: 0 }>(
     base("/campaigns/drafts"), {method: "POST", body: JSON.stringify(input)},
