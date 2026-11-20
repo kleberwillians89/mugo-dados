@@ -21,21 +21,37 @@ export default function MediaLiveCampaigns() {
   const clientId = getActiveClientId();
   const [items, setItems] = useState<LiveCampaign[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<LiveCampaignState | "all">("no_ar");
 
   useEffect(() => {
     let alive = true;
+    setFilter("no_ar"); setItems(null); setError(null);
     getLiveCampaigns().then((r) => { if (alive && getActiveClientId() === clientId) setItems(r.campaigns); })
       .catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : "Não foi possível carregar as campanhas."); });
     return () => { alive = false; };
   }, [clientId]);
 
+  const visible = (items || []).filter((c) => filter === "all" || c.state === filter);
+
   return <section className="ds-section mediaLive" aria-labelledby="media-live-title">
     <h2 id="media-live-title">O que está sendo veiculado</h2>
     <p className="ds-footnote">Campanhas que a Mugô colocou no Meta (Instagram e Facebook), com o anúncio e os números desde o início.</p>
+    <label className="ds-caption" style={{ display: "block", margin: "14px 0" }}>Filtrar campanhas
+      <select aria-label="Filtrar campanhas por status" value={filter} onChange={(e) => setFilter(e.target.value as LiveCampaignState | "all")} style={{ display: "block", minHeight: 40, marginTop: 6 }}>
+        <option value="no_ar">Ativas (padrão)</option>
+        <option value="pausada">Pausadas / desativadas</option>
+        <option value="encerrada">Encerradas</option>
+        <option value="em_analise">Em análise</option>
+        <option value="com_problema">Com problemas</option>
+        <option value="reprovada">Reprovadas</option>
+        <option value="desconhecido">Status indisponível</option>
+        <option value="all">Todas as campanhas</option>
+      </select>
+    </label>
     {error ? <p className="studioError" role="alert">{error}</p> : null}
     {!items && !error ? <p role="status">Buscando as campanhas na Meta…</p> : null}
-    {items && !items.length ? <p className="ds-noticeText">Nenhuma campanha no Meta por enquanto. Quando a Mugô colocar uma no ar, ela aparece aqui.</p> : null}
-    {items?.length ? <div className="mediaLiveGrid">{items.map((c) => {
+    {items && !visible.length ? <p className="ds-noticeText">Nenhuma campanha neste status. Use o filtro para consultar as pausadas, encerradas ou todas.</p> : null}
+    {visible.length ? <div className="mediaLiveGrid">{visible.map((c) => {
       const creative = c.creatives[0];
       return <article key={c.id} className="mediaLiveCard">
         <div className="mediaLiveMedia">
