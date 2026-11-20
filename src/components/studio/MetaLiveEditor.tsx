@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { getActiveClientId } from "../../app/activeClient";
 import {
-  listShopPromotionCodes, updateLiveMetaBudget, updateLiveMetaCreative,
+  listShopPromotionCodes, updateLiveMetaBudget, updateLiveMetaCreative, readLiveMetaStructure, changeLiveMetaObjectStatus,
+  type LiveMetaStructure,
   type AdDraft, type AdPayload, type ShopPromotionCode,
 } from "../../app/metaAds";
 import type { CalendarItem } from "../../app/studio";
@@ -18,6 +19,9 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
   const [open, setOpen] = useState(false);
   const [budget, setBudget] = useState(draft.payload.daily_budget);
   const [ad, setAd] = useState<AdPayload["ad"]>({ ...draft.payload.ad });
+  const [structure, setStructure] = useState<LiveMetaStructure | null>(null);
+  const [structureBusy, setStructureBusy] = useState(false);
+  const [objectBusy, setObjectBusy] = useState<string | null>(null);
   const [codes, setCodes] = useState<ShopPromotionCode[]>([]);
   const [codesBusy, setCodesBusy] = useState(false);
   const [codesMessage, setCodesMessage] = useState("");
@@ -35,6 +39,30 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
     setAd({ ...draft.payload.ad });
     setError(""); setNotice("");
   }, [draft.id, draft.payload]);
+
+  async function loadStructure() {
+    setStructureBusy(true); setError("");
+    try {
+      const result = await readLiveMetaStructure(draft.id);
+      if (getActiveClientId() === clientId) setStructure(result);
+    } catch (cause) {
+      if (getActiveClientId() === clientId) { setStructure(null); setError(message(cause)); }
+    } finally { setStructureBusy(false); }
+  }
+
+  async function applyObjectStatus(level: "adset" | "ad", id: string, name: string, status: string) {
+    const next = status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+    const description = next === "ACTIVE" ? "ATIVAR" : "PAUSAR";
+    if (!window.confirm(`${description} ${level === "adset" ? "o conjunto" : "o anúncio"} "${name}" na Meta? ${next === "ACTIVE" ? "Se a campanha e os demais níveis estiverem ativos, poderá haver gasto de verba." : "A entrega desse item será interrompida."}`)) return;
+    setObjectBusy(id); setError(""); setNotice("");
+    try {
+      await changeLiveMetaObjectStatus(draft.id, level, id, next);
+      if (getActiveClientId() !== clientId) return;
+      await loadStructure();
+      setNotice("Status atualizado e confirmado pela Meta.");
+    } catch (cause) { if (getActiveClientId() === clientId) setError(message(cause)); }
+    finally { setObjectBusy(null); }
+  }
 
   async function loadCodes() {
     setCodesBusy(true); setCodesMessage("");
@@ -85,7 +113,7 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
   }
 
   return <>
-    <button className="ds-button" type="button" onClick={() => { setOpen(true); setCodes([]); setCodesMessage(""); }}>
+    <button className="ds-button" type="button" onClick={() => { setOpen(true); setCodes([]); setCodesMessage(""); void loadStructure(); }}>
       Editar no Mugô Verso
     </button>
     <Drawer open={open} width="lg" title={`Editar na Meta · ${draft.payload.name}`}
@@ -94,6 +122,33 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
       <div className="metaAdsForm">
         {error ? <p role="alert" className="studioError">{error}</p> : null}
         {notice ? <p role="status" className="ds-noticeText">{notice}</p> : null}
+
+        <h3>Conjuntos de anúncios e anúncios</h3>
+        <p className="ds-caption">Estrutura consultada na Meta desta empresa. Você pode ativar ou pausar cada item individualmente; ativar um item não altera automaticamente o status dos demais níveis.</p>
+        <button className="ds-button" type="button" onClick={() => void loadStructure()} disabled={structureBusy || !!objectBusy}>
+          {structureBusy ? "Consultando a Meta…" : "Atualizar estrutura da Meta"}
+        </button>
+        {structure ? <>
+          <small className="ds-caption">Sincronizado: {new Date(structure.checked_at).toLocaleString("pt-BR")}</small>
+          <h4>Conjuntos ({structure.adsets.length})</h4>
+          {structure.adsets.map((item) => <div key={item.id} className="ds-noticeText" style={{ padding: 10, borderBottom: "1px solid #e3e6eb" }}>
+            <strong>{item.name || item.id}</strong> · {item.effective_status || item.status}
+            {item.daily_budget ? ` · Verba R$ ${(Number(item.daily_budget) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/dia` : ""}
+            <button type="button" className="ds-button" style={{ marginLeft: 8 }} disabled={!!objectBusy || structureBusy}
+              onClick={() => void applyObjectStatus("adset", item.id, item.name, item.status)}>
+              {objectBusy === item.id ? "Confirmando…" : item.status === "ACTIVE" ? "Pausar conjunto" : "Ativar conjunto"}
+            </button>
+          </div>)}
+          <h4>Anúncios ({structure.ads.length})</h4>
+          {structure.ads.map((item) => <div key={item.id} className="ds-noticeText" style={{ padding: 10, borderBottom: "1px solid #e3e6eb" }}>
+            {item.creative?.thumbnail_url ? <img src={item.creative.thumbnail_url} alt="" style={{ maxWidth: 80, verticalAlign: "middle", marginRight: 10 }} /> : null}
+            <strong>{item.name || item.id}</strong> · {item.effective_status || item.status}
+            <button type="button" className="ds-button" style={{ marginLeft: 8 }} disabled={!!objectBusy || structureBusy}
+              onClick={() => void applyObjectStatus("ad", item.id, item.name, item.status)}>
+              {objectBusy === item.id ? "Confirmando…" : item.status === "ACTIVE" ? "Pausar anúncio" : "Ativar anúncio"}
+            </button>
+          </div>)}
+        </> : !structureBusy ? <p className="ds-caption">Clique em Atualizar estrutura da Meta para consultar conjuntos e anúncios.</p> : null}
 
         <h3>Orçamento diário</h3>
         <p className="ds-caption">A Meta aplica mudanças de verba à campanha ou ao conjunto, conforme a configuração original. Isso pode alterar o gasto imediatamente.</p>

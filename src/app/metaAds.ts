@@ -81,6 +81,27 @@ export const updateLiveMetaCreative = (id: string, ad: Pick<AdPayload["ad"], "pr
     { method: "POST", body: JSON.stringify({ ad, confirm: true }), timeoutMs: 120_000 }
   );
 
+/** Estrutura atual da Meta para uma campanha já publicada, carregada no tenant ativo. */
+export type LiveMetaObject = {
+  id: string; name: string; campaign_id?: string; adset_id?: string;
+  status: string; effective_status: string;
+  daily_budget?: string | number | null; lifetime_budget?: string | number | null;
+  start_time?: string | null; end_time?: string | null;
+  creative?: { id?: string; name?: string; thumbnail_url?: string };
+};
+export type LiveMetaStructure = {
+  source: "meta_graph"; checked_at: string; read_only: true;
+  campaign: LiveMetaObject; adsets: LiveMetaObject[]; ads: LiveMetaObject[];
+};
+export const readLiveMetaStructure = (id: string) =>
+  http<LiveMetaStructure>(base(`/${encodeURIComponent(id)}/structure`), { timeoutMs: 60_000 });
+export const changeLiveMetaObjectStatus = (
+  draftId: string, level: "adset" | "ad", objectId: string, status: "ACTIVE" | "PAUSED"
+) => http<{ meta_confirmed: true; id: string; status: string; effective_status: string; checked_at: string }>(
+  base(`/${encodeURIComponent(draftId)}/objects/${level}/${encodeURIComponent(objectId)}/status`),
+  { method: "POST", body: JSON.stringify({ status, confirm: true }), timeoutMs: 60_000 }
+);
+
 /** Descontos oficiais da Shopify vinculada à empresa ativa; exige read_discounts. */
 export type ShopPromotionCode = { code: string; title: string; status: string; starts_at: string | null; ends_at: string | null };
 export const listShopPromotionCodes = () =>

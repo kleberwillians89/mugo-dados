@@ -312,6 +312,35 @@ async def edit_published_meta_creative(client_id: str, draft_id: UUID, body: Upd
         raise _http(exc) from None
 
 
+@router.get("/{draft_id}/structure")
+async def read_live_campaign_structure(client_id: str, draft_id: UUID,
+                                       authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.live_campaign_structure(cid, str(draft_id))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class LiveObjectStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: str = Field(pattern=r"^(ACTIVE|PAUSED)$")
+    confirm: bool
+
+
+@router.post("/{draft_id}/objects/{level}/{object_id}/status")
+async def update_live_object_status(client_id: str, draft_id: UUID, level: str, object_id: str,
+                                    body: LiveObjectStatusInput, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    if not body.confirm:
+        raise HTTPException(status_code=422, detail="Confirme a alteração na Meta.")
+    try:
+        return await pub.change_live_object_status(
+            cid, str(draft_id), level=level, object_id=object_id, active=body.status == "ACTIVE")
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.get("/{draft_id}/delivery-status")
 async def read_ad_delivery_status(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
