@@ -37,7 +37,7 @@ export default function MediaClientCampaigns() {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName();
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
-  const [status, setStatus] = useState<CampaignFilter>("all");
+  const [status, setStatus] = useState<CampaignFilter>("active");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export default function MediaClientCampaigns() {
 
   useEffect(() => {
     let active = true;
-    setLoading(true); setError(null); setCampaigns([]); setStatus("all"); setSearch("");
+    setLoading(true); setError(null); setCampaigns([]); setStatus("active"); setSearch("");
     if (!clientId) {
       setLoading(false);
       setError("Selecione uma empresa para visualizar suas campanhas.");
