@@ -153,10 +153,31 @@ async def _instagram_totals(client_id: str, start: date, end: date) -> Optional[
     if not report.get("connection_id") or not daily:
         return None
     # Só conta como "com dado" o dia que a Meta devolveu algum número (dia sem snapshot não vira zero).
-    days = sum(1 for r in daily if any(r.get(k) is not None for k in ("reach", "total_interactions", "interactions")))
-    return {"reach": sum(int(r.get("reach") or 0) for r in daily),
-            "interactions": sum(int(r.get("total_interactions") or r.get("interactions") or 0) for r in daily),
-            "days": days}
+    series = sorted(
+        (str(r.get("date") or r.get("start") or "")[:10], int(r.get("reach") or 0),
+         int(r.get("total_interactions") or r.get("interactions") or 0))
+        for r in daily if any(r.get(k) is not None for k in ("reach", "total_interactions", "interactions")))
+    return {"reach": sum(x[1] for x in series), "interactions": sum(x[2] for x in series),
+            "days": len(series), "series": series}
+
+
+def available_split(series: List[tuple], length: int) -> Optional[Dict[str, Any]]:
+    """Sem período anterior completo: compara com o que existe — os últimos k dias com dado contra os k
+    anteriores (mesmo número de dias dos dois lados). None se não houver pelo menos MIN_PREV_DAYS de cada lado."""
+    days = sorted({d[0]: d for d in series if d[0]}.values())
+    k = min(length, len(days) // 2)
+    if k < MIN_PREV_DAYS:
+        return None
+    recent, earlier = days[-k:], days[-2 * k:-k]
+
+    def total(block: List[tuple]) -> Dict[str, Any]:
+        return {"reach": sum(x[1] for x in block), "interactions": sum(x[2] for x in block), "days": len(block),
+                "from": block[0][0], "to": block[-1][0]}
+    return {"current": total(recent), "previous": total(earlier), "days": k}
+
+
+def _ddmm(iso: str) -> str:
+    return f"{iso[8:10]}/{iso[5:7]}"
 
 
 async def _sales_totals(client_id: str, start: date, end: date) -> Optional[Dict[str, float]]:
@@ -188,10 +209,22 @@ async def _instagram_share(client_id: str, days: int) -> Optional[Dict[str, floa
                                   filters={"client_id": f"eq.{client_id}", "active": "is.true"}, limit=100)
     block = await instagram_block(client_id, competitors, days=days)
     rows = block.get("rows") or []
+    return share_against_measured(rows)
+
+
+def share_against_measured(rows: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
+    """Share da marca só contra concorrentes COM dado no período: concorrente sem post/interação lido
+    (perfil privado, coleta falhou) não vira 0% dele e 100% da marca."""
     brand = next((r for r in rows if r.get("is_brand")), None)
-    if not brand or len(rows) < 2 or brand.get("share") is None:
+    measured = [r for r in rows if not r.get("is_brand") and int(r.get("interactions_in_period") or 0) > 0]
+    if not brand:
         return None
-    return {"share": float(brand["share"]), "rivals": len(rows) - 1}
+    if not measured:
+        others = sum(1 for r in rows if not r.get("is_brand"))
+        return {"share": None, "rivals": 0, "unmeasured": others} if others else None
+    mine = int(brand.get("interactions_in_period") or 0)
+    total = mine + sum(int(r["interactions_in_period"]) for r in measured)
+    return {"share": round(mine / total * 100, 1), "rivals": len(measured)}
 
 
 async def _conversation(client_id: str, start: date, end: date) -> Dict[str, Any]:
@@ -234,6 +267,10 @@ def _pillar(key: str, score: Optional[int], detail: str, *, value: Any = None, p
     return {"key": key, "name": PILLAR_NAME[key], "hint": PILLAR_HINT[key], "score": score, "detail": detail,
             "value": value, "previous": previous, "change": None if change is None else round(change, 1),
             "reason": None if score is not None else reason}
+
+
+def _ig_value(block: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    return None if block is None else {k: v for k, v in block.items() if k != "series"}
 
 
 def _fmt_int(value: float) -> str:
@@ -298,7 +335,19 @@ async def compute(client_id: str, *, start: date, end: date, with_alert_detail: 
         detail = f"Alcance {_fmt_int(ig_cur['reach'])} e {_fmt_int(ig_cur['interactions'])} interações no período"
         if partial:
             detail += f" · comparado pela média por dia ({prev_days} de {length} dias do período anterior têm dado)"
-        pillars.append(_pillar("atencao", score, detail, value=ig_cur, previous=ig_prev, change=ch,
+        pillars.append(_pillar("atencao", score, detail, value=_ig_value(ig_cur), previous=_ig_value(ig_prev), change=ch,
+                               reason="Sem alcance nem interações nos dois períodos."))
+    elif ig_cur and (fallback := available_split((ig_prev or {}).get("series", []) + ig_cur.get("series", []), length)):
+        cur_b, prev_b = fallback["current"], fallback["previous"]
+        score = blend([growth_score(cur_b["reach"], prev_b["reach"]),
+                       growth_score(cur_b["interactions"], prev_b["interactions"])])
+        prev_label = f"{prev_start.strftime('%d/%m')} a {prev_end.strftime('%d/%m')}"
+        detail = (f"Alcance {_fmt_int(ig_cur['reach'])} e {_fmt_int(ig_cur['interactions'])} interações no período · "
+                  f"sem histórico de {prev_label}, comparado com o que existe: últimos {fallback['days']} dias com dado "
+                  f"({_ddmm(cur_b['from'])}–{_ddmm(cur_b['to'])}) contra os {fallback['days']} anteriores "
+                  f"({_ddmm(prev_b['from'])}–{_ddmm(prev_b['to'])})")
+        pillars.append(_pillar("atencao", score, detail, value=_ig_value(cur_b), previous=_ig_value(prev_b),
+                               change=change_pct(cur_b["reach"], prev_b["reach"]),
                                reason="Sem alcance nem interações nos dois períodos."))
     else:
         prev_label = f"{prev_start.strftime('%d/%m')} a {prev_end.strftime('%d/%m')}"
@@ -334,7 +383,10 @@ async def compute(client_id: str, *, start: date, end: date, with_alert_detail: 
     pillars.append(_pillar(
         "presenca", blend([news_score, ig_score]), " · ".join(parts),
         value={"noticias": news_share, "instagram": ig_pct},
-        reason=("Cadastre concorrentes no radar do Clipping ou no Benchmarking (com o @ do Instagram) para medir a fatia de atenção."
+        reason=(f"Fora da conta: {(ig_share or {}).get('unmeasured')} concorrente(s) no Benchmarking sem interações lidas no período "
+                "(perfil privado ou coleta pendente) e sem notícias de concorrentes no radar. Atualize o Benchmarking."
+                if (ig_share or {}).get("unmeasured") and not rival_news else
+                "Cadastre concorrentes no radar do Clipping ou no Benchmarking (com o @ do Instagram) para medir a fatia de atenção."
                 if not rival_news else "Sem notícias no período.")))
 
     order = {k: i for i, k in enumerate(PILLARS)}
