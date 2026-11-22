@@ -23,14 +23,16 @@ import { buildDashboardSummary, isCurrentClientRequest } from "../app/centralSum
 
 const fixture: CentralView = {
   month: "2026-11", agency: true,
-  numbers: { start: "2026-11-01", end: "2026-11-15", investimento: 1200, faturamento: 8300, pedidos: 7, retorno: 6.9, melhor_campanha: null },
+  numbers: { start: "2026-11-01", end: "2026-11-15", investimento: 1200, faturamento: 8300, pedidos: 7, retorno: 6.9, melhor_campanha: null,
+    previous: { start: "2026-10-01", end: "2026-10-15", investimento: 1000, faturamento: 7000, pedidos: 6, retorno: 7 } },
   calendar: {
     total: 6, waiting_client: 1, off_brand: [],
     counts: { rascunho: 1, revisao_interna: 2, com_cliente: 1, ajuste: 0, aprovado: 1, publicado: 1 },
     upcoming: [{ id: "post-1", title: "Editorial de verão", format: "reels", scheduled_at: "2026-11-20T15:00:00Z", stage: "aprovado", pillar: "Marca" }],
   },
-  media: null, clipping: null,
+  media: null, social: { start: "2026-11-01", end: "2026-11-15", reach: 1000, interactions: 80, new_followers: 12, days: 15, previous: null }, clipping: null,
   tasks: { available: true, open: 4, late: 0, next: [{ title: "Revisar campanha", due_date: "2026-11-18", status: "doing" }] },
+  approval_history: { months: [{ month: "2026-11", approved: 2, internal_changes: 1, client_changes: 0 }], definition: "Eventos registrados." },
   campaigns: [], alerts: [{ level: "atencao", module: "tasks", text: "Uma tarefa precisa de revisão." }],
 };
 
@@ -59,30 +61,36 @@ describe("Dashboard gerencial", () => {
     expect(buildDashboardSummary({ ...fixture, tasks: { available: false }, calendar: null })).toEqual({ inProgress: null, waitingApproval: null, overdue: null, completed: null, onTime: null });
   });
 
-  it("prioriza marca e resultados, mantém fluxos operacionais recolhidos", async () => {
+  it("prioriza marca e resultados e mantém detalhes operacionais visíveis", async () => {
     getCentral.mockResolvedValue(fixture);
     await act(async () => { root.render(<Central isAgency />); });
     expect(container.textContent).toContain("Dashboard");
-    expect(container.textContent).toContain("Maison Demo, em perspectiva.");
+    expect(container.textContent).not.toContain("em perspectiva");
     expect(container.textContent).toContain("Saúde compacta: true");
     expect(container.textContent).toContain("Faturamento da loja");
     expect(container.textContent?.replace(/\u00a0/g, " ")).toContain("R$ 8.300,00");
-    expect(container.textContent).toContain("Ticket médio estimado");
+    expect(container.textContent).toContain("Ticket médio");
     expect(container.textContent).not.toContain("Trabalhos em andamento");
-    const hero = container.querySelector(".clientExecutiveWelcome");
     const health = container.querySelector(".clientExecutiveHealth");
-    const results = container.querySelector(".clientExecutiveResults");
-    expect(hero).not.toBeNull();
+    const results = container.querySelector('[aria-label="Números do negócio"]');
     expect(health).not.toBeNull();
     expect(results).not.toBeNull();
-    expect(Boolean(hero && health && (hero.compareDocumentPosition(health) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     expect(Boolean(health && results && (health.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
-    expect(container.querySelector(".centralManagementGrid")?.closest("details")).not.toBeNull();
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.textContent).toContain("Detalhes operacionais");
     expect(container.textContent).toContain("Revisão interna");
     expect(container.textContent).toContain("Editorial de verão");
     const ecommerce = [...container.querySelectorAll("button")].find(button => button.textContent?.includes("Faturamento da loja"))!;
     await act(async () => { ecommerce.click(); });
     expect(navigate).toHaveBeenCalledWith("ecommerce");
+  });
+
+  it("mostra indisponibilidade sem transformar ausência em zero", async () => {
+    getCentral.mockResolvedValue({ ...fixture, agency: false, numbers: null, social: null, calendar: null, tasks: null, approval_history: null });
+    await act(async () => { root.render(<Central isAgency={false} />); });
+    expect(container.textContent).toContain("Sem dados");
+    expect(container.textContent).toContain("Sem snapshots orgânicos suficientes");
+    expect(container.textContent).toContain("Carga individual não exibida");
   });
 
   it("só aceita a resposta do tenant que iniciou a leitura", () => {

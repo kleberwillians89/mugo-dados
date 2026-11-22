@@ -9,6 +9,16 @@ import HowToRead from "../data/HowToRead";
 
 const nf = new Intl.NumberFormat("pt-BR");
 
+function previousPeriod(start: string, end: string) {
+  const startDate = new Date(`${start}T00:00:00Z`);
+  const endDate = new Date(`${end}T00:00:00Z`);
+  const elapsed = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1);
+  const previousEnd = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 0));
+  const previousStart = new Date(Date.UTC(previousEnd.getUTCFullYear(), previousEnd.getUTCMonth(), 1));
+  const equivalentEnd = new Date(Math.min(previousEnd.getTime(), previousStart.getTime() + (elapsed - 1) * 86_400_000));
+  return { start: previousStart.toISOString().slice(0, 10), end: equivalentEnd.toISOString().slice(0, 10) };
+}
+
 function Gauge({ value }: { value: number | null }) {
   return <svg width="132" height="76" viewBox="0 0 96 56" aria-hidden="true">
     <path d="M8 50 A40 40 0 0 1 88 50" className="bhGaugeBg" />
@@ -61,17 +71,21 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
   const clientId = getActiveClientId();
   const [nonce, setNonce] = useState(0);
   const key = `${clientId}|${start}|${end}|${nonce}`;
-  const [state, setState] = useState<{ key: string; data: HealthIndex | null; error: string | null }>({ key: "", data: null, error: null });
+  const [state, setState] = useState<{ key: string; data: HealthIndex | null; previousIndex: number | null; error: string | null }>({ key: "", data: null, previousIndex: null, error: null });
   const [editing, setEditing] = useState(false);
 
   const load = useCallback(async (k: string) => {
     try {
       const data = await getHealthIndex({ start, end });
-      if (getActiveClientId() === clientId) setState({ key: k, data, error: null });
+      let previousIndex: number | null = null;
+      if (compact) {
+        try { previousIndex = (await getHealthIndex(previousPeriod(start, end))).index; } catch { /* comparação opcional */ }
+      }
+      if (getActiveClientId() === clientId) setState({ key: k, data, previousIndex, error: null });
     } catch (cause) {
-      setState((prev) => ({ key: k, data: prev.data, error: cause instanceof Error && cause.message ? cause.message : "Não foi possível calcular o índice agora." }));
+      setState((prev) => ({ ...prev, key: k, error: cause instanceof Error && cause.message ? cause.message : "Não foi possível calcular o índice agora." }));
     }
-  }, [clientId, start, end]);
+  }, [clientId, compact, start, end]);
   useEffect(() => { void load(key); }, [load, key]);
 
   const loading = state.key !== key;
@@ -94,8 +108,13 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
       <div className="hiCompactScore">
         <strong>{d.index ?? "—"}<small>/100</small></strong>
         <span className={`hiLabel is-${healthTone(d.index)}`}>{d.label ?? "Sem dados suficientes"}</span>
+        <small>{d.index != null && state.previousIndex != null ? `${d.index - state.previousIndex >= 0 ? "↗" : "↘"} ${Math.abs(d.index - state.previousIndex).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} pontos vs período anterior` : "Sem histórico suficiente"}</small>
+        <small>Cobertura dos indicadores: {d.coverage ?? 0}%</small>
       </div>
-      <p className="bhMuted">Cobertura dos indicadores: {d.coverage ?? 0}%{off.length ? ` · sem dado: ${off.map((p) => p.name.toLowerCase()).join(", ")}` : ""}</p>
+      <div className="hiCompactPillars">
+        {d.pillars.map((p) => <div key={p.key}><span>{p.name}</span><b>{p.score ?? "—"}</b><i><em className={`is-${healthTone(p.score)}`} style={{ width: `${p.score ?? 0}%` }} /></i><small>{p.score == null ? p.reason : p.change == null ? "Sem comparação" : `${p.change >= 0 ? "↗" : "↘"} ${Math.abs(p.change).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} pontos`}</small></div>)}
+        {off.length ? <p className="bhMuted">Sem dado: {off.map((p) => p.name.toLowerCase()).join(", ")}.</p> : null}
+      </div>
       {state.error ? <p className="studioError" role="alert">{state.error}</p> : null}
     </section>;
   }

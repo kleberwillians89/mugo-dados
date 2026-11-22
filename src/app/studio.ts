@@ -355,14 +355,21 @@ export type CentralAlert = { level: "atencao" | "info"; module: string; text: st
 export type CentralView = {
   month: string; agency: boolean;
   numbers: { start: string; end: string | null; investimento?: number | null; faturamento?: number | null; pedidos?: number | null; retorno?: number | null;
-    vendas_midia_paga?: number | null; melhor_campanha?: { campanha: string; pedidos: number; vendas: number } | null } | null;
+    ticket_medio?: number | null; vendas_midia_paga?: number | null; melhor_campanha?: { campanha: string; pedidos: number; vendas: number } | null;
+    previous?: { start: string; end: string; investimento?: number | null; faturamento?: number | null; pedidos?: number | null; ticket_medio?: number | null;
+      retorno?: number | null; vendas_midia_paga?: number | null } | null } | null;
   calendar: { total: number; counts: Record<string, number>; waiting_client: number; off_brand: { id: string; title: string; issues: number }[];
     upcoming: { id: string; title: string; format: StudioFormat; scheduled_at: string; stage: string; pillar: string | null }[] } | null;
   media: { objetivo: string | null; verba: number | null; elapsed_days: number; days_in_month: number;
     channels: { channel: string; label: string; planned_spend: number | null; spent: number; expected_to_date: number | null; projected_spend: number; pace: number | null; roas: number | null; cpa: number | null }[] } | null;
+  social: { start: string; end: string; reach: number | null; interactions: number | null; new_followers: number | null; days: number;
+    previous: { start: string; end: string; reach: number | null; interactions: number | null; new_followers: number | null; days: number } | null } | null;
   clipping: { week: { current: Record<string, number>; previous: Record<string, number>; marca_variacao: number };
     latest: { id: string; title: string; source: string | null; url: string; kind: string; sentiment: string | null }[] } | null;
-  tasks: { available: boolean; reason?: string; open?: number; late?: number; next?: { title: string; due_date: string | null; status: string }[] } | null;
+  tasks: { available: boolean; reason?: string; open?: number; late?: number; stalled?: number; rework?: number;
+    next?: { title: string; due_date: string | null; status: string }[];
+    workload?: { departments: { name: string; tasks: number }[]; people: { name: string; tasks: number; late: number; rework: number }[] } } | null;
+  approval_history: { months: { month: string; approved: number; internal_changes: number; client_changes: number }[]; definition: string } | null;
   campaigns?: { id: string; name: string; status: string; objective: string | null; start: string | null; end: string | null; posts_no_calendario: number }[] | null;
   alerts: CentralAlert[];
 };
