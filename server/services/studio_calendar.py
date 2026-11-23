@@ -657,7 +657,26 @@ SCRIPT_HINTS = {
 }
 
 
-EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags", "reels_options")
+EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags", "reels_options", "creative_direction")
+
+# Direcionamento Criativo da peça (migração 000140): orientação de produção escrita pela equipe (com ou sem IA).
+CREATIVE_DIRECTION_LIMITS = {"concept": 300, "texts": 3000, "references": 2000, "instructions": 3000}
+_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def clean_creative_direction(value: Any) -> Dict[str, Any]:
+    """Só os campos conhecidos, com tamanho fixo. Texto vazio sai; {} limpa o direcionamento.
+    ``brief_id`` = briefing existente escolhido como referência (não é copiado: a tarefa lê do briefing)."""
+    data = value if isinstance(value, dict) else {}
+    out: Dict[str, Any] = {}
+    for key, limit in CREATIVE_DIRECTION_LIMITS.items():
+        text = str(data.get(key) or "").replace("\r\n", "\n").strip()[:limit]
+        if text:
+            out[key] = text
+    brief_id = str(data.get("brief_id") or "").strip()
+    if brief_id and _UUID.match(brief_id):
+        out["brief_id"] = brief_id.lower()
+    return out
 
 
 def clean_art_url(value: Any) -> Optional[str]:
@@ -712,6 +731,8 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     if "reels_options" in clean:
         from .ig_reels import clean_reels_options
         clean["reels_options"] = clean_reels_options(clean["reels_options"])
+    if "creative_direction" in clean:
+        clean["creative_direction"] = clean_creative_direction(clean["creative_direction"])
     if "status" in clean:
         if clean["status"] not in STATUSES:
             raise StudioError("STATUS_INVALID")
@@ -833,6 +854,10 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, ori
         options = clean_reels_options(data["reels_options"])
         if options:  # só manda a coluna (migração 000131) quando a tela escolheu algo
             row["reels_options"] = options
+    if data.get("creative_direction"):
+        direction = clean_creative_direction(data["creative_direction"])
+        if direction:  # só manda a coluna (migração 000140) quando a equipe escreveu algo
+            row["creative_direction"] = direction
     rows = await sb_insert_many(ITEMS_TABLE, [row], returning="representation")
     if not rows:
         raise StudioError("CREATE_FAILED")

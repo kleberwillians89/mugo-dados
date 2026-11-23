@@ -42,7 +42,7 @@ def _same(key: str, old: Any, new: Any) -> bool:
     if key == "product_tags":
         ids = lambda tags: [(str(t.get("product_id")), int(t.get("slide") or 0), t.get("x"), t.get("y")) for t in (tags or []) if isinstance(t, dict)]  # noqa: E731
         return ids(old) == ids(new)
-    if key == "reels_options":
+    if key in ("reels_options", "creative_direction"):
         return json.dumps(old or {}, sort_keys=True) == json.dumps(new or {}, sort_keys=True)
     return (str(old).strip() if old is not None else "") == (str(new).strip() if new is not None else "")
 
@@ -76,6 +76,8 @@ def describe_patch(patch: Dict[str, Any]) -> List[str]:
         out.append(f"marcou {count} produto{'s' if count > 1 else ''} da loja" if count else "tirou os produtos marcados")
     if "reels_options" in patch:
         out.append("ajustou a capa e as opções do Reels")
+    if "creative_direction" in patch:
+        out.append("editou o direcionamento criativo" if patch.get("creative_direction") else "limpou o direcionamento criativo")
     edited = [label for key, label in TEXT_FIELDS.items() if key in patch]
     if edited:
         out.append(f"editou {', '.join(edited)}")

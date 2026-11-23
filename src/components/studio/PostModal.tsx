@@ -3,11 +3,12 @@ import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
 import PostReview from "./PostReview";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
+import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, cleanDirection, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
 import { PLATFORM_FORMATS } from "../../app/contentOps";
 import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
 import BriefingPanel from "./BriefingPanel";
+import CreativeDirection from "./CreativeDirection";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
 import ArtFiles from "./ArtFiles";
@@ -74,6 +75,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
   const art = slides.length && slides[0] !== artFailed ? slides : null;
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const directionPending = JSON.stringify(cleanDirection(draft.creative_direction)) !== JSON.stringify(cleanDirection(item?.creative_direction));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
@@ -197,6 +199,8 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           {item?.origin === "matriz" ? <span className="studioChip">Da Matriz de conteúdo</span> : null}
           {channel !== "instagram" ? <span className={`studioChip is-platform is-${channel}`}>{channelLabel}</span> : null}
         </div>
+        {canManage && !clientMode ? <CreativeDirection value={draft.creative_direction || {}} onChange={(creative_direction) => set({ creative_direction })}
+          itemId={item?.id || null} disabled={busy} fromMatrix={item?.origin === "matriz"} pending={Boolean(item) && directionPending} /> : null}
         <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
             {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
         {canManage && !clientMode ? <div className="postArt">
@@ -243,7 +247,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
         {canManage && !clientMode && channel === "instagram" ? <ReelsMusicPicker value={reelsOpts.music} format={draft.format} disabled={busy}
           onChange={(music) => set({ reels_options: { ...reelsOpts, music } })} /> : null}
         <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
-        {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} /> : null}
+        {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} pending={directionPending} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
           disabled={busy} isStory={draft.format === "stories"} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
