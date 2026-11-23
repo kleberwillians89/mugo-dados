@@ -24,7 +24,8 @@ export default function Home({ canView, onOpen }: Props) {
   const actions = ACTIONS.filter((action) => canView(action.route));
   const attention = [
     canView("tasks") ? { label: "Abrir meu trabalho", route: "tasks" as AppRoute } : null,
-    canView("calendar") ? { label: "Ver aprovações", route: "calendar" as AppRoute } : null,
+    canView("internal_approval") ? { label: "Aprovação Interna", route: "internal_approval" as AppRoute } : null,
+    canView("final_approval") ? { label: "Aprovação Final", route: "final_approval" as AppRoute } : null,
   ].filter((item): item is { label: string; route: AppRoute } => Boolean(item));
   const complementary = COMPLEMENTARY.filter((item) => canView(item.route));
 

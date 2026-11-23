@@ -24,6 +24,8 @@ describe("nova entrada e processos", () => {
     expect(host.textContent).toContain("O que vamos fazer hoje?");
     for (const label of ["Planejar", "Criar conteúdo", "Lançar campanha", "Analisar resultados"]) expect(host.textContent).toContain(label);
     expect(host.textContent).toContain("Precisa da sua atenção");
+    expect(host.textContent).toContain("Aprovação Interna");
+    expect(host.textContent).toContain("Aprovação Final");
     expect(host.textContent).toContain("Ferramentas complementares");
     expect(host.textContent).toContain("Tira-dúvidas");
     for (const moved of ["WhatsApp", "E-mail marketing", "Captação", "Comentários"]) expect(host.textContent).not.toContain(moved);
@@ -31,14 +33,20 @@ describe("nova entrada e processos", () => {
     const planning = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Planejar"))!;
     await act(async () => planning.click());
     expect(open).toHaveBeenCalledWith("process_planning");
+    const internalApproval = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Aprovação Interna"))!;
+    await act(async () => internalApproval.click());
+    expect(open).toHaveBeenCalledWith("internal_approval");
   });
 
-  it("Home mostra atenção apenas quando Tarefas ou Calendário estão autorizados", async () => {
+  it("Home mostra cada aprovação somente quando a etapa está autorizada", async () => {
     await act(async () => root.render(<Home canView={(route) => route === "home" || route === "process_analysis"} onOpen={vi.fn()} />));
     expect(host.textContent).not.toContain("Precisa da sua atenção");
     expect(host.textContent).toContain("Analisar resultados");
     expect(host.textContent).not.toContain("Criar conteúdo");
     expect(host.textContent).not.toContain("Ferramentas complementares");
+    await act(async () => root.render(<Home canView={(route) => route === "final_approval"} onOpen={vi.fn()} />));
+    expect(host.textContent).toContain("Aprovação Final");
+    expect(host.textContent).not.toContain("Aprovação Interna");
   });
 
   it("filtra ferramentas de cada processo pela autorização existente", async () => {
@@ -67,7 +75,7 @@ describe("nova entrada e processos", () => {
     const expected: Record<ProcessKind, AppRoute[]> = {
       planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
       content: ["campaigns", "redacao", "production", "briefing", "creators"],
-      campaign: ["media", "calendar", "tasks"],
+      campaign: ["media", "internal_approval", "final_approval", "tasks"],
       analysis: ["brand_health", "meta", "google", "channels", "origins", "ecommerce", "customers", "clipping", "social_report", "whatsapp", "email_marketing", "capture", "engagement"],
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
@@ -76,6 +84,21 @@ describe("nova entrada e processos", () => {
       expect(hrefs.length).toBeGreaterThanOrEqual(expected[kind].length);
       expect(hrefs.every((href) => Boolean(href) && href !== "/404")).toBe(true);
     }
+  });
+
+  it("Lançar campanha separa as aprovações e respeita a permissão de cada rota", async () => {
+    const open = vi.fn();
+    await act(async () => root.render(<ProcessEntry kind="campaign" canView={(route) => route === "final_approval"} canUse={() => false} onOpen={open} />));
+    expect(host.textContent).toContain("Aprovação Final");
+    expect(host.textContent).not.toContain("Aprovação Interna");
+    const finalApproval = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Aprovação Final"))!;
+    expect(finalApproval.getAttribute("href")).toBe("/aprovacao-final");
+    await act(async () => finalApproval.click());
+    expect(open).toHaveBeenCalledWith("final_approval");
+
+    await act(async () => root.render(<ProcessEntry kind="campaign" canView={(route) => route === "internal_approval"} canUse={() => false} onOpen={open} />));
+    expect(host.textContent).toContain("Aprovação Interna");
+    expect(host.textContent).not.toContain("Aprovação Final");
   });
 
   it("agrupa Relacionamento em Analisar resultados sem duplicar o Dashboard e respeita permissões", async () => {
