@@ -120,6 +120,58 @@ class MetaIndividualControlTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(pub.StudioError):
                 await pub.edit_live_adset_budget("ruah", "draft", adset_id="111111111", daily_budget=25)
 
+    async def test_insights_read_only_for_owned_ad(self):
+        calls = []
+        async def graph(method, path, *, token, params=None, data=None):
+            calls.append((method, path, params))
+            if path.endswith("/ads"):
+                return {"data": [{"id": "222222222", "campaign_id": "123456789", "adset_id": "111111111"}]}
+            if path.endswith("/insights"):
+                return {"data": [{"spend": "25.40", "impressions": "1000", "reach": "900",
+                                  "clicks": "50", "inline_link_clicks": "40", "ctr": "5.0",
+                                  "cpc": "0.51", "cpm": "25.4", "frequency": "1.1",
+                                  "actions": [{"action_type": "purchase", "value": "3"}]}]}
+            return {"id": "123456789", "account_id": "987654321"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=ROW)), \
+             patch.object(pub, "_ad_account", AsyncMock(return_value=ACCOUNT)), \
+             patch.object(pub, "_graph", graph):
+            result = await pub.live_object_insights("ruah", "draft", level="ad", object_id="222222222")
+        self.assertEqual(result["link_clicks"], 40)
+        self.assertEqual(result["spend"], 25.4)
+        self.assertEqual(result["actions"][0]["value"], 3)
+        self.assertEqual(result["date_preset"], "last_7d")
+        self.assertTrue(result["read_only"])
+        self.assertTrue(all(method == "GET" for method, _, _ in calls))
+        self.assertEqual(calls[-1][2]["date_preset"], "last_7d")
+
+    async def test_insights_foreign_ad_rejected_without_reading_metrics(self):
+        calls = []
+        async def graph(method, path, *, token, params=None, data=None):
+            calls.append(path)
+            if path.endswith("/ads"):
+                return {"data": [{"id": "222222222", "campaign_id": "123456789"}]}
+            return {"id": "123456789", "account_id": "987654321"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=ROW)), \
+             patch.object(pub, "_ad_account", AsyncMock(return_value=ACCOUNT)), \
+             patch.object(pub, "_graph", graph):
+            with self.assertRaises(pub.StudioError):
+                await pub.live_object_insights("ruah", "draft", level="ad", object_id="333333333")
+        self.assertFalse(any(path.endswith("/insights") for path in calls))
+
+    async def test_insights_empty_period_has_explicit_no_data(self):
+        async def graph(method, path, *, token, params=None, data=None):
+            if path.endswith("/adsets"):
+                return {"data": [{"id": "111111111", "campaign_id": "123456789"}]}
+            if path.endswith("/insights"):
+                return {"data": []}
+            return {"id": "123456789", "account_id": "987654321"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=ROW)), \
+             patch.object(pub, "_ad_account", AsyncMock(return_value=ACCOUNT)), \
+             patch.object(pub, "_graph", graph):
+            result = await pub.live_object_insights("ruah", "draft", level="adset", object_id="111111111")
+        self.assertFalse(result["has_data"])
+        self.assertEqual(result["spend"], 0)
+
     async def test_foreign_account_fails_before_writes(self):
         account = {**ROW, "meta_ids": {"campaign_id": "123456789", "ad_account_id": "act_foreign"}}
         graph = AsyncMock()
