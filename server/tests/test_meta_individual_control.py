@@ -67,6 +67,59 @@ class MetaIndividualControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["effective_status"], "CAMPAIGN_PAUSED")
         self.assertIn(("POST", "/222222222", {"status": "ACTIVE"}), calls)
 
+    async def test_adset_budget_changes_only_owned_set_and_reads_back(self):
+        calls = []
+        async def graph(method, path, *, token, params=None, data=None):
+            calls.append((method, path, data))
+            if path.endswith("/adsets"):
+                return {"data": [{"id": "111111111", "campaign_id": "123456789", "daily_budget": "2000"},
+                                 {"id": "222222222", "campaign_id": "123456789", "daily_budget": "3500"}]}
+            if method == "POST":
+                return {"success": True}
+            if path == "/111111111":
+                return {"id": "111111111", "campaign_id": "123456789", "daily_budget": "2500"}
+            return {"id": "123456789", "account_id": "987654321"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=ROW)), \
+             patch.object(pub, "_ad_account", AsyncMock(return_value=ACCOUNT)), \
+             patch.object(pub, "_graph", graph):
+            result = await pub.edit_live_adset_budget("ruah", "draft", adset_id="111111111", daily_budget=25.0)
+        self.assertTrue(result["meta_confirmed"])
+        self.assertEqual(result["daily_budget"], 2500)
+        self.assertEqual([call for call in calls if call[0] == "POST"],
+                         [("POST", "/111111111", {"daily_budget": "2500"})])
+
+    async def test_adset_budget_rejects_foreign_set_and_cbo(self):
+        for items, object_id in [
+            ([{"id": "111111111", "campaign_id": "123456789", "daily_budget": "2000"}], "222222222"),
+            ([{"id": "111111111", "campaign_id": "123456789", "daily_budget": None}], "111111111"),
+        ]:
+            async def graph(method, path, *, token, params=None, data=None):
+                if path.endswith("/adsets"):
+                    return {"data": items}
+                return {"id": "123456789", "account_id": "987654321"}
+            g = AsyncMock(side_effect=graph)
+            with patch.object(pub, "_draft", AsyncMock(return_value=ROW)), \
+                 patch.object(pub, "_ad_account", AsyncMock(return_value=ACCOUNT)), \
+                 patch.object(pub, "_graph", g):
+                with self.assertRaises(pub.StudioError):
+                    await pub.edit_live_adset_budget("ruah", "draft", adset_id=object_id, daily_budget=25)
+            self.assertFalse(any(call.args[0] == "POST" for call in g.await_args_list))
+
+    async def test_adset_budget_readback_mismatch_is_failure(self):
+        async def graph(method, path, *, token, params=None, data=None):
+            if path.endswith("/adsets"):
+                return {"data": [{"id": "111111111", "campaign_id": "123456789", "daily_budget": "2000"}]}
+            if method == "POST":
+                return {"success": True}
+            if path == "/111111111":
+                return {"id": "111111111", "campaign_id": "123456789", "daily_budget": "2000"}
+            return {"id": "123456789", "account_id": "987654321"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=ROW)), \
+             patch.object(pub, "_ad_account", AsyncMock(return_value=ACCOUNT)), \
+             patch.object(pub, "_graph", graph):
+            with self.assertRaises(pub.StudioError):
+                await pub.edit_live_adset_budget("ruah", "draft", adset_id="111111111", daily_budget=25)
+
     async def test_foreign_account_fails_before_writes(self):
         account = {**ROW, "meta_ids": {"campaign_id": "123456789", "ad_account_id": "act_foreign"}}
         graph = AsyncMock()
