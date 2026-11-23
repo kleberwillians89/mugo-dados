@@ -21,8 +21,18 @@ export const ROUTE_MODULE: Record<string, string> = {
 /** Módulos liberados só pela equipe Mugô: não vêm de "acesso total" nem do papel (mesma regra do backend). */
 export const OPT_IN_CODES = new Set(["social_media.view", "social_media.edit", "tasks.approve"]);
 
+const PROCESS_ROUTES: Record<string, string[]> = {
+  process_planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
+  process_content: ["campaigns", "redacao", "production", "briefing", "creators"],
+  process_campaign: ["media", "calendar", "tasks"],
+  process_analysis: ["central", "brand_health", "meta", "google", "channels", "ecommerce", "origins", "customers", "clipping", "social_report"],
+};
+
 /** Social Media reúne recursos distintos sem fundir suas permissões. */
 export function canViewAppRoute(route: string, can: (code: string) => boolean): boolean {
+  if (route === "home") return true;
+  const processChildren = PROCESS_ROUTES[route];
+  if (processChildren) return processChildren.some((child) => canViewAppRoute(child, can));
   if (route === "campaigns") return can("social_media.view") || can("calendar.view");
   // Planejamento e Evento são internos: equipe Mugô ou quem aprova internamente (mesma regra do backend).
   if (route === "planning" || route === "production") return can("tasks.approve");

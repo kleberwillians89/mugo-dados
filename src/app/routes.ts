@@ -1,4 +1,9 @@
 export type AppRoute =
+  | "home"
+  | "process_planning"
+  | "process_content"
+  | "process_campaign"
+  | "process_analysis"
   | "meta"
   | "google"
   | "ecommerce"
@@ -61,6 +66,12 @@ export function getPublicAppRouteFromPath(pathname: string): PublicAppRoute | nu
 
 export function getAppRouteFromPath(pathname: string): AppRoute {
   const normalized = String(pathname || "/").trim().toLowerCase();
+  if (normalized === "/" || normalized === "") return "home";
+  if (normalized === "/inicio" || normalized.startsWith("/inicio/")) return "home";
+  if (normalized === "/planejar" || normalized.startsWith("/planejar/")) return "process_planning";
+  if (normalized === "/criar-conteudo" || normalized.startsWith("/criar-conteudo/")) return "process_content";
+  if (normalized === "/lancar-campanha" || normalized.startsWith("/lancar-campanha/")) return "process_campaign";
+  if (normalized === "/analisar-resultados" || normalized.startsWith("/analisar-resultados/")) return "process_analysis";
   if (normalized.startsWith("/empresas")) return "companies";
   if (normalized === "/consumo-ia" || normalized.startsWith("/consumo-ia/")) return "ai_usage";
   if (normalized === "/saude-integracoes" || normalized.startsWith("/saude-integracoes/")) return "integration_health";
@@ -106,8 +117,6 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/atendimento" || normalized.startsWith("/atendimento/")) return "calendar";
   if (normalized.startsWith("/meta")) return "meta";
   if (
-    normalized === "/" ||
-    normalized === "" ||
     normalized.startsWith("/dashboard") ||
     normalized.startsWith("/overview") ||
     normalized.startsWith("/visao-geral")
@@ -130,6 +139,11 @@ export function getCurrentAppRoute(): AppRoute {
 }
 
 export function getPathForRoute(route: AppRoute): string {
+  if (route === "home") return "/inicio";
+  if (route === "process_planning") return "/planejar";
+  if (route === "process_content") return "/criar-conteudo";
+  if (route === "process_campaign") return "/lancar-campanha";
+  if (route === "process_analysis") return "/analisar-resultados";
   if (route === "companies") return "/empresas";
   if (route === "ai_usage") return "/consumo-ia";
   if (route === "integration_health") return "/saude-integracoes";

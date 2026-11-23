@@ -12,7 +12,6 @@ import {
 import { getMyPendingInvitations, listClients, openPlatformCompany, setApiAccessToken, type ClientMembership, type PendingInvitation, type PlatformCompany } from "./app/api";
 import {
   getCurrentAppRoute,
-  getPathForRoute,
   getPublicAppRouteFromPath,
   navigateToAppRoute,
   type AppRoute, approvalTokenFromPath,
@@ -36,6 +35,8 @@ const loadDashboard = () => import("./pages/Dashboard");
 const loadGoogleAnalytics = () => import("./pages/GoogleAnalytics");
 const loadEcommerce = () => import("./pages/Ecommerce");
 const Goals = lazy(() => import("./pages/Goals"));
+const Home = lazy(() => import("./pages/Home"));
+const ProcessEntry = lazy(() => import("./pages/ProcessEntry"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Central = lazy(() => import("./pages/Central"));
@@ -251,19 +252,8 @@ async function resolveTenantBootstrap(userId: string): Promise<{ platformAdmin: 
   return { platformAdmin, agencyAdmin, clients };
 }
 
-/**
- * Toda vez que o app abre (aba nova), começa no Dashboard. Recarregar a página no meio do uso mantém onde estava,
- * e link direto com parâmetros (tarefa, conexão de integração) também é respeitado.
- */
+/** A raiz abre o Início; toda URL profunda permanece exatamente onde foi solicitada. */
 function openingRoute(): AppRoute {
-  try {
-    const first = !sessionStorage.getItem("mugo.opened");
-    sessionStorage.setItem("mugo.opened", "1");
-    if (first && !window.location.search && !window.location.hash && getCurrentAppRoute() !== "central") {
-      window.history.replaceState(window.history.state, "", getPathForRoute("central"));
-      return "central";
-    }
-  } catch { /* sem sessionStorage: segue a URL */ }
   return getCurrentAppRoute();
 }
 
@@ -894,7 +884,7 @@ function PrivateApp() {
     return canViewAppRoute(target, can);
   };
   const canEdit = (module: string) => can(`${module}.edit`);
-  const firstAllowed = (["central", "meta", "ecommerce", "campaigns", "redacao", "calendar", "briefing", "tasks", "creators", "library", "engagement", "clipping", "social_report", "brand_ai", "mugo_ia", "media", "customers", "origins", "google"] as AppRoute[])
+  const firstAllowed = (["home", "central", "meta", "ecommerce", "campaigns", "redacao", "calendar", "briefing", "tasks", "creators", "library", "engagement", "clipping", "social_report", "brand_ai", "mugo_ia", "media", "customers", "origins", "google"] as AppRoute[])
     .find((target) => canView(target));
 
   if (view === "loading") {
@@ -986,7 +976,7 @@ function PrivateApp() {
       {route !== "meta" && route !== "google" ? <DataHealthSummary onReconnect={canManageIntegrations ? () => setView("setup") : undefined} /> : null}
       <Suspense fallback={<PageLoading />}>
       {route === "not_found" ? (
-        <NotFound onGoHome={() => openRoute("meta")} />
+        <NotFound onGoHome={() => openRoute("home")} />
       ) : !canView(route) ? (
         <AccessRestricted onGoHome={firstAllowed ? () => openRoute(firstAllowed) : undefined} />
       ) : route === "users" ? (
@@ -1008,7 +998,17 @@ function PrivateApp() {
         />
       ) : (
       <>
-      {route === "central" ? (
+      {route === "home" ? (
+        <Home key={`home:${activeClientId}`} canView={canView} onOpen={openRoute} />
+      ) : route === "process_planning" ? (
+        <ProcessEntry key={`process-planning:${activeClientId}`} kind="planning" canView={canView} onOpen={openRoute} />
+      ) : route === "process_content" ? (
+        <ProcessEntry key={`process-content:${activeClientId}`} kind="content" canView={canView} onOpen={openRoute} />
+      ) : route === "process_campaign" ? (
+        <ProcessEntry key={`process-campaign:${activeClientId}`} kind="campaign" canView={canView} onOpen={openRoute} />
+      ) : route === "process_analysis" ? (
+        <ProcessEntry key={`process-analysis:${activeClientId}`} kind="analysis" canView={canView} onOpen={openRoute} />
+      ) : route === "central" ? (
         <Central key={`central:${activeClientId}`} isAgency={teamHere} />
       ) : route === "goals" ? (
         <Goals key={`goals:${activeClientId}`} canManage={canEdit("central")} />
@@ -1053,7 +1053,7 @@ function PrivateApp() {
       ) : route === "automations" && (platformAdmin || agencyAdmin) ? (
         <Automations />
       ) : route === "automations" ? (
-        <NotFound onGoHome={() => openRoute("meta")} />
+        <NotFound onGoHome={() => openRoute("home")} />
       ) : route === "origins" ? (
         <SalesOrigin key={`origins:${activeClientId}`} canView={canView} />
       ) : route === "whatsapp" ? (

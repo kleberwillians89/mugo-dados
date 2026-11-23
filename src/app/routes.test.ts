@@ -3,6 +3,35 @@ import { approvalTokenFromPath, getAppRouteFromPath, getPathForRoute, getPublicA
 import { canViewAppRoute } from "./teamRules";
 
 describe("platform routes", () => {
+  it("mapeia a nova entrada e os quatro processos sem substituir URLs existentes", () => {
+    expect(getAppRouteFromPath("/")).toBe("home");
+    expect(getAppRouteFromPath("/inicio")).toBe("home");
+    expect(getPathForRoute("home")).toBe("/inicio");
+    expect(getAppRouteFromPath("/planejar")).toBe("process_planning");
+    expect(getPathForRoute("process_planning")).toBe("/planejar");
+    expect(getAppRouteFromPath("/criar-conteudo")).toBe("process_content");
+    expect(getPathForRoute("process_content")).toBe("/criar-conteudo");
+    expect(getAppRouteFromPath("/lancar-campanha")).toBe("process_campaign");
+    expect(getPathForRoute("process_campaign")).toBe("/lancar-campanha");
+    expect(getAppRouteFromPath("/analisar-resultados")).toBe("process_analysis");
+    expect(getPathForRoute("process_analysis")).toBe("/analisar-resultados");
+    expect(getAppRouteFromPath("/planejamento")).toBe("planning");
+    expect(getAppRouteFromPath("/calendario")).toBe("calendar");
+    expect(getAppRouteFromPath("/central")).toBe("central");
+  });
+
+  it("libera cada página de processo somente quando alguma ferramenta filha é permitida", () => {
+    expect(canViewAppRoute("home", () => false)).toBe(true);
+    expect(canViewAppRoute("process_planning", (code) => code === "clipping.view")).toBe(true);
+    expect(canViewAppRoute("process_planning", () => false)).toBe(false);
+    expect(canViewAppRoute("process_content", (code) => code === "creators.view")).toBe(true);
+    expect(canViewAppRoute("process_content", () => false)).toBe(false);
+    expect(canViewAppRoute("process_campaign", (code) => code === "media.view")).toBe(true);
+    expect(canViewAppRoute("process_campaign", () => false)).toBe(false);
+    expect(canViewAppRoute("process_analysis", (code) => code === "ecommerce.view")).toBe(true);
+    expect(canViewAppRoute("process_analysis", () => false)).toBe(false);
+  });
+
   it("distinguishes goals from the existing Meta route", () => {
     expect(getAppRouteFromPath("/metas")).toBe("goals");
     expect(getAppRouteFromPath("/meta")).toBe("meta");
@@ -65,7 +94,7 @@ describe("platform routes", () => {
   });
 
   it("keeps tenant reports on their existing routes", () => {
-    expect(getAppRouteFromPath("/")).toBe("meta");
+    expect(getAppRouteFromPath("/")).toBe("home");
     expect(getAppRouteFromPath("/dashboard")).toBe("meta");
     expect(getAppRouteFromPath("/overview")).toBe("meta");
     expect(getAppRouteFromPath("/visao-geral")).toBe("meta");
