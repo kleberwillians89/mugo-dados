@@ -5,7 +5,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_STATUS, createCalendarItem, getPublisher, deleteCalendarItem, getBrandProfile,
   BRAND_PROFILE_SAVED, decideCalendarItem, getCalendar, localParts, saveBrandProfile, sendForApproval, toSaoPauloIso, updateCalendarItem,
-  basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
+  basedOnText, cleanDirection, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
   type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioStatus, type WhatsappChannel,
 } from "../app/studio";
@@ -160,7 +160,9 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
       ...(JSON.stringify(draft.collaborators || []) !== JSON.stringify(modal?.item?.collaborators || []) ? { collaborators: draft.collaborators || [] } : {}),
       ...(JSON.stringify(draft.product_tags || []) !== JSON.stringify(modal?.item?.product_tags || []) ? { product_tags: draft.product_tags || [] } : {}),
       // Opções do Reels também só vão quando mudam (a coluna é da migração 000131).
-      ...(JSON.stringify(draft.reels_options || {}) !== JSON.stringify(modal?.item?.reels_options || {}) ? { reels_options: draft.reels_options || {} } : {}) };
+      ...(JSON.stringify(draft.reels_options || {}) !== JSON.stringify(modal?.item?.reels_options || {}) ? { reels_options: draft.reels_options || {} } : {}),
+      // Direcionamento Criativo: salva junto com a pauta, só quando muda (a coluna é da migração 000140).
+      ...(JSON.stringify(cleanDirection(draft.creative_direction)) !== JSON.stringify(cleanDirection(modal?.item?.creative_direction)) ? { creative_direction: cleanDirection(draft.creative_direction) } : {}) };
     // Cliente só manda o que pode mudar (texto e data); o resto fica como a Mugô deixou.
     const clientBody = { scheduled_at: body.scheduled_at, title: body.title, hook: body.hook, caption_draft: body.caption_draft };
     const current = modal?.item;

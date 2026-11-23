@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { listAssignees, type Person } from "../../app/crm";
-import { BOLDNESS_LABELS, BRIEFING_ROLES, CONTENT_ANGLES, briefingText, generateBriefing, sendBriefing, type BriefingDirection, type BriefingRole, type CalendarItem } from "../../app/studio";
+import { BRIEFING_ROLES, CONTENT_ANGLES, briefingText, cleanDirection, sendBriefing, type BriefingRole, type CalendarItem } from "../../app/studio";
 
-/** Briefing da peça (fluxo do Atendimento do iAgência): ler, copiar e gerar/refazer com a IA, com direcionamento opcional. */
-export default function BriefingPanel({ item, hook, disabled }: { item: CalendarItem; hook?: string; disabled?: boolean }) {
-  const [current, setCurrent] = useState<CalendarItem>(item);
-  const [open, setOpen] = useState(false);
-  const [direction, setDirection] = useState<BriefingDirection>({ boldness: 3 });
-  const [busy, setBusy] = useState(false);
+/** Briefing da peça: ler, copiar e enviar para quem vai fazer (vira tarefa com o Direcionamento Criativo salvo).
+ *  A geração de briefing com IA saiu desta janela: a orientação da peça agora é o Direcionamento Criativo, no topo. */
+export default function BriefingPanel({ item, hook, disabled, pending }: { item: CalendarItem; hook?: string; disabled?: boolean;
+  /** O Direcionamento Criativo mudou e não foi salvo: a tarefa leva o que está salvo. */
+  pending?: boolean }) {
+  const current = item;
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   // Enviar para alguém: vira tarefa da pessoa, só com o que a função dela precisa.
@@ -32,15 +32,9 @@ export default function BriefingPanel({ item, hook, disabled }: { item: Calendar
     finally { setSendBusy(false); }
   };
   const b = current.signals?.briefing || {};
-  const has = Boolean(current.script || current.visual_idea || Object.keys(b).length);
-  const set = (patch: BriefingDirection) => setDirection((d) => ({ ...d, ...patch }));
-
-  const run = async () => {
-    setBusy(true); setError("");
-    try { const res = await generateBriefing(current.id, direction); setCurrent({ ...current, ...res.item }); setOpen(false); }
-    catch (e) { setError(e instanceof Error ? e.message : "Não foi possível gerar o briefing."); }
-    finally { setBusy(false); }
-  };
+  const hasBriefing = Boolean(current.script || current.visual_idea || Object.keys(b).length);
+  const hasDirection = Object.keys(cleanDirection(current.creative_direction)).length > 0;
+  const has = hasBriefing || hasDirection;
   const copy = async () => {
     try { await navigator.clipboard.writeText(briefingText({ ...current, hook: hook || current.hook })); setCopied(true); window.setTimeout(() => setCopied(false), 2500); }
     catch { /* navegador sem permissão de copiar */ }
@@ -49,7 +43,7 @@ export default function BriefingPanel({ item, hook, disabled }: { item: Calendar
 
   return <details className="postFromMatrix postBriefing" open>
     <summary>Briefing da peça</summary>
-    {has ? <>
+    {hasBriefing ? <>
       {row("Ângulo", b.angle ? CONTENT_ANGLES[b.angle] || b.angle : null)}
       {row("Resumo", b.summary)}
       {row("Objetivo", b.objective)}
@@ -60,14 +54,12 @@ export default function BriefingPanel({ item, hook, disabled }: { item: Calendar
       {b.tech_requirements?.length ? <div><b>Requisitos técnicos</b><ul>{b.tech_requirements.map((d) => <li key={d}>{d}</li>)}</ul></div> : null}
       {row("Roteiro", current.script)}
       {row("Direção da arte", current.visual_idea)}
-    </> : <p className="postBriefingEmpty">Esta pauta ainda não tem briefing. Gere com a IA: ela usa o perfil da marca, o que já performou, o que o cliente aprovou e as referências do post.</p>}
+    </> : <p className="postBriefingEmpty">{hasDirection ? "O Direcionamento Criativo salvo (no topo) é o que vai para quem cria." : "Escreva o Direcionamento Criativo no topo e salve: é ele que vai para quem cria."}</p>}
     <div className="postBriefingActions">
       {has ? <button type="button" className="ds-button" onClick={() => void copy()}>{copied ? "Briefing copiado ✓" : "Copiar briefing"}</button> : null}
-      <button type="button" className="ds-button is-primary" disabled={busy || disabled} onClick={() => (open ? void run() : setOpen(true))}>
-        {busy ? "Gerando briefing…" : open ? "Gerar agora" : has ? "Refazer com IA" : "Gerar briefing com IA"}</button>
-      {open && !busy ? <button type="button" className="ds-button" onClick={() => setOpen(false)}>Cancelar</button> : null}
-      {has && !sending ? <button type="button" className="ds-button" onClick={() => setSending(true)}>Enviar para…</button> : null}
+      {has && !sending ? <button type="button" className="ds-button" disabled={disabled} onClick={() => setSending(true)}>Enviar para…</button> : null}
     </div>
+    {sending && pending ? <small className="postArtHint is-pending">O Direcionamento Criativo mudou: salve antes de enviar, a tarefa leva o que está salvo.</small> : null}
     {sending ? <div className="postBriefingForm briefingSend">
       <small>Enviar o briefing: vira tarefa da pessoa, só com o que a função dela precisa.</small>
       <label>Função<select value={to.role} onChange={(e) => setTo({ ...to, role: e.target.value as BriefingRole })}>
@@ -82,16 +74,6 @@ export default function BriefingPanel({ item, hook, disabled }: { item: Calendar
         <button type="button" className="ds-button" onClick={() => setSending(false)}>Fechar</button>
       </div>
       {sent.length ? <p className="studioOk">✓ Enviado para {sent.join(", ")}. Já está nas Tarefas de cada um.</p> : null}
-    </div> : null}
-    {open ? <div className="postBriefingForm">
-      <small>Direcionamento (opcional, como no Atendimento do iAgência):</small>
-      <label>Objetivo<input maxLength={600} value={direction.objective || ""} placeholder="Ex.: gerar comentários, levar ao link" onChange={(e) => set({ objective: e.target.value })} /></label>
-      <label>Público<input maxLength={600} value={direction.target_audience || ""} placeholder="Ex.: quem já comprou split" onChange={(e) => set({ target_audience: e.target.value })} /></label>
-      <label>CTA<input maxLength={300} value={direction.cta || ""} placeholder="Ex.: comenta o perfume que você quer" onChange={(e) => set({ cta: e.target.value })} /></label>
-      <label>Ousadia: <b>{BOLDNESS_LABELS[direction.boldness || 3]}</b>
-        <input type="range" min={1} max={5} value={direction.boldness || 3} onChange={(e) => set({ boldness: Number(e.target.value) })} /></label>
-      <label>Referências<input maxLength={600} value={direction.references || ""} placeholder="Link ou descrição do estilo" onChange={(e) => set({ references: e.target.value })} /></label>
-      <label>Pedido<textarea rows={2} maxLength={600} value={direction.request || ""} placeholder="O que mais a IA precisa saber" onChange={(e) => set({ request: e.target.value })} /></label>
     </div> : null}
     {error ? <small className="studioError">{error}</small> : null}
   </details>;

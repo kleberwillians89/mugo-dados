@@ -140,6 +140,17 @@ class ItemCreate(BaseModel):
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
+    creative_direction: Optional["CreativeDirectionInput"] = None
+
+
+class CreativeDirectionInput(BaseModel):
+    """Direcionamento Criativo da peça: escrito pela equipe (a IA só sugere; quem confirma é a pessoa)."""
+    model_config = ConfigDict(extra="forbid")
+    concept: Optional[str] = Field(default=None, max_length=300)
+    texts: Optional[str] = Field(default=None, max_length=3000)
+    references: Optional[str] = Field(default=None, max_length=2000)
+    instructions: Optional[str] = Field(default=None, max_length=3000)
+    brief_id: Optional[UUID] = None
 
 
 class ItemPatch(BaseModel):
@@ -158,6 +169,7 @@ class ItemPatch(BaseModel):
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
+    creative_direction: Optional[CreativeDirectionInput] = None
 
 
 class ReelsMusicInput(BaseModel):
@@ -961,6 +973,27 @@ async def make_briefing(client_id: str, item_id: UUID, body: BriefingInput, auth
     await _agency_only(authorization)
     try:
         return await generate_briefing(cid, str(item_id), body.model_dump(exclude_none=True))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class CreativeDirectionSuggestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    current: Optional[CreativeDirectionInput] = None
+    instruction: Optional[str] = Field(default=None, max_length=600)
+
+
+@router.post("/calendar/items/{item_id}/creative-direction/suggest")
+async def suggest_direction(client_id: str, item_id: UUID, body: Optional[CreativeDirectionSuggestInput] = None,
+                            authorization: str | None = Header(default=None)):
+    """Equipe: a IA sugere o Direcionamento Criativo da peça (parte do que já foi escrito). Não grava nada:
+    a pessoa escolhe o que usar e salva a pauta."""
+    from services.studio_engines import suggest_creative_direction
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        current = body.current.model_dump(mode="json", exclude_none=True) if body and body.current else None
+        return await suggest_creative_direction(cid, str(item_id), current, body.instruction if body else None)
     except StudioError as exc:
         raise _http(exc) from None
 
