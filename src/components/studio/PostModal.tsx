@@ -322,7 +322,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
         </div> : null}
         {canManage && !clientMode && item && !dirty && item.status === "aprovado" && !item.schedule_confirmed_at ? (autoPublish ? <p className="postPublishWarn">
           Aprovado, mas <b>ainda não vai para o Instagram</b>. Clique em <b>{new Date(item.scheduled_at).getTime() > Date.now() ? "Agendar" : "Publicar agora"}</b> para sair sozinho.</p>
-          : <p className="postPublishWarn">Aprovado. <b>{interactiveStory ? "Este Story exige sticker manual" : channelLabel + " não publica sozinho"}</b>: agende para orientar a equipe na hora, ou marque <b>Já publiquei à mão</b>.</p>) : null>
+          : <p className="postPublishWarn">Aprovado. <b>{interactiveStory ? "Este Story exige sticker manual" : channelLabel + " não publica sozinho"}</b>: agende para orientar a equipe na hora, ou marque <b>Já publiquei à mão</b>.</p>) : null}
         {canManage && !clientMode && item && item.status === "publicado" && !item.publish_status ? <p className="postPublishWarn is-muted">
           Marcado como publicado à mão: o Mugoverso não enviou este post ao {channelLabel}.</p> : null}
         {canManage && !clientMode ? <div className="postActions">
