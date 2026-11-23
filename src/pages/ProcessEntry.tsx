@@ -13,6 +13,7 @@ type Tool = {
   description: string;
   route: AppRoute;
   icon: typeof Sparkles;
+  permission?: string;
 };
 
 const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[] }> = {
@@ -24,7 +25,7 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
       { label: "Benchmarking", description: "Consulte referências e movimentos do mercado.", route: "benchmark", icon: BarChart3 },
       { label: "Planejamento", description: "Estruture objetivos, fases e ações.", route: "planning", icon: Target },
       { label: "Metas", description: "Acompanhe os objetivos cadastrados.", route: "goals", icon: Target },
-      { label: "Matriz Tática de Conteúdo", description: "Distribua oportunidades por canal, pilar e período.", route: "campaigns", icon: Sparkles },
+      { label: "Matriz Tática de Conteúdo", description: "Distribua oportunidades por canal, pilar e período.", route: "campaigns", icon: Sparkles, permission: "social_media.view" },
       { label: "Calendário", description: "Organize datas, publicações e aprovações.", route: "calendar", icon: CalendarDays },
     ],
   },
@@ -32,7 +33,7 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
     title: "Criar conteúdo",
     lead: "Acesse diretamente as ferramentas de criação disponíveis para a empresa selecionada.",
     tools: [
-      { label: "Social Media", description: "Trabalhe a matriz e as postagens sociais.", route: "campaigns", icon: Megaphone },
+      { label: "Social Media", description: "Trabalhe a matriz e as postagens sociais.", route: "campaigns", icon: Megaphone, permission: "social_media.view" },
       { label: "Redação", description: "Produza e refine textos no editor profissional.", route: "redacao", icon: PenLine },
       { label: "Eventos", description: "Planeje produções e eventos da marca.", route: "production", icon: CalendarDays },
       { label: "Briefing", description: "Organize a demanda antes da produção.", route: "briefing", icon: FileText },
@@ -71,12 +72,13 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
 type Props = {
   kind: ProcessKind;
   canView: (route: AppRoute) => boolean;
+  canUse: (permission: string) => boolean;
   onOpen: (route: AppRoute) => void;
 };
 
-export default function ProcessEntry({ kind, canView, onOpen }: Props) {
+export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
   const process = PROCESSES[kind];
-  const tools = process.tools.filter((tool) => canView(tool.route));
+  const tools = process.tools.filter((tool) => canView(tool.route) && (!tool.permission || canUse(tool.permission)));
 
   function open(event: ReactMouseEvent<HTMLAnchorElement>, route: AppRoute) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

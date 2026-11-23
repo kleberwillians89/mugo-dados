@@ -1001,13 +1001,13 @@ function PrivateApp() {
       {route === "home" ? (
         <Home key={`home:${activeClientId}`} canView={canView} onOpen={openRoute} />
       ) : route === "process_planning" ? (
-        <ProcessEntry key={`process-planning:${activeClientId}`} kind="planning" canView={canView} onOpen={openRoute} />
+        <ProcessEntry key={`process-planning:${activeClientId}`} kind="planning" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "process_content" ? (
-        <ProcessEntry key={`process-content:${activeClientId}`} kind="content" canView={canView} onOpen={openRoute} />
+        <ProcessEntry key={`process-content:${activeClientId}`} kind="content" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "process_campaign" ? (
-        <ProcessEntry key={`process-campaign:${activeClientId}`} kind="campaign" canView={canView} onOpen={openRoute} />
+        <ProcessEntry key={`process-campaign:${activeClientId}`} kind="campaign" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "process_analysis" ? (
-        <ProcessEntry key={`process-analysis:${activeClientId}`} kind="analysis" canView={canView} onOpen={openRoute} />
+        <ProcessEntry key={`process-analysis:${activeClientId}`} kind="analysis" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "central" ? (
         <Central key={`central:${activeClientId}`} isAgency={teamHere} />
       ) : route === "goals" ? (

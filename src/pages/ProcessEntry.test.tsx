@@ -42,7 +42,7 @@ describe("nova entrada e processos", () => {
 
   it("filtra ferramentas de cada processo pela autorização existente", async () => {
     const open = vi.fn();
-    await act(async () => root.render(<ProcessEntry kind="planning" canView={(route) => route === "radar" || route === "calendar"} onOpen={open} />));
+    await act(async () => root.render(<ProcessEntry kind="planning" canView={(route) => route === "radar" || route === "calendar"} canUse={() => false} onOpen={open} />));
     expect(host.textContent).toContain("Radar");
     expect(host.textContent).toContain("Calendário");
     expect(host.textContent).not.toContain("Benchmarking");
@@ -50,6 +50,16 @@ describe("nova entrada e processos", () => {
     const calendar = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Calendário"))!;
     await act(async () => calendar.click());
     expect(open).toHaveBeenCalledWith("calendar");
+  });
+
+  it("não confunde acesso somente ao Calendário com acesso à Matriz ou Social Media", async () => {
+    const calendarOnlyCanView = (route: AppRoute) => route === "campaigns" || route === "calendar";
+    const calendarOnlyCanUse = (permission: string) => permission === "calendar.view";
+    await act(async () => root.render(<ProcessEntry kind="planning" canView={calendarOnlyCanView} canUse={calendarOnlyCanUse} onOpen={vi.fn()} />));
+    expect(host.textContent).toContain("Calendário");
+    expect(host.textContent).not.toContain("Matriz Tática de Conteúdo");
+    await act(async () => root.render(<ProcessEntry kind="content" canView={calendarOnlyCanView} canUse={calendarOnlyCanUse} onOpen={vi.fn()} />));
+    expect(host.textContent).not.toContain("Social Media");
   });
 
   it("as quatro páginas usam somente links para ferramentas reais", async () => {
@@ -60,7 +70,7 @@ describe("nova entrada e processos", () => {
       analysis: ["central", "brand_health", "meta", "google", "channels", "origins", "ecommerce", "customers", "clipping", "social_report"],
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
-      await act(async () => root.render(<ProcessEntry kind={kind} canView={() => true} onOpen={vi.fn()} />));
+      await act(async () => root.render(<ProcessEntry kind={kind} canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
       const hrefs = [...host.querySelectorAll<HTMLAnchorElement>(".processToolCard")].map((item) => item.getAttribute("href"));
       expect(hrefs.length).toBeGreaterThanOrEqual(expected[kind].length);
       expect(hrefs.every((href) => Boolean(href) && href !== "/404")).toBe(true);
