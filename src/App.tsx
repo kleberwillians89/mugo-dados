@@ -16,7 +16,7 @@ import {
   navigateToAppRoute,
   type AppRoute, approvalTokenFromPath,
 } from "./app/routes";
-import { routeAfterInvitationAccepted, shouldOpenMetaAfterSignIn } from "./app/authNavigation";
+import { routeAfterInvitationAccepted, shouldOpenHomeAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
 import { canViewAppRoute, OPT_IN_CODES } from "./app/teamRules";
@@ -620,11 +620,13 @@ function PrivateApp() {
       if (!mounted) return;
       const nextSession = next ?? null;
       const nextUserId = nextSession?.user.id ?? null;
-      const openMeta = shouldOpenMetaAfterSignIn({
+      const openHome = shouldOpenHomeAfterSignIn({
         event,
         bootstrapCompleted: authBootstrapCompletedRef.current,
         knownUserId: knownSessionUserRef.current,
         nextUserId,
+        requestedRoute: route,
+        hasSetupSignal: hasSetupSignalInUrl(),
       });
       authDebug("onAuthStateChange", {
         event,
@@ -634,9 +636,9 @@ function PrivateApp() {
       setSession(nextSession);
       setAuthInitializing(false);
       knownSessionUserRef.current = nextUserId;
-      if (openMeta) {
-        navigateToAppRoute("meta", { replace: true });
-        setRoute("meta");
+      if (openHome) {
+        navigateToAppRoute("home", { replace: true });
+        setRoute("home");
       }
       if (!nextSession) {
         clearTenantBrowserState();

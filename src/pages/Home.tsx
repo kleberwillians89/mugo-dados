@@ -17,10 +17,6 @@ const ACTIONS: { title: string; description: string; route: AppRoute; icon: type
 
 const COMPLEMENTARY: { label: string; route: AppRoute }[] = [
   { label: "Tira-dúvidas", route: "mugo_ia" },
-  { label: "Captação", route: "capture" },
-  { label: "WhatsApp", route: "whatsapp" },
-  { label: "E-mail marketing", route: "email_marketing" },
-  { label: "Comentários", route: "engagement" },
   { label: "O que a IA fez", route: "ai_actions" },
 ];
 
