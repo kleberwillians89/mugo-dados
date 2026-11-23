@@ -194,6 +194,8 @@ class ReelsOptionsInput(BaseModel):
     audio_name: Optional[str] = Field(default=None, max_length=100)
     first_comment: Optional[str] = Field(default=None, max_length=2200)
     music: Optional[ReelsMusicInput] = None
+    story_sticker: Optional[Literal["poll", "question", "quiz", "emoji_slider", "link", "countdown", "music"]] = None
+    story_instruction: Optional[str] = Field(default=None, max_length=500)
 
 
 class ProductTagInput(BaseModel):

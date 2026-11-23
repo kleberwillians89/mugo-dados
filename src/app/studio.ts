@@ -210,6 +210,9 @@ export type ReelsOptions = {
   first_comment?: string;
   /** Música da biblioteca do Instagram (Audio API). Volumes de 1 a 100. */
   music?: ReelsMusic;
+  /** Stories interativos: exigem finalização manual no Instagram; nunca vão automaticamente pela API. */
+  story_sticker?: "poll" | "question" | "quiz" | "emoji_slider" | "link" | "countdown" | "music";
+  story_instruction?: string;
 };
 export type ReelsMusic = { audio_id: string; title?: string; artist?: string | null; cover?: string | null; audio_volume?: number; video_volume?: number };
 export type ReelsAudio = { audio_id: string; title: string; artist: string | null; duration_ms: number | null; cover: string | null;
