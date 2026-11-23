@@ -781,8 +781,9 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
         from .ig_publish import media_for
         _plan, problem = media_for(item)
         if problem:
-            from .ig_publish import story_manual_instruction
-            if not story_manual_instruction(item):
+            from .ig_publish import story_manual_instruction, _media_plan
+            # Interação nativa é manual, mas a mídia ainda precisa ser válida antes de agendar.
+            if not story_manual_instruction(item) or _media_plan(item)[0] is None:
                 raise StudioError("SCHEDULE_ART_INVALID", problem)
     patch: Dict[str, Any] = {"schedule_confirmed_at": datetime.now(timezone.utc).isoformat(), "schedule_confirmed_by": user_id}
     if now:
