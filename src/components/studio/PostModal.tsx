@@ -90,8 +90,9 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
   const reelsOpts = draft.reels_options || {};
   const coverImage = reelsOpts.cover_mode === "image" && reelsOpts.cover_url ? reelsOpts.cover_url : null;
   const channelLabel = STUDIO_CHANNELS[channel];
-  // Só o Instagram publica sozinho; nas outras plataformas o agendamento lembra a equipe de publicar à mão.
-  const autoPublish = AUTO_PUBLISH_CHANNELS.includes((item?.channel || "instagram") as StudioChannel);
+  // Stories com sticker nativo exigem publicação manual no Instagram, sem fallback automático silencioso.
+  const interactiveStory = channel === "instagram" && draft.format === "stories" && Boolean(reelsOpts.story_sticker);
+  const autoPublish = AUTO_PUBLISH_CHANNELS.includes(channel) && !interactiveStory;
   const formatsFor = PLATFORM_FORMATS[channel] || (Object.keys(STUDIO_FORMATS) as StudioFormat[]);
   const when = draft.date ? localParts(`${draft.date}T${draft.time || "12:00"}:00-03:00`) : null;
   const caption = draft.caption_draft || "";
@@ -199,6 +200,31 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
         </div>
         <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
             {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
+        {channel === "instagram" && draft.format === "stories" ? <div className="postArt" role="group" aria-label="Interação do Story">
+          <strong>Interação do Story</strong>
+          <label>Como este Story será publicado?
+            <select value={reelsOpts.story_sticker || ""} disabled={!canManage || clientMode || busy}
+              onChange={(e) => set({ reels_options: { ...reelsOpts, story_sticker: (e.target.value || undefined) as typeof reelsOpts.story_sticker, story_instruction: e.target.value ? reelsOpts.story_instruction : undefined } })}>
+              <option value="">Story simples — publicação automática</option>
+              <option value="poll">Enquete</option>
+              <option value="question">Caixa de perguntas</option>
+              <option value="quiz">Quiz</option>
+              <option value="emoji_slider">Controle deslizante de emoji</option>
+              <option value="link">Link clicável</option>
+              <option value="countdown">Contagem regressiva</option>
+              <option value="music">Música do Instagram</option>
+            </select>
+          </label>
+          {interactiveStory ? <>
+            <label>Instruções para quem vai publicar
+              <textarea rows={3} maxLength={500} disabled={!canManage || clientMode || busy}
+                placeholder="Pergunta, opções, link ou orientação para o sticker"
+                value={reelsOpts.story_instruction || ""}
+                onChange={(e) => set({ reels_options: { ...reelsOpts, story_instruction: e.target.value } })} />
+            </label>
+            <p className="postArtWarn" role="status">Este Story precisa ser finalizado no aplicativo do Instagram. O Mugô Verso guarda a arte, o horário e as instruções, mas <b>não publicará automaticamente sem o sticker</b>. Na data agendada ficará pendente de publicação manual.</p>
+          </> : <small className="postArtHint">A imagem ou vídeo será publicado automaticamente, sem stickers interativos.</small>}
+        </div> : null}
         {canManage && !clientMode ? <div className="postArt">
           <span className="postArtTitle">{isReels ? "Vídeo do Reels" : "Arte do post"} {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
           <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}
@@ -296,7 +322,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
         </div> : null}
         {canManage && !clientMode && item && !dirty && item.status === "aprovado" && !item.schedule_confirmed_at ? (autoPublish ? <p className="postPublishWarn">
           Aprovado, mas <b>ainda não vai para o Instagram</b>. Clique em <b>{new Date(item.scheduled_at).getTime() > Date.now() ? "Agendar" : "Publicar agora"}</b> para sair sozinho.</p>
-          : <p className="postPublishWarn">Aprovado. <b>{channelLabel} não publica sozinho</b>: agende para a equipe ser lembrada na hora, ou marque <b>Já publiquei à mão</b>.</p>) : null}
+          : <p className="postPublishWarn">Aprovado. <b>{interactiveStory ? "Este Story exige sticker manual" : channelLabel + " não publica sozinho"}</b>: agende para orientar a equipe na hora, ou marque <b>Já publiquei à mão</b>.</p>) : null>
         {canManage && !clientMode && item && item.status === "publicado" && !item.publish_status ? <p className="postPublishWarn is-muted">
           Marcado como publicado à mão: o Mugoverso não enviou este post ao {channelLabel}.</p> : null}
         {canManage && !clientMode ? <div className="postActions">
