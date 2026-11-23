@@ -26,6 +26,7 @@ describe("nova entrada e processos", () => {
     expect(host.textContent).toContain("Precisa da sua atenção");
     expect(host.textContent).toContain("Ferramentas complementares");
     expect(host.textContent).toContain("Tira-dúvidas");
+    for (const moved of ["WhatsApp", "E-mail marketing", "Captação", "Comentários"]) expect(host.textContent).not.toContain(moved);
     expect(host.textContent).not.toMatch(/\d+ pendência/);
     const planning = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Planejar"))!;
     await act(async () => planning.click());
@@ -67,7 +68,7 @@ describe("nova entrada e processos", () => {
       planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
       content: ["campaigns", "redacao", "production", "briefing", "creators"],
       campaign: ["media", "calendar", "tasks"],
-      analysis: ["central", "brand_health", "meta", "google", "channels", "origins", "ecommerce", "customers", "clipping", "social_report"],
+      analysis: ["brand_health", "meta", "google", "channels", "origins", "ecommerce", "customers", "clipping", "social_report", "whatsapp", "email_marketing", "capture", "engagement"],
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
       await act(async () => root.render(<ProcessEntry kind={kind} canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
@@ -75,5 +76,20 @@ describe("nova entrada e processos", () => {
       expect(hrefs.length).toBeGreaterThanOrEqual(expected[kind].length);
       expect(hrefs.every((href) => Boolean(href) && href !== "/404")).toBe(true);
     }
+  });
+
+  it("agrupa Relacionamento em Analisar resultados sem duplicar o Dashboard e respeita permissões", async () => {
+    const open = vi.fn();
+    const allowed = new Set<AppRoute>(["whatsapp", "capture", "engagement"]);
+    await act(async () => root.render(<ProcessEntry kind="analysis" canView={(route) => allowed.has(route)} canUse={() => false} onOpen={open} />));
+    expect(host.textContent).toContain("Relacionamento");
+    expect(host.textContent).toContain("WhatsApp");
+    expect(host.textContent).toContain("Captação");
+    expect(host.textContent).toContain("Comentários");
+    expect(host.textContent).not.toContain("E-mail Marketing");
+    expect(host.textContent).not.toContain("Dashboard");
+    const whatsapp = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("WhatsApp"))!;
+    await act(async () => whatsapp.click());
+    expect(open).toHaveBeenCalledWith("whatsapp");
   });
 });

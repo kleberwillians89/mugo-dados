@@ -29,6 +29,8 @@ describe("platform routes", () => {
     expect(canViewAppRoute("process_campaign", (code) => code === "media.view")).toBe(true);
     expect(canViewAppRoute("process_campaign", () => false)).toBe(false);
     expect(canViewAppRoute("process_analysis", (code) => code === "ecommerce.view")).toBe(true);
+    expect(canViewAppRoute("process_analysis", (code) => code === "engagement.view")).toBe(true);
+    expect(canViewAppRoute("process_analysis", (code) => code === "origins.view")).toBe(true);
     expect(canViewAppRoute("process_analysis", () => false)).toBe(false);
   });
 

@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { ArrowRight, BarChart3, CalendarDays, FileText, HeartPulse, Megaphone, PenLine, Search, ShoppingCart, Sparkles, Target, Users } from "lucide-react";
+import { ArrowRight, BarChart3, CalendarDays, FileText, HeartPulse, Mail, Megaphone, MessageCircle, MessageSquare, PenLine, Search, ShoppingCart, Sparkles, Target, UserPlus, Users } from "lucide-react";
 import { getActiveClientName } from "../app/activeClient";
 import { getPathForRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
@@ -55,7 +55,6 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
     title: "Analisar resultados",
     lead: "Leia os resultados da marca, dos canais e do negócio nas telas já disponíveis.",
     tools: [
-      { label: "Dashboard", description: "Veja a leitura gerencial consolidada.", route: "central", icon: BarChart3 },
       { label: "Saúde da Marca", description: "Acompanhe os indicadores de presença e consistência.", route: "brand_health", icon: HeartPulse },
       { label: "Meta", description: "Consulte mídia e presença nos canais Meta.", route: "meta", icon: Megaphone },
       { label: "Google", description: "Consulte mídia e dados disponíveis do Google.", route: "google", icon: Search },
@@ -69,6 +68,13 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
   },
 };
 
+const RELATIONSHIP_TOOLS: Tool[] = [
+  { label: "WhatsApp", description: "Acompanhe conversas e relacionamento pelo WhatsApp.", route: "whatsapp", icon: MessageCircle },
+  { label: "E-mail Marketing", description: "Acesse campanhas e resultados de e-mail.", route: "email_marketing", icon: Mail },
+  { label: "Captação", description: "Consulte os contatos captados pela operação.", route: "capture", icon: UserPlus },
+  { label: "Comentários", description: "Acompanhe comentários e interações disponíveis.", route: "engagement", icon: MessageSquare },
+];
+
 type Props = {
   kind: ProcessKind;
   canView: (route: AppRoute) => boolean;
@@ -79,6 +85,7 @@ type Props = {
 export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
   const process = PROCESSES[kind];
   const tools = process.tools.filter((tool) => canView(tool.route) && (!tool.permission || canUse(tool.permission)));
+  const relationshipTools = kind === "analysis" ? RELATIONSHIP_TOOLS.filter((tool) => canView(tool.route)) : [];
 
   function open(event: ReactMouseEvent<HTMLAnchorElement>, route: AppRoute) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -89,7 +96,7 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
   return <Shell title={process.title} variant="editorial"><div className="ds-page processEntryPage">
     <PageHeader company={getActiveClientName() || "empresa"} title={process.title} />
     <p className="processEntryLead">{process.lead}</p>
-    <div className="processToolGrid" aria-label={`Ferramentas de ${process.title}`}>
+    {tools.length ? <div className="processToolGrid" aria-label={`Ferramentas de ${process.title}`}>
       {tools.map((tool) => {
         const Icon = tool.icon;
         return <a key={`${tool.label}:${tool.route}`} className="processToolCard" href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
@@ -98,6 +105,19 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
           <ArrowRight size={18} aria-hidden="true" className="processToolArrow" />
         </a>;
       })}
-    </div>
+    </div> : null}
+    {relationshipTools.length ? <section className="processToolSection" aria-labelledby="process-relationship-title">
+      <h2 id="process-relationship-title">Relacionamento</h2>
+      <div className="processToolGrid">
+        {relationshipTools.map((tool) => {
+          const Icon = tool.icon;
+          return <a key={`${tool.label}:${tool.route}`} className="processToolCard" href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
+            <span className="processToolIcon"><Icon size={20} aria-hidden="true" /></span>
+            <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
+            <ArrowRight size={18} aria-hidden="true" className="processToolArrow" />
+          </a>;
+        })}
+      </div>
+    </section> : null}
   </div></Shell>;
 }

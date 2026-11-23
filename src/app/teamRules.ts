@@ -25,7 +25,7 @@ const PROCESS_ROUTES: Record<string, string[]> = {
   process_planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
   process_content: ["campaigns", "redacao", "production", "briefing", "creators"],
   process_campaign: ["media", "calendar", "tasks"],
-  process_analysis: ["central", "brand_health", "meta", "google", "channels", "ecommerce", "origins", "customers", "clipping", "social_report"],
+  process_analysis: ["brand_health", "meta", "google", "channels", "ecommerce", "origins", "customers", "clipping", "social_report", "whatsapp", "email_marketing", "capture", "engagement"],
 };
 
 /** Social Media reúne recursos distintos sem fundir suas permissões. */
