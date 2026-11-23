@@ -555,6 +555,35 @@ async def edit_live_adset_budget(client_id: str, draft_id: str, *, adset_id: str
             "meta_confirmed": True, "checked_at": _now(), "budget_level": "adset"}
 
 
+async def live_object_insights(client_id: str, draft_id: str, *, level: str, object_id: str) -> Dict[str, Any]:
+    """Read seven-day Meta insights for one authorized ad set or ad, without mutation."""
+    if level not in {"adset", "ad"} or not re.fullmatch(r"\d{5,30}", str(object_id or "")):
+        raise StudioError("AD_NOT_READY", "Nível ou objeto Meta inválido.")
+    row, account, _ = await _campaign_editor_context(client_id, draft_id)
+    campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
+    allowed = await _campaign_children(account, campaign_id, "adsets" if level == "adset" else "ads")
+    if object_id not in {str(x.get("id") or "") for x in allowed}:
+        raise StudioError("AD_ACCOUNT_CHANGED", "Objeto não pertence à campanha desta empresa.")
+    body = await _graph("GET", f"/{object_id}/insights", token=account["token"],
+                        params={"fields": "spend,impressions,reach,clicks,inline_link_clicks,ctr,cpc,cpm,frequency,actions",
+                                "date_preset": "last_7d", "limit": 1})
+    data = (body.get("data") or [])
+    line = data[0] if data and isinstance(data[0], dict) else {}
+    actions = [
+        {"type": _text(a.get("action_type"), 80), "value": _num(a.get("value"))}
+        for a in (line.get("actions") or []) if isinstance(a, dict)
+    ][:30]
+    return {"source": "meta_graph", "read_only": True, "level": level,
+            "id": object_id, "campaign_id": campaign_id, "date_preset": "last_7d",
+            "checked_at": _now(), "has_data": bool(line),
+            "spend": _num(line.get("spend")), "impressions": int(_num(line.get("impressions"))),
+            "reach": int(_num(line.get("reach"))), "clicks": int(_num(line.get("clicks"))),
+            "link_clicks": int(_num(line.get("inline_link_clicks"))),
+            "ctr": _num(line.get("ctr")), "cpc": _num(line.get("cpc")),
+            "cpm": _num(line.get("cpm")), "frequency": _num(line.get("frequency")),
+            "actions": actions}
+
+
 # ---------------------------------------------------------------- ativar / pausar / resultados
 
 RESULT_ACTIONS = {

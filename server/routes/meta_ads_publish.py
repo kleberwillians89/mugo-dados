@@ -360,6 +360,16 @@ async def update_live_adset_budget(client_id: str, draft_id: UUID, object_id: st
         raise _http(exc) from None
 
 
+@router.get("/{draft_id}/objects/{level}/{object_id}/insights")
+async def read_live_object_insights(client_id: str, draft_id: UUID, level: str, object_id: str,
+                                    authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await pub.live_object_insights(cid, str(draft_id), level=level, object_id=object_id)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.get("/{draft_id}/delivery-status")
 async def read_ad_delivery_status(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)

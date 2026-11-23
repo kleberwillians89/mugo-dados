@@ -109,6 +109,20 @@ export const updateLiveMetaAdsetBudget = (draftId: string, adsetId: string, dail
     { method: "POST", body: JSON.stringify({ daily_budget: dailyBudget, confirm: true }), timeoutMs: 60_000 }
   );
 
+/** Indicadores Meta reais de um conjunto ou anúncio pertencente à campanha selecionada. Somente leitura. */
+export type LiveMetaObjectInsights = {
+  source: "meta_graph"; read_only: true; level: "adset" | "ad"; id: string;
+  date_preset: "last_7d"; checked_at: string; has_data: boolean;
+  spend: number; impressions: number; reach: number; clicks: number; link_clicks: number;
+  ctr: number; cpc: number; cpm: number; frequency: number;
+  actions: { type: string; value: number }[];
+};
+export const readLiveMetaObjectInsights = (draftId: string, level: "adset" | "ad", objectId: string) =>
+  http<LiveMetaObjectInsights>(
+    base(`/${encodeURIComponent(draftId)}/objects/${level}/${encodeURIComponent(objectId)}/insights`),
+    { timeoutMs: 60_000 }
+  );
+
 /** Descontos oficiais da Shopify vinculada à empresa ativa; exige read_discounts. */
 export type ShopPromotionCode = { code: string; title: string; status: string; starts_at: string | null; ends_at: string | null };
 export const listShopPromotionCodes = () =>
