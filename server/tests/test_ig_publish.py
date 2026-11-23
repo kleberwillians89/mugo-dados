@@ -29,6 +29,15 @@ class MediaTests(unittest.TestCase):
         story = ip.media_for({**ITEM, "format": "stories"})[0]
         self.assertEqual(story["fields"], {"media_type": "STORIES", "image_url": "https://cdn.roove.com/arte.jpg"})
 
+    def test_interactive_story_never_creates_meta_container(self):
+        for sticker in ("poll", "question", "quiz", "emoji_slider", "link", "countdown", "music"):
+            item = {**ITEM, "format": "stories", "reels_options": {"story_sticker": sticker, "story_instruction": "Adicionar interação"}}
+            plan, message = ip.media_for(item)
+            self.assertIsNone(plan)
+            self.assertIn("publique manualmente", message)
+        # Story comum continua automático, sem regressão.
+        self.assertIsNotNone(ip.media_for({**ITEM, "format": "stories"})[0])
+
     def test_manual_cases(self):
         for item in ({**ITEM, "art_url": "https://www.canva.com/design/abc/view"}, {**ITEM, "art_url": ""},
                      {**ITEM, "art_url": "https://cdn.x/arte.pdf"}, {**ITEM, "format": "carrossel"},
@@ -76,6 +85,14 @@ class PublishItemTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("permissão de publicar", sets[-1][1]["publish_error"])
         result, sets, _ = await self.run_item(enabled=True, publish=AsyncMock(side_effect=StudioError("IG_PUBLISH_FAILED", "Only photo or video can be accepted")))
         self.assertEqual(sets[-1][1]["publish_error"], "Only photo or video can be accepted")
+
+    async def test_interactive_story_never_calls_meta(self):
+        item = {**ITEM, "format": "stories", "reels_options": {"story_sticker": "poll", "story_instruction": "Sim ou não?"}}
+        result, sets, publish = await self.run_item(enabled=True, item=item)
+        self.assertEqual(result, "manual")
+        self.assertEqual(sets[0][1]["publish_status"], "manual")
+        self.assertIn("enquete", sets[0][1]["publish_error"])
+        publish.assert_not_awaited()
 
     async def test_manual_link_is_not_locked(self):
         result, sets, _ = await self.run_item(enabled=True, item={**ITEM, "art_url": "https://www.canva.com/design/x"})
