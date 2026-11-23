@@ -37,6 +37,7 @@ from .studio_llm import INT, STR, arr, flag_words, llm_json, obj
 MATRICES = "studio_content_matrices"
 OPPORTUNITIES = "studio_matrix_opportunities"
 ITEMS = "studio_calendar_items"
+APPROVAL_EVENTS = "studio_matrix_approval_events"
 
 WEEKS = 4                    # padrão (sem período pedido, a Matriz segue com 4 semanas)
 MAX_WEEKS = 8
@@ -270,7 +271,13 @@ async def get_matrix(client_id: str, matrix_id: str) -> Dict[str, Any]:
         raise StudioError("MATRIX_NOT_FOUND")
     ops = await sb_select(OPPORTUNITIES, select="*", filters={"client_id": f"eq.{client_id}", "matrix_id": f"eq.{matrix_id}"},
                           order="week.asc,platform.asc,position.asc", limit=MAX_OPPORTUNITIES + 20)
-    return {**rows[0], "opportunities": ops}
+    events = await sb_select(APPROVAL_EVENTS, select="*",
+                             filters={"client_id": f"eq.{client_id}", "matrix_id": f"eq.{matrix_id}"},
+                             order="created_at.asc", limit=300)
+    active = [op for op in ops if op.get("status") != "descartada"]
+    target = int(rows[0].get("target_count") or len(active))
+    return {**rows[0], "target_count": target, "generated_count": len(active),
+            "missing_count": max(0, target - len(active)), "approval_events": events, "opportunities": ops}
 
 
 async def _opportunity(client_id: str, opportunity_id: str) -> Dict[str, Any]:
@@ -280,10 +287,31 @@ async def _opportunity(client_id: str, opportunity_id: str) -> Dict[str, Any]:
     return rows[0]
 
 
+async def _linked_focus(client_id: str, matrix_id: Any) -> str:
+    if not matrix_id:
+        return ""
+    rows = await sb_select(MATRICES, select="focus", filters={"client_id": f"eq.{client_id}", "id": f"eq.{matrix_id}"}, limit=1)
+    return _clip(rows[0].get("focus"), 1000) if rows else ""
+
+
 # ---------------------------------------------------------------- geração
 
 async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today: Optional[date] = None) -> Dict[str, Any]:
     profile = (await load_profile(client_id))["profile"]
+    data = dict(data)
+    brief_snapshot: Optional[Dict[str, Any]] = None
+    brief_id = str(data.get("brief_id") or "").strip() or None
+    if brief_id:
+        from .studio_briefs import brief_text, get_brief
+        brief = await get_brief(client_id, brief_id, team=True)
+        if brief.get("status") == "arquivado":
+            raise StudioError("MATRIX_BRIEF_INVALID")
+        data["focus"] = brief_text(brief)
+        content = brief.get("brief") or {}
+        brief_snapshot = {"id": brief_id, "title": content.get("title"), "summary": content.get("summary"),
+                          "objective": content.get("objective"), "audience": content.get("audience"),
+                          "deadline": content.get("deadline"), "goal": content.get("goal"),
+                          "deliverables": content.get("deliverables") or [], "avoid": content.get("avoid") or []}
     req = normalize_request(data, profile, today=today)
     throttle(client_id)
     intel = await build_content_intelligence(client_id)
@@ -291,8 +319,8 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
     prompt = build_prompt(req, profile, intel, recent=await recent_content(client_id))
     expected = req["posts_per_week"] * req["weeks"]
 
-    async def attempt() -> tuple:
-        raw = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt,
+    async def attempt(attempt_prompt: str) -> tuple:
+        raw = await llm_json(client_id=client_id, instructions=ROLE, prompt=attempt_prompt,
                              schema_name="studio_content_matrix", schema=MATRIX_SCHEMA, temperature=0.7, timeout=150)
         cleaned = [c for c in (clean_opportunity(r, platforms=req["platforms"], pillars=req["pillars"], weeks=req["weeks"])
                                for r in raw.get("oportunidades") or [] if isinstance(r, dict)) if c]
@@ -300,22 +328,37 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
 
     # A IA raramente acerta a contagem exata (ou erra um pilar/semana): antes a matriz inteira era recusada.
     # Agora tenta de novo uma vez e, se ainda faltar, salva o que veio e avisa o que falta.
-    raw, cleaned, items = await attempt()
+    raw, cleaned, items = await attempt(prompt)
+    discarded_total = len(raw.get("oportunidades") or []) - len(cleaned)
     if len(items) < expected:
         try:
-            retry = await attempt()
-            if len(retry[2]) > len(items):
-                raw, cleaned, items = retry
+            missing_count = expected - len(items)
+            retry_prompt = (prompt + f"\n\nCOMPLEMENTO: já existem {len(items)} pautas válidas. Gere somente {missing_count} novas pautas "
+                            "para completar o plano. Não repita título, tema, gancho, plataforma/semana das pautas abaixo:\n"
+                            + json.dumps(items, ensure_ascii=False))
+            retry_raw, retry_cleaned, retry_items = await attempt(retry_prompt)
+            discarded_total += len(retry_raw.get("oportunidades") or []) - len(retry_cleaned)
+            seen = {_clip(it.get("title"), 200).lower() for it in items}
+            additions = []
+            for candidate in retry_items:
+                key = _clip(candidate.get("title"), 200).lower()
+                if key not in seen:
+                    seen.add(key)
+                    additions.append(candidate)
+                else:
+                    discarded_total += 1
+            items = cap_to_plan(items + additions, req)
+            if retry_raw.get("resumo") and not raw.get("resumo"):
+                raw["resumo"] = retry_raw["resumo"]
         except StudioError:
             pass
     if not items:
         raise StudioError("AI_INVALID_OUTPUT")
     notes: List[str] = []
     if len(items) < expected:
-        notes.append(f"A IA sugeriu {len(items)} de {expected} pautas planejadas. Complete à mão ou gere de novo.")
-    discarded = len(raw.get("oportunidades") or []) - len(cleaned)
-    if discarded > 0:
-        notes.append(f"{discarded} sugestão(ões) da IA fora da plataforma, do pilar ou da semana foram descartadas.")
+        notes.append(f"A IA sugeriu {len(items)} de {expected} pautas planejadas. Faltam {expected - len(items)}; use Gerar pautas restantes ou complete à mão.")
+    if discarded_total > 0:
+        notes.append(f"{discarded_total} sugestão(ões) da IA fora da plataforma, do pilar, da semana ou repetidas foram descartadas.")
     missing = [p for p in req["platforms"] if not any(i["platform"] == p for i in items)]
     if missing:
         notes.append(f"A IA não sugeriu nada para {', '.join(CHANNEL_LABELS[p] for p in missing)}. Gere de novo ou crie à mão.")
@@ -323,7 +366,8 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
     matrix = await sb_insert(MATRICES, {
         "client_id": client_id, "week_start": req["week_start"].isoformat(), "platforms": req["platforms"],
         **({"weeks": req["weeks"]} if req["weeks"] != WEEKS else {}),
-        "pillars": pillars, "focus": req["focus"] or None, "summary": _clip(raw.get("resumo"), 1200) or None,
+        "pillars": pillars, "focus": req["focus"] or None, "brief_id": brief_id, "brief_snapshot": brief_snapshot,
+        "target_count": expected, "summary": _clip(raw.get("resumo"), 1200) or None,
         "notes": notes, "created_by": user_id,
     })
     if not matrix or not matrix.get("id"):
@@ -334,6 +378,149 @@ async def generate(client_id: str, data: Dict[str, Any], *, user_id: str, today:
              "guard": _guard(it, avoid, context)} for i, it in enumerate(items)]
     await sb_insert_many(OPPORTUNITIES, rows)
     return await get_matrix(client_id, matrix["id"])
+
+
+async def complete(client_id: str, matrix_id: str) -> Dict[str, Any]:
+    """Gera somente o que falta, preservando pautas e edições existentes."""
+    matrix = await get_matrix(client_id, matrix_id)
+    missing = int(matrix.get("missing_count") or 0)
+    if missing <= 0:
+        return matrix
+    profile = (await load_profile(client_id))["profile"]
+    req = normalize_request({"weeks": matrix.get("weeks"), "start": matrix.get("week_start"),
+                             "focus": matrix.get("focus") or ""}, profile,
+                            today=date.fromisoformat(str(matrix["week_start"])[:10]))
+    req["week_start"] = date.fromisoformat(str(matrix["week_start"])[:10])
+    req["platforms"] = [p for p in matrix.get("platforms") or [] if p in PLATFORM_FORMATS]
+    req["pillars"] = _pillar_names({"pillars": matrix.get("pillars") or []})
+    req["posts_per_week"] = max(1, (int(matrix.get("target_count") or 1) + int(matrix.get("weeks") or WEEKS) - 1)
+                                // int(matrix.get("weeks") or WEEKS))
+    throttle(client_id)
+    intel = await build_content_intelligence(client_id)
+    existing = [{k: op.get(k) for k in ("platform", "pillar", "week", "weekday", "format", "title", "hook", "angle")}
+                for op in matrix.get("opportunities") or []]
+    prompt = (build_prompt(req, profile, intel, recent=existing)
+              + f"\n\nCOMPLEMENTO DA MATRIZ {matrix_id}: gere somente {missing} pautas novas. "
+                "Não reescreva nem repita nenhuma pauta existente. Responda apenas com as pautas restantes.")
+    raw = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt,
+                         schema_name="studio_content_matrix_complete", schema=MATRIX_SCHEMA, temperature=0.7, timeout=150)
+    candidates = [c for c in (clean_opportunity(r, platforms=req["platforms"], pillars=req["pillars"], weeks=req["weeks"])
+                              for r in raw.get("oportunidades") or [] if isinstance(r, dict)) if c]
+    existing_keys = {_clip(op.get("title"), 200).lower() for op in matrix.get("opportunities") or []}
+    additions: List[Dict[str, Any]] = []
+    for candidate in candidates:
+        key = _clip(candidate.get("title"), 200).lower()
+        if key not in existing_keys:
+            existing_keys.add(key)
+            additions.append(candidate)
+        if len(additions) >= missing:
+            break
+    if not additions:
+        raise StudioError("AI_INVALID_OUTPUT")
+    avoid = list(profile.get("keywords_avoid") or [])
+    context = _guard_context(profile, intel, str(matrix.get("focus") or ""))
+    position = max((int(op.get("position") or 0) for op in matrix.get("opportunities") or []), default=-1) + 1
+    rows = [{**it, "matrix_id": matrix_id, "client_id": client_id, "position": position + index,
+             "status": "sugerida", "guard": _guard(it, avoid, context)} for index, it in enumerate(additions)]
+    await sb_insert_many(OPPORTUNITIES, rows)
+    await _mark_changed(client_id, matrix_id)
+    return await get_matrix(client_id, matrix_id)
+
+
+async def set_briefing(client_id: str, matrix_id: str, *, brief_id: Optional[str], focus: Optional[str]) -> Dict[str, Any]:
+    """Substitui ou remove o direcionamento somente por ação explícita."""
+    await get_matrix(client_id, matrix_id)
+    snapshot = None
+    clean_focus = _clip(focus, 1000) if focus else None
+    if brief_id:
+        from .studio_briefs import brief_text, get_brief
+        brief = await get_brief(client_id, brief_id, team=True)
+        if brief.get("status") == "arquivado":
+            raise StudioError("MATRIX_BRIEF_INVALID")
+        content = brief.get("brief") or {}
+        clean_focus = brief_text(brief)
+        snapshot = {"id": brief_id, "title": content.get("title"), "summary": content.get("summary"),
+                    "objective": content.get("objective"), "audience": content.get("audience"),
+                    "deadline": content.get("deadline"), "goal": content.get("goal"),
+                    "deliverables": content.get("deliverables") or [], "avoid": content.get("avoid") or []}
+    rows = await sb_update(MATRICES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{matrix_id}"},
+                           patch={"brief_id": brief_id, "brief_snapshot": snapshot, "focus": clean_focus,
+                                  "approval_status": "rascunho", "updated_at": _now().isoformat()})
+    if not rows:
+        raise StudioError("MATRIX_NOT_FOUND")
+    return await get_matrix(client_id, matrix_id)
+
+
+async def set_period(client_id: str, matrix_id: str, *, weeks: int, start: str, today: Optional[date] = None) -> Dict[str, Any]:
+    """Altera o período sem reescrever pautas; posts já exportados permanecem protegidos no Calendário."""
+    matrix = await get_matrix(client_id, matrix_id)
+    if any(op.get("status") == "exportada" or op.get("calendar_item_id") for op in matrix.get("opportunities") or []):
+        raise StudioError("MATRIX_PERIOD_EXPORTED")
+    parsed_weeks, parsed_start = request_period({"weeks": weeks, "start": start}, today or datetime.now(SAO_PAULO).date())
+    max_used = max((int(op.get("week") or 1) for op in matrix.get("opportunities") or [] if op.get("status") != "descartada"), default=1)
+    if parsed_weeks < max_used:
+        raise StudioError("MATRIX_PERIOD_HAS_CONTENT")
+    rows = await sb_update(MATRICES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{matrix_id}"},
+                           patch={"weeks": parsed_weeks, "week_start": parsed_start.isoformat(),
+                                  "approval_status": "rascunho", "updated_at": _now().isoformat()})
+    if not rows:
+        raise StudioError("MATRIX_NOT_FOUND")
+    return await get_matrix(client_id, matrix_id)
+
+
+async def _mark_changed(client_id: str, matrix_id: str) -> None:
+    await sb_update(MATRICES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{matrix_id}"},
+                    patch={"approval_status": "rascunho", "updated_at": _now().isoformat()})
+
+
+def _approval_snapshot(matrix: Dict[str, Any]) -> Dict[str, Any]:
+    return {"matrix": {k: matrix.get(k) for k in ("id", "week_start", "weeks", "platforms", "pillars", "focus", "brief_id", "summary")},
+            "opportunities": [{k: op.get(k) for k in EDIT_FIELDS + ("id", "status")} for op in matrix.get("opportunities") or []]}
+
+
+async def submit_approval(client_id: str, matrix_id: str, *, actor_id: str, actor_name: str) -> Dict[str, Any]:
+    matrix = await get_matrix(client_id, matrix_id)
+    if matrix.get("approval_status") == "em_revisao":
+        return matrix
+    version = int(matrix.get("approval_version") or 0) + 1
+    rows = await sb_update(MATRICES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{matrix_id}"},
+                           patch={"approval_status": "em_revisao", "approval_version": version, "updated_at": _now().isoformat()})
+    if not rows:
+        raise StudioError("MATRIX_NOT_FOUND")
+    await sb_insert(APPROVAL_EVENTS, {"client_id": client_id, "matrix_id": matrix_id, "version": version,
+                                      "action": "enviada", "snapshot": _approval_snapshot(matrix),
+                                      "actor_id": actor_id, "actor_name": actor_name[:120] or None})
+    return await get_matrix(client_id, matrix_id)
+
+
+async def approval_comment(client_id: str, matrix_id: str, *, opportunity_id: Optional[str], comment: str,
+                           actor_id: str, actor_name: str) -> Dict[str, Any]:
+    matrix = await get_matrix(client_id, matrix_id)
+    if matrix.get("approval_status") != "em_revisao":
+        raise StudioError("MATRIX_NOT_IN_REVIEW")
+    if opportunity_id and not any(str(op.get("id")) == opportunity_id for op in matrix.get("opportunities") or []):
+        raise StudioError("OPPORTUNITY_NOT_FOUND")
+    await sb_insert(APPROVAL_EVENTS, {"client_id": client_id, "matrix_id": matrix_id,
+                                      "opportunity_id": opportunity_id, "version": int(matrix.get("approval_version") or 1),
+                                      "action": "comentario", "comment": _clip(comment, 2000),
+                                      "actor_id": actor_id, "actor_name": actor_name[:120] or None})
+    return await get_matrix(client_id, matrix_id)
+
+
+async def decide_approval(client_id: str, matrix_id: str, *, decision: str, comment: Optional[str],
+                          actor_id: str, actor_name: str) -> Dict[str, Any]:
+    matrix = await get_matrix(client_id, matrix_id)
+    if matrix.get("approval_status") != "em_revisao":
+        raise StudioError("MATRIX_NOT_IN_REVIEW")
+    action = "aprovada" if decision == "aprovar" else "ajuste_solicitado"
+    status = "aprovada" if decision == "aprovar" else "ajuste_solicitado"
+    await sb_update(MATRICES, filters={"client_id": f"eq.{client_id}", "id": f"eq.{matrix_id}"},
+                    patch={"approval_status": status, "updated_at": _now().isoformat()})
+    await sb_insert(APPROVAL_EVENTS, {"client_id": client_id, "matrix_id": matrix_id,
+                                      "version": int(matrix.get("approval_version") or 1), "action": action,
+                                      "comment": _clip(comment, 2000) if comment else None,
+                                      "actor_id": actor_id, "actor_name": actor_name[:120] or None})
+    return await get_matrix(client_id, matrix_id)
 
 
 # ---------------------------------------------------------------- edição
@@ -379,6 +566,7 @@ async def _retitle_exported(client_id: str, current: Dict[str, Any], title: Any)
     if current.get("calendar_item_id"):
         await sb_update(ITEMS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{current['calendar_item_id']}"},
                         patch={"title": clean["title"], "updated_at": now})
+    await _mark_changed(client_id, str(current["matrix_id"]))
     return rows[0]
 
 
@@ -410,6 +598,7 @@ async def update_opportunity(client_id: str, opportunity_id: str, patch: Dict[st
                            patch={**clean, "updated_at": _now().isoformat()})
     if not rows:
         raise StudioError("OPPORTUNITY_EXPORTED")
+    await _mark_changed(client_id, str(current["matrix_id"]))
     return rows[0]
 
 
@@ -434,6 +623,7 @@ async def create_opportunity(client_id: str, matrix_id: str, data: Dict[str, Any
                                           "status": "sugerida", "edited": True, "guard": []})
     if not row or not row.get("id"):
         raise StudioError("MATRIX_SAVE_FAILED")
+    await _mark_changed(client_id, matrix_id)
     return row
 
 
@@ -449,6 +639,7 @@ async def delete_opportunity(client_id: str, matrix_id: str, opportunity_id: str
                                                    "status": "neq.exportada"})
     if not rows:
         raise StudioError("OPPORTUNITY_NOT_FOUND")
+    await _mark_changed(client_id, matrix_id)
     return current
 
 
@@ -462,6 +653,7 @@ async def set_many_status(client_id: str, matrix_id: str, ids: List[str], status
     rows = await sb_update(OPPORTUNITIES, filters={"client_id": f"eq.{client_id}", "matrix_id": f"eq.{matrix_id}",
                                                    "id": f"in.({','.join(ids)})", "status": "neq.exportada"},
                            patch={"status": status, "updated_at": _now().isoformat()})
+    await _mark_changed(client_id, matrix_id)
     return {"updated": len(rows or []), "matrix": await get_matrix(client_id, matrix_id)}
 
 
@@ -473,12 +665,14 @@ async def refine_opportunity(client_id: str, opportunity_id: str, *, instruction
     throttle(client_id)
     profile = (await load_profile(client_id))["profile"]
     intel = await build_content_intelligence(client_id)
+    linked_focus = await _linked_focus(client_id, current.get("matrix_id"))
     platform = current["platform"]
     keep = {k: current.get(k) for k in ("platform", "pillar", "week", "weekday", "format", "title", "hook", "angle", "caption_draft", "rationale")}
     prompt = (f"OPORTUNIDADE ATUAL (reescreva mantendo plataforma, pilar e semana):\n{json.dumps(keep, ensure_ascii=False)}\n"
               f"PLATAFORMA: {PLATFORM_TASKS[platform]} Formatos possíveis: {', '.join(PLATFORM_FORMATS[platform])}.\n"
               + (f"PEDIDO DA EQUIPE: {_clip(instruction, 600)}\n" if instruction and instruction.strip()
                  else "Sem pedido específico: traga outro ângulo, mais forte.\n")
+              + (f"DIRECIONAMENTO VINCULADO À MATRIZ (respeite):\n{linked_focus}\n" if linked_focus else "")
               + "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
               + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
     data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_matrix_refine",
@@ -493,6 +687,7 @@ async def refine_opportunity(client_id: str, opportunity_id: str, *, instruction
                            patch={**cleaned, "guard": guard, "edited": True, "updated_at": _now().isoformat()})
     if not rows:
         raise StudioError("OPPORTUNITY_EXPORTED")
+    await _mark_changed(client_id, str(current["matrix_id"]))
     return rows[0]
 
 
@@ -519,6 +714,7 @@ async def create_content(client_id: str, opportunity_id: str, *, instruction: Op
         throttle(client_id)
     profile = (await load_profile(client_id))["profile"]
     intel = await build_content_intelligence(client_id)
+    linked_focus = await _linked_focus(client_id, current.get("matrix_id"))
     fmt = current.get("format") or "imagem"
     base = {k: current.get(k) for k in ("platform", "pillar", "format", "title", "hook", "angle", "rationale")}
     passages = await passages_for(client_id, str(current.get("title") or ""), str(current.get("angle") or ""), str(current.get("pillar") or ""))
@@ -530,6 +726,7 @@ async def create_content(client_id: str, opportunity_id: str, *, instruction: Op
               "LEGENDA: no tom da marca, com CTA e hashtags do perfil se houver.\n"
               f"{LIBRARY_RULE}\n{PLANS_RULE}\n"
               + (f"PEDIDO DA EQUIPE: {_clip(instruction, 600)}\n" if instruction and instruction.strip() else "")
+              + (f"DIRECIONAMENTO VINCULADO À MATRIZ (respeite):\n{linked_focus}\n" if linked_focus else "")
               + (f"TRECHOS DOS DOCUMENTOS DA MARCA SOBRE ESTE TEMA (fatos a usar, nunca contrariar):\n{passages}\n" if passages else "")
               + "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
               + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
@@ -547,6 +744,7 @@ async def create_content(client_id: str, opportunity_id: str, *, instruction: Op
                            patch={**patch, "guard": guard, "edited": True, "updated_at": _now().isoformat()})
     if not rows:
         raise StudioError("OPPORTUNITY_EXPORTED")
+    await _mark_changed(client_id, str(current["matrix_id"]))
     return rows[0]
 
 

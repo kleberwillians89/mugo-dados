@@ -16,6 +16,7 @@ type SocialMediaProps = {
   canViewSocial?: boolean;
   canViewCalendar?: boolean;
   canManageCalendar?: boolean;
+  canApproveMatrix?: boolean;
   isAgency?: boolean;
   initialTab?: SocialMediaTab;
 };
@@ -45,6 +46,7 @@ export default function Campaigns({
   canViewSocial = true,
   canViewCalendar = true,
   canManageCalendar = true,
+  canApproveMatrix = false,
   isAgency = false,
   initialTab,
 }: SocialMediaProps) {
@@ -80,11 +82,12 @@ export default function Campaigns({
     {canViewSocial ? <section id="social-matriz" className="socialWorkspaceSection" aria-labelledby="social-matriz-title">
       <header className="socialSectionHeader"><span>01</span><div><h2 id="social-matriz-title">Matriz Tática de Conteúdo</h2><p>Planejamento editorial do período escolhido (4 semanas por padrão, até 8).</p></div></header>
       {/* A esteira de agentes roda só por dentro (pedido do Briefing etc.): não aparece para ninguém. */}
-      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} onOpenCalendar={() => openSection("calendario")}
+      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} canApprove={canApproveMatrix} onOpenCalendar={() => openSection("calendario")}
         onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openSection("calendario"); } : undefined} />
     </section> : null}
     {canViewCalendar ? <section id="social-calendario" className="socialWorkspaceSection" aria-labelledby="social-calendario-title">
-      <header className="socialSectionHeader"><span>02</span><div><h2 id="social-calendario-title">Calendário de Postagens</h2><p>O que vai ser publicado e o que já foi, no dia e na hora. Os pilares da Matriz aparecem em cada post.</p></div></header>
+      <header className="socialSectionHeader"><span>02</span><div><h2 id="social-calendario-title">Calendário de Postagens</h2><p>O que vai ser publicado e o que já foi, no dia e na hora. Os pilares da Matriz aparecem em cada post.</p></div>
+        {canViewSocial ? <button type="button" className="ds-link" onClick={() => document.getElementById("matrix-approval")?.scrollIntoView?.({ behavior: "smooth", block: "start" })}>Aprovação da Matriz</button> : null}</header>
       <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} showBrandContext={false} /></Suspense>
     </section> : null}
   </div></Shell>;
