@@ -69,6 +69,10 @@ def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[
     """Plano de publicação ({"type", "fields", "children"}) ou o motivo para ficar manual.
     Colaboradores (até 3 @) vão no contêiner principal de imagem, Reels e carrossel; Stories não aceitam."""
     plan, problem = _media_plan(item)
+    if plan and plan["type"] == "story":
+        manual_sticker = story_manual_instruction(item)
+        if manual_sticker:
+            return None, manual_sticker
     if plan and plan["type"] != "reels":
         music_problem = _music_outside_reels(item, plan["type"])
         if music_problem:
@@ -84,6 +88,25 @@ def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[
         if warning:
             plan["warning"] = warning
     return plan, problem
+
+
+def story_manual_instruction(item: Dict[str, Any]) -> Optional[str]:
+    """Stories com sticker nativo só podem ser finalizados no aplicativo do Instagram."""
+    if str(item.get("channel") or "instagram") != "instagram" or str(item.get("format") or "").lower() not in STORY_FORMATS:
+        return None
+    opts = item.get("reels_options")
+    if not isinstance(opts, dict):
+        return None
+    sticker = opts.get("story_sticker")
+    labels = {"poll": "enquete", "question": "caixa de perguntas", "quiz": "quiz",
+              "emoji_slider": "controle de emoji", "link": "link clicável",
+              "countdown": "contagem regressiva", "music": "música"}
+    if sticker not in labels:
+        return None
+    instruction = str(opts.get("story_instruction") or "").strip()[:180]
+    return (f"Story interativo ({labels[sticker]}): publique manualmente pelo Instagram e adicione o sticker nativo. "
+            + (f"Instrução: {instruction}. " if instruction else "")
+            + "Depois marque como publicado no Mugô Verso.")
 
 
 def _music_outside_reels(item: Dict[str, Any], kind: str) -> Optional[str]:
