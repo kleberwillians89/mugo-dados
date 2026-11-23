@@ -50,6 +50,46 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((params["audio_type"], params["user_id"], params["search_query"]), ("music", "178", "hit"))
 
 
+class MusicRelevanceTests(unittest.TestCase):
+    def test_titulo_exato_vence_resultados_genericos(self):
+        songs = [
+            {"audio_id": "1", "title": "Love and Life", "artist": "Somebody"},
+            {"audio_id": "2", "title": "Ocean Eyes", "artist": "Billie Eilish"},
+            {"audio_id": "3", "title": "Ocean", "artist": "Different Artist"},
+        ]
+        ranked = sorted(((score, pos, song) for pos, song in enumerate(songs)
+                         if (score := ig_audio._relevance(song, "Ocean Eyes")) > 0),
+                        key=lambda item: (-item[0], item[1]))
+        self.assertEqual([song["audio_id"] for _, _, song in ranked], ["2"])
+
+    def test_artista_e_acentos_sao_encontrados(self):
+        song = {"title": "Música de Verão", "artist": "João"}
+        self.assertGreater(ig_audio._relevance(song, "Musica de Verao"), 0)
+        self.assertGreater(ig_audio._relevance(song, "Joao"), 0)
+        self.assertEqual(ig_audio._relevance(song, "Taylor Swift"), 0)
+
+    def test_busca_vazia_preserva_o_catalogo_em_alta(self):
+        self.assertEqual(ig_audio._relevance({"title": "Qualquer"}, ""), 1)
+
+
+class ProviderRelevanceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_busca_filtra_resultados_fora_do_termo(self):
+        response = MagicMock(status_code=200, content=b"x")
+        response.json.return_value = {"data": [
+            {"id": "1", "title": "Other Song", "display_artist": "Unknown"},
+            {"id": "2", "title": "Ocean Eyes", "display_artist": "Billie Eilish"},
+            {"id": "3", "title": "Eyes", "display_artist": "Someone Else"},
+        ]}
+        client = MagicMock(); client.get = AsyncMock(return_value=response)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        with patch("services.ig_engagement.credentials", AsyncMock(return_value={"ig_user_id": "178", "token": "t"})), \
+                patch.object(ig_audio.httpx, "AsyncClient", return_value=client):
+            result = await ig_audio.search_audio("client-a", "Ocean Eyes")
+        self.assertEqual([song["audio_id"] for song in result], ["2"])
+
+
+
 class MusicaForaDoReelsTest(unittest.TestCase):
     def _item(self, fmt, art="https://cdn.x/a.jpg", music=True):
         opts = {"music": {"audio_id": "587", "title": "Hit", "artist": "Banda"}} if music else {}

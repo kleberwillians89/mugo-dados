@@ -6,6 +6,8 @@ A música escolhida vai no contêiner do Reels como ``audio_configuration`` (ver
 from __future__ import annotations
 
 from typing import Any, Dict, List
+import re
+import unicodedata
 
 import httpx
 
@@ -39,6 +41,46 @@ def normalize(row: Dict[str, Any]) -> Dict[str, Any] | None:
     }
 
 
+def _terms(value: str) -> list[str]:
+    """Normaliza acentos, caixa e pontuação sem apagar palavras relevantes."""
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    normalized = "".join(c for c in normalized if not unicodedata.combining(c))
+    return re.findall(r"[a-z0-9]+", normalized)
+
+
+def _relevance(audio: Dict[str, Any], query: str) -> int:
+    """Evita mostrar um áudio completamente diferente como resultado da busca."""
+    words = _terms(query)
+    if not words:
+        return 1
+    title = _terms(str(audio.get("title") or ""))
+    artist = _terms(str(audio.get("artist") or ""))
+    needle = " ".join(words)
+    title_text = " ".join(title)
+    artist_text = " ".join(artist)
+    if title_text == needle:
+        return 100
+    if artist_text == needle:
+        return 90
+    if title_text.startswith(needle + " "):
+        return 85
+    if artist_text.startswith(needle + " "):
+        return 80
+    if needle in title_text:
+        return 75
+    if needle in artist_text:
+        return 70
+    # Título + artista, independentemente da ordem.
+    combined = set(title + artist)
+    if all(w in combined for w in words):
+        return 60
+    if len(words) >= 2 and sum(w in combined for w in words) >= max(2, len(words) - 1):
+        return 30
+    if len(words) == 1 and words[0] in combined:
+        return 20
+    return 0
+
+
 async def search_audio(client_id: str, query: str = "", audio_type: str = "music") -> List[Dict[str, Any]]:
     """Músicas (ou áudios originais de Reels) para escolher. Sem busca, vêm as que estão em alta."""
     from .ig_engagement import credentials
@@ -60,4 +102,11 @@ async def search_audio(client_id: str, query: str = "", audio_type: str = "music
         message = str(error.get("error_user_msg") or error.get("message") or f"HTTP {response.status_code}")[:250]
         raise StudioError("IG_AUDIO_FAILED", f"A Meta não liberou a busca de músicas: {message}")
     rows = body.get("audio") or body.get("data") or []
-    return [a for a in (normalize(r) for r in rows if isinstance(r, dict)) if a][:30]
+    normalized = [a for a in (normalize(r) for r in rows if isinstance(r, dict)) if a]
+    # A Meta pode retornar resultados fora do termo pesquisado. Nunca ofereça música
+    # incompatível como se fosse a solicitada; mantenha a ordenação original em "Em alta".
+    if not (query or "").strip():
+        return normalized[:30]
+    ranked = sorted(((score, n, a) for n, a in enumerate(normalized)
+                     if (score := _relevance(a, query)) > 0), key=lambda row: (-row[0], row[1]))
+    return [a for _, _, a in ranked[:30]]

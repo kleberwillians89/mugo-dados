@@ -94,6 +94,9 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
   const channelLabel = STUDIO_CHANNELS[channel];
   // Stories com sticker nativo exigem publicação manual no Instagram, sem fallback automático silencioso.
   const interactiveStory = channel === "instagram" && draft.format === "stories" && Boolean(reelsOpts.story_sticker);
+  const storyLines = (reelsOpts.story_instruction || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  const storyQuestion = storyLines[0] || (reelsOpts.story_sticker === "poll" ? "Sua pergunta aqui" : "Interação do Story");
+  const storyOptions = storyLines.slice(1, 5);
   const autoPublish = AUTO_PUBLISH_CHANNELS.includes(channel) && !interactiveStory;
   const formatsFor = PLATFORM_FORMATS[channel] || (Object.keys(STUDIO_FORMATS) as StudioFormat[]);
   const when = draft.date ? localParts(`${draft.date}T${draft.time || "12:00"}:00-03:00`) : null;
@@ -172,6 +175,26 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
           {draft.product_tags?.length && draft.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados"><ShoppingBag className="uiGlyph" size={13} aria-hidden="true" /> {draft.product_tags.length}</span> : null}
           {isReels && showSafe ? <div className="reelsSafe" aria-hidden="true"><span>área da grade</span></div> : null}
+          {interactiveStory ? <div className="storyStickerPreview" aria-label="Simulação do sticker do Story (não será enviado pela API)" role="img">
+            <div className="storyStickerCard">
+              {reelsOpts.story_sticker === "poll" ? <>
+                <strong>{storyQuestion}</strong>
+                {(storyOptions.length ? storyOptions.slice(0, 2) : ["Sim", "Não"]).map((option, index) => <span className="storyStickerOption" key={index}>{option}</span>)}
+              </> : reelsOpts.story_sticker === "question" ? <>
+                <strong>{storyQuestion}</strong><span className="storyStickerOption">Digite sua resposta...</span>
+              </> : reelsOpts.story_sticker === "quiz" ? <>
+                <strong>{storyQuestion}</strong>
+                {(storyOptions.length ? storyOptions : ["Opção 1", "Opção 2", "Opção 3"]).map((option, index) => <span className="storyStickerOption" key={index}>{option}</span>)}
+              </> : reelsOpts.story_sticker === "emoji_slider" ? <>
+                <strong>{storyQuestion}</strong><span className="storyStickerOption">😍 ━━━━━●━━</span>
+              </> : reelsOpts.story_sticker === "link" ? <>
+                <strong>Visite o link</strong><span className="storyStickerOption">{storyQuestion}</span>
+              </> : reelsOpts.story_sticker === "countdown" ? <>
+                <strong>{storyQuestion}</strong><span className="storyStickerOption">00 : 00 : 00</span>
+              </> : <><strong>♫ Música no Instagram</strong><span className="storyStickerOption">{storyQuestion}</span></>}
+            </div>
+            <small>Prévia visual · finalize o sticker no Instagram</small>
+          </div> : null}
         </div>}
         <div className="igActions" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.4 5c2 0 3.4 1.1 4.1 2.4h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z" /></svg>
@@ -220,9 +243,9 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
             </select>
           </label>
           {interactiveStory ? <>
-            <label>Instruções para quem vai publicar
+            <label>{["poll", "quiz"].includes(reelsOpts.story_sticker || "") ? "Pergunta e alternativas (uma por linha)" : "Texto ou instruções para o sticker"}
               <textarea rows={3} maxLength={500} disabled={!canManage || clientMode || busy}
-                placeholder="Pergunta, opções, link ou orientação para o sticker"
+                placeholder={reelsOpts.story_sticker === "poll" ? "Qual você prefere?\\nOpção A\\nOpção B" : reelsOpts.story_sticker === "quiz" ? "Qual é a resposta?\\nAlternativa 1\\nAlternativa 2\\nAlternativa 3" : "Texto, link ou orientação para o sticker"}
                 value={reelsOpts.story_instruction || ""}
                 onChange={(e) => set({ reels_options: { ...reelsOpts, story_instruction: e.target.value } })} />
             </label>

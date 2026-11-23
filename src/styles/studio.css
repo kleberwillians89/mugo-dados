@@ -1897,3 +1897,10 @@
 .metaAudKinds button small{font-size:12px;color:var(--text-secondary,#62717c)}
 .metaAudKinds button.is-on{border-color:#0b6073;box-shadow:0 0 0 1px #0b6073;background:#eef6f7}
 .metaAudCreateBox>.ds-button.is-primary{justify-self:start}
+
+/* Sticker apenas na prévia do modal original: a publicação interativa continua manual. */
+.igMedia .storyStickerPreview{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:14px;pointer-events:none;text-align:center}
+.storyStickerCard{display:grid;gap:7px;width:min(88%,270px);max-height:78%;overflow:hidden;padding:14px 12px;background:#fff;color:#222;border-radius:16px;box-shadow:0 4px 25px #0004;font-size:13px;line-height:1.35}
+.storyStickerCard strong{overflow-wrap:anywhere;font-size:14px}
+.storyStickerOption{background:#ededf0;border-radius:9px;padding:7px 9px;overflow-wrap:anywhere;color:#202020;font-size:12px}
+.storyStickerPreview>small{max-width:95%;padding:4px 9px;border-radius:8px;background:#0009;color:#fff;font-size:10px}
