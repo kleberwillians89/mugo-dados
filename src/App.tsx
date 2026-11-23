@@ -37,6 +37,7 @@ const loadEcommerce = () => import("./pages/Ecommerce");
 const Goals = lazy(() => import("./pages/Goals"));
 const Home = lazy(() => import("./pages/Home"));
 const ProcessEntry = lazy(() => import("./pages/ProcessEntry"));
+const ApprovalWorkspace = lazy(() => import("./pages/ApprovalWorkspace"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
 const Central = lazy(() => import("./pages/Central"));
@@ -961,7 +962,7 @@ function PrivateApp() {
       <DashboardDataProvider resources={route === "meta" || route === "google" ? "campaigns" : route === "ecommerce" ? "products" : "none"} clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
       <div className="appFrame">
       <AppNavigation
-        route={route === "calendar" || route === "approval" ? "campaigns" : route}
+        route={route === "calendar" || route === "approval" || route === "internal_approval" || route === "final_approval" ? "campaigns" : route}
         platformAdmin={platformAdmin}
         agencyAdmin={agencyAdmin}
         teamHere={teamHere}
@@ -1010,6 +1011,9 @@ function PrivateApp() {
         <ProcessEntry key={`process-campaign:${activeClientId}`} kind="campaign" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "process_analysis" ? (
         <ProcessEntry key={`process-analysis:${activeClientId}`} kind="analysis" canView={canView} canUse={can} onOpen={openRoute} />
+      ) : route === "internal_approval" || route === "final_approval" ? (
+        <ApprovalWorkspace key={`${route}:${activeClientId}`} mode={route === "internal_approval" ? "internal" : "final"} isAgency={teamHere}
+          onOpenCalendar={() => openRoute("calendar")} />
       ) : route === "central" ? (
         <Central key={`central:${activeClientId}`} isAgency={teamHere} />
       ) : route === "goals" ? (
