@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getActiveClientId } from "../../app/activeClient";
 import {
-  listShopPromotionCodes, updateLiveMetaBudget, updateLiveMetaCreative, readLiveMetaStructure, changeLiveMetaObjectStatus,
+  listShopPromotionCodes, updateLiveMetaBudget, updateLiveMetaCreative, readLiveMetaStructure, changeLiveMetaObjectStatus, updateLiveMetaAdsetBudget,
   type LiveMetaStructure,
   type AdDraft, type AdPayload, type ShopPromotionCode,
 } from "../../app/metaAds";
@@ -22,6 +22,7 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
   const [structure, setStructure] = useState<LiveMetaStructure | null>(null);
   const [structureBusy, setStructureBusy] = useState(false);
   const [objectBusy, setObjectBusy] = useState<string | null>(null);
+  const [adsetBudgets, setAdsetBudgets] = useState<Record<string, string>>({});
   const [codes, setCodes] = useState<ShopPromotionCode[]>([]);
   const [codesBusy, setCodesBusy] = useState(false);
   const [codesMessage, setCodesMessage] = useState("");
@@ -60,6 +61,24 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
       if (getActiveClientId() !== clientId) return;
       await loadStructure();
       setNotice("Status atualizado e confirmado pela Meta.");
+    } catch (cause) { if (getActiveClientId() === clientId) setError(message(cause)); }
+    finally { setObjectBusy(null); }
+  }
+
+  async function applyAdsetBudget(id: string, name: string, originalCents: number) {
+    const newBudget = Number(adsetBudgets[id] ?? String(originalCents / 100));
+    if (!Number.isFinite(newBudget) || newBudget < 6 || newBudget > 1_000_000) {
+      setError("Informe um orçamento diário válido a partir de R$ 6,00.");
+      return;
+    }
+    if (!window.confirm(`Alterar a verba diária APENAS do conjunto "${name}" de ${currency(originalCents / 100)} para ${currency(newBudget)}? Essa alteração pode gerar gastos reais imediatamente.`)) return;
+    setObjectBusy(id); setError(""); setNotice("");
+    try {
+      await updateLiveMetaAdsetBudget(draft.id, id, newBudget);
+      if (getActiveClientId() !== clientId) return;
+      await loadStructure();
+      setAdsetBudgets((old) => { const next = { ...old }; delete next[id]; return next; });
+      setNotice("Orçamento do conjunto atualizado e confirmado diretamente na Meta.");
     } catch (cause) { if (getActiveClientId() === clientId) setError(message(cause)); }
     finally { setObjectBusy(null); }
   }
@@ -134,6 +153,19 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
           {structure.adsets.map((item) => <div key={item.id} className="ds-noticeText" style={{ padding: 10, borderBottom: "1px solid #e3e6eb" }}>
             <strong>{item.name || item.id}</strong> · {item.effective_status || item.status}
             {item.daily_budget ? ` · Verba R$ ${(Number(item.daily_budget) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/dia` : ""}
+            {item.daily_budget && Number(item.daily_budget) > 0 ? <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", marginTop: 8 }}>
+              <label className="ds-field">Verba diária deste conjunto (R$)
+                <input type="number" min={6} max={1000000} step={0.01}
+                  aria-label={`Verba diária do conjunto ${item.name || item.id}`}
+                  disabled={!!objectBusy || structureBusy}
+                  value={adsetBudgets[item.id] ?? String(Number(item.daily_budget) / 100)}
+                  onChange={(e) => setAdsetBudgets((old) => ({ ...old, [item.id]: e.target.value }))} />
+              </label>
+              <button type="button" className="ds-button" disabled={!!objectBusy || structureBusy || Number(adsetBudgets[item.id] ?? String(Number(item.daily_budget) / 100)) === Number(item.daily_budget) / 100}
+                onClick={() => void applyAdsetBudget(item.id, item.name || item.id, Number(item.daily_budget))}>
+                {objectBusy === item.id ? "Confirmando na Meta…" : "Salvar verba do conjunto"}
+              </button>
+            </div> : <small className="ds-caption">Orçamento definido na campanha ou vitalício; edição diária individual indisponível.</small>}
             <button type="button" className="ds-button" style={{ marginLeft: 8 }} disabled={!!objectBusy || structureBusy}
               onClick={() => void applyObjectStatus("adset", item.id, item.name, item.status)}>
               {objectBusy === item.id ? "Confirmando…" : item.status === "ACTIVE" ? "Pausar conjunto" : "Ativar conjunto"}
