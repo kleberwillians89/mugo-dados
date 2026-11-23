@@ -102,6 +102,13 @@ export const changeLiveMetaObjectStatus = (
   { method: "POST", body: JSON.stringify({ status, confirm: true }), timeoutMs: 60_000 }
 );
 
+/** Atualiza somente o orçamento diário de um conjunto pertencente à campanha publicada. */
+export const updateLiveMetaAdsetBudget = (draftId: string, adsetId: string, dailyBudget: number) =>
+  http<{ meta_confirmed: true; id: string; campaign_id: string; daily_budget: number; budget_level: "adset"; checked_at: string }>(
+    base(`/${encodeURIComponent(draftId)}/objects/adset/${encodeURIComponent(adsetId)}/budget`),
+    { method: "POST", body: JSON.stringify({ daily_budget: dailyBudget, confirm: true }), timeoutMs: 60_000 }
+  );
+
 /** Descontos oficiais da Shopify vinculada à empresa ativa; exige read_discounts. */
 export type ShopPromotionCode = { code: string; title: string; status: string; starts_at: string | null; ends_at: string | null };
 export const listShopPromotionCodes = () =>

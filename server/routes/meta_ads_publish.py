@@ -341,6 +341,25 @@ async def update_live_object_status(client_id: str, draft_id: UUID, level: str, 
         raise _http(exc) from None
 
 
+class LiveAdsetBudgetInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    daily_budget: float = Field(gt=0, le=1_000_000)
+    confirm: bool
+
+
+@router.post("/{draft_id}/objects/adset/{object_id}/budget")
+async def update_live_adset_budget(client_id: str, draft_id: UUID, object_id: str,
+                                   body: LiveAdsetBudgetInput, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    if not body.confirm:
+        raise HTTPException(status_code=422, detail="Confirme a verba do conjunto na Meta.")
+    try:
+        return await pub.edit_live_adset_budget(cid, str(draft_id), adset_id=object_id,
+                                                daily_budget=body.daily_budget)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.get("/{draft_id}/delivery-status")
 async def read_ad_delivery_status(client_id: str, draft_id: UUID, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)

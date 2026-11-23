@@ -529,6 +529,32 @@ async def change_live_object_status(client_id: str, draft_id: str, *,
             "checked_at": _now(), "meta_confirmed": True}
 
 
+async def edit_live_adset_budget(client_id: str, draft_id: str, *, adset_id: str, daily_budget: float) -> Dict[str, Any]:
+    """Update one owned adset daily budget, never a sibling; verify readback before success."""
+    import math
+    if not re.fullmatch(r"\d{5,30}", str(adset_id or "")):
+        raise StudioError("AD_NOT_READY", "Conjunto Meta inválido.")
+    if not isinstance(daily_budget, (int, float)) or not math.isfinite(daily_budget) or not MIN_DAILY_BRL <= daily_budget <= 1_000_000:
+        raise StudioError("AD_NOT_READY", f"Orçamento diário deve ser de R$ {MIN_DAILY_BRL:.2f} a R$ 1.000.000.")
+    row, account, _ = await _campaign_editor_context(client_id, draft_id)
+    campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
+    allowed = await _campaign_children(account, campaign_id, "adsets")
+    match = next((a for a in allowed if str(a.get("id") or "") == adset_id), None)
+    if match is None:
+        raise StudioError("AD_ACCOUNT_CHANGED", "Esse conjunto não pertence à campanha selecionada.")
+    # Em campanhas com orçamento central (CBO), o conjunto não tem verba própria.
+    if not _num(match.get("daily_budget")):
+        raise StudioError("AD_NOT_READY", "Esse conjunto não tem orçamento diário próprio. Edite a verba da campanha.")
+    cents = int(round(daily_budget * 100))
+    await _graph("POST", f"/{adset_id}", token=account["token"], data={"daily_budget": str(cents)})
+    actual = await _graph("GET", f"/{adset_id}", token=account["token"],
+                          params={"fields": "id,campaign_id,daily_budget"})
+    if str(actual.get("id") or "") != adset_id or str(actual.get("campaign_id") or "") != campaign_id or abs(_num(actual.get("daily_budget")) - cents) > 1:
+        raise StudioError("AD_NOT_READY", "A Meta não confirmou a verba do conjunto; verifique antes de repetir.")
+    return {"id": adset_id, "campaign_id": campaign_id, "daily_budget": cents,
+            "meta_confirmed": True, "checked_at": _now(), "budget_level": "adset"}
+
+
 # ---------------------------------------------------------------- ativar / pausar / resultados
 
 RESULT_ACTIONS = {
