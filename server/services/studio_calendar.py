@@ -781,7 +781,9 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
         from .ig_publish import media_for
         _plan, problem = media_for(item)
         if problem:
-            raise StudioError("SCHEDULE_ART_INVALID", problem)
+            from .ig_publish import story_manual_instruction
+            if not story_manual_instruction(item):
+                raise StudioError("SCHEDULE_ART_INVALID", problem)
     patch: Dict[str, Any] = {"schedule_confirmed_at": datetime.now(timezone.utc).isoformat(), "schedule_confirmed_by": user_id}
     if now:
         moment = datetime.now(timezone.utc)
