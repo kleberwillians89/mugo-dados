@@ -16,6 +16,7 @@ export const ROUTE_MODULE: Record<string, string> = {
   google: "google", channels: "meta", tiktok: "meta", pinterest: "meta", linkedin: "meta", origins: "origins", whatsapp: "origins", email_marketing: "customers", capture: "customers", customer_value: "customers", ai_actions: "customers", plan: "central", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai", mugo_ia: "brand_ai",
   media: "media", social_report: "social_report", tasks: "tasks", briefing: "tasks", library: "calendar", planning: "tasks", production: "tasks", clipping: "clipping", radar: "clipping", brand_health: "clipping", benchmark: "clipping", creators: "creators",
   engagement: "engagement", users: "team", campaigns: "social_media", redacao: "social_media",
+  final_approval: "calendar",
 };
 
 /** Módulos liberados só pela equipe Mugô: não vêm de "acesso total" nem do papel (mesma regra do backend). */
@@ -31,6 +32,7 @@ const PROCESS_ROUTES: Record<string, string[]> = {
 /** Social Media reúne recursos distintos sem fundir suas permissões. */
 export function canViewAppRoute(route: string, can: (code: string) => boolean): boolean {
   if (route === "home") return true;
+  if (route === "internal_approval") return can("tasks.approve");
   const processChildren = PROCESS_ROUTES[route];
   if (processChildren) return processChildren.some((child) => canViewAppRoute(child, can));
   if (route === "campaigns") return can("social_media.view") || can("calendar.view");

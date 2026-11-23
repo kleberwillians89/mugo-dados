@@ -18,6 +18,17 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/planejamento")).toBe("planning");
     expect(getAppRouteFromPath("/calendario")).toBe("calendar");
     expect(getAppRouteFromPath("/central")).toBe("central");
+    expect(getAppRouteFromPath("/aprovacao-interna")).toBe("internal_approval");
+    expect(getPathForRoute("internal_approval")).toBe("/aprovacao-interna");
+    expect(getAppRouteFromPath("/aprovacao-final")).toBe("final_approval");
+    expect(getPathForRoute("final_approval")).toBe("/aprovacao-final");
+  });
+
+  it("separa as aprovações pelas permissões existentes", () => {
+    expect(canViewAppRoute("internal_approval", (code) => code === "tasks.approve")).toBe(true);
+    expect(canViewAppRoute("internal_approval", (code) => code === "calendar.view")).toBe(false);
+    expect(canViewAppRoute("final_approval", (code) => code === "calendar.view")).toBe(true);
+    expect(canViewAppRoute("final_approval", () => false)).toBe(false);
   });
 
   it("libera cada página de processo somente quando alguma ferramenta filha é permitida", () => {

@@ -11,6 +11,8 @@ export type AppRoute =
   | "goals"
   | "calendar"
   | "approval"
+  | "internal_approval"
+  | "final_approval"
   | "media"
   | "tasks"
   | "briefing"
@@ -85,6 +87,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
   // Aprovação mora no Calendário (visão Fluxo); o endereço antigo abre o Calendário já no Fluxo.
   if (normalized === "/aprovacao" || normalized.startsWith("/aprovacao/")) return "calendar";
+  if (normalized === "/aprovacao-interna" || normalized.startsWith("/aprovacao-interna/")) return "internal_approval";
+  if (normalized === "/aprovacao-final" || normalized.startsWith("/aprovacao-final/")) return "final_approval";
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
   if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
   if (normalized === "/briefing" || normalized.startsWith("/briefing/")) return "briefing";
@@ -163,6 +167,8 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "goals") return "/metas";
   if (route === "calendar") return "/calendario";
   if (route === "approval") return "/calendario";
+  if (route === "internal_approval") return "/aprovacao-interna";
+  if (route === "final_approval") return "/aprovacao-final";
   if (route === "media") return "/midia";
   if (route === "tasks") return "/tarefas";
   if (route === "briefing") return "/briefing";
