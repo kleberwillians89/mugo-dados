@@ -1469,6 +1469,7 @@ class EngagementReply(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     text: str = Field(min_length=1, max_length=1000)
     direct: bool = False
+    ai_original: Optional[str] = Field(default=None, max_length=1000)  # o que a IA sugeriu, se a resposta nasceu dela
 
 
 class EngagementRule(BaseModel):
@@ -1600,7 +1601,7 @@ async def engagement_reply(client_id: str, comment_id: str, body: EngagementRepl
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
     try:
-        return await manual_reply(cid, comment_id, body.text, actor=f"equipe:{uid}", direct=body.direct)
+        return await manual_reply(cid, comment_id, body.text, actor=f"equipe:{uid}", direct=body.direct, ai_original=body.ai_original)
     except StudioError as exc:
         raise _http(exc) from None
 
