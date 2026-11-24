@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({ saveMediaKit: vi.fn(), uploadMediaKit: vi.fn() }));
 vi.mock("../../app/creators", async (original) => ({ ...(await original<typeof import("../../app/creators")>()), ...api }));
 
-import MediaKits, { MediaKitDrawer } from "./MediaKits";
+import MediaKits, { MediaKitModal } from "./MediaKits";
 import type { Creator, MediaKit } from "../../app/creators";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -25,12 +25,12 @@ const type = async (el: HTMLInputElement, value: string) => {
 const KIT = { creator_id: "c1", files: [], prices: [], email: "ana@x.com", phone: null, contact: null, notes: null,
   deals: [{ id: "d0", closed_at: "2026-10-01", what: "Stories outubro", amount: 500 }] } as MediaKit;
 async function show(kit?: MediaKit, canAct = true, onSaved = vi.fn()) {
-  await act(async () => { root.render(<MediaKitDrawer creator={CREATOR} kit={kit} canAct={canAct} onSaved={onSaved} onClose={() => undefined} />); });
+  await act(async () => { root.render(<MediaKitModal creator={CREATOR} kit={kit} canAct={canAct} onSaved={onSaved} onClose={() => undefined} />); });
   return onSaved;
 }
 
 describe("Mídia kit e valores", () => {
-  it("a lista mostra o resumo e o botão abre a gaveta do criador", async () => {
+  it("a lista mostra o resumo e o botão abre a modal do criador", async () => {
     const onOpen = vi.fn();
     await act(async () => { root.render(<MediaKits creators={[CREATOR]} kits={{ c1: KIT }} loading={false} onOpen={onOpen} />); });
     expect(host.textContent).toContain("Fechado ✓ 01/10/2026");

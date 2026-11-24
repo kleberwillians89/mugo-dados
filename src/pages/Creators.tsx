@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import CreatorFinder from "../components/creators/CreatorFinder";
-import MediaKits, { MediaKitDrawer } from "../components/creators/MediaKits";
+import MediaKits, { MediaKitModal } from "../components/creators/MediaKits";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorCompact, creatorNumber, deleteCreator,
@@ -176,7 +176,7 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
     </div>
 
     <SegmentedControl ariaLabel="Seção" options={TAB_OPTIONS} value={tab} onSelect={(id) => setTab(id as "criadores" | "kits")} />
-    {kitOpen ? <MediaKitDrawer key={kitOpen.id} creator={kitOpen} kit={kits[kitOpen.id]} canAct={canAct}
+    {kitOpen ? <MediaKitModal key={kitOpen.id} creator={kitOpen} kit={kits[kitOpen.id]} canAct={canAct}
       onSaved={(kit) => setKits((k) => ({ ...k, [kit.creator_id]: kit }))} onClose={() => setKitOpen(null)} /> : null}
     {tab === "kits" ? <div className="creatorWork"><MediaKits creators={creators} kits={kits} loading={kitsLoading} onOpen={setKitOpen} /></div> :
     <div className="creatorWork">

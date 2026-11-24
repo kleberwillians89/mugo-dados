@@ -1,5 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
-import Drawer from "../Drawer";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   KIT_ACCEPT, brl, kitDateBR as dateBR, saveMediaKit, uploadMediaKit, creatorCompact,
   kitSummary, type Creator, type KitDeal, type KitFile, type KitPrice, type MediaKit,
@@ -25,15 +24,49 @@ const PRICE_ROW: CSSProperties = { display: "grid", gridTemplateColumns: "minmax
 const LINK: CSSProperties = { background: "none", border: 0, padding: 0, color: "var(--ds-text-muted, #6b7280)", textDecoration: "underline", cursor: "pointer", font: "inherit", fontSize: 13 };
 const LIST: CSSProperties = { display: "grid", gap: 6, margin: 0, paddingLeft: 18 };
 
+// Modal centralizado do mídia kit (estilo próprio: não depende do CSS de outras telas).
+const BACKDROP: CSSProperties = { position: "fixed", inset: 0, background: "rgba(20,22,18,.45)", display: "flex", alignItems: "center",
+  justifyContent: "center", padding: 20, zIndex: 100 };
+const PANEL: CSSProperties = { background: "#fff", borderRadius: 18, width: "100%", maxWidth: 760, maxHeight: "90vh", display: "flex",
+  flexDirection: "column", boxShadow: "0 24px 60px rgba(0,0,0,.25)", outline: "none" };
+const HEAD: CSSProperties = { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "20px 24px", borderBottom: "1px solid #e8e5de" };
+const BODY: CSSProperties = { padding: "20px 24px", overflowY: "auto" };
+const FOOT: CSSProperties = { padding: "14px 24px", borderTop: "1px solid #e8e5de", display: "flex", justifyContent: "flex-end" };
+
+function CenterModal({ title, subtitle, onClose, footer, children }: { title: string; subtitle?: string; onClose: () => void; footer: ReactNode; children: ReactNode }) {
+  const panel = useRef<HTMLDivElement | null>(null);
+  const close = useRef(onClose);
+  useEffect(() => { close.current = onClose; }, [onClose]);
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    panel.current?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close.current(); };
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = overflow; if (previous?.isConnected) previous.focus(); };
+  }, []);
+  return <div style={BACKDROP} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div ref={panel} tabIndex={-1} style={PANEL} role="dialog" aria-modal="true" aria-label={title}>
+      <div style={HEAD}>
+        <div><h2 style={{ margin: 0, fontSize: 20 }}>{title}</h2>{subtitle ? <small className="creatorMuted">{subtitle}</small> : null}</div>
+        <button type="button" aria-label="Fechar" onClick={onClose} style={{ background: "none", border: 0, fontSize: 24, lineHeight: 1, cursor: "pointer", padding: "2px 6px", color: "#5f665f" }}>×</button>
+      </div>
+      <div style={BODY}>{children}</div>
+      <div style={FOOT}>{footer}</div>
+    </div>
+  </div>;
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return <section style={SECTION}><h3 style={{ margin: 0, fontSize: 16 }}>{title}</h3>{children}</section>;
 }
 
 /**
- * Gaveta "Mídia kit" de um criador: arquivos (PDF/imagem ou link), valores por entregável, e-mail, telefone,
+ * Modal "Mídia kit" de um criador: arquivos (PDF/imagem ou link), valores por entregável, e-mail, telefone,
  * outro contato, fechamentos (histórico) e observações. Salva no banco por empresa.
  */
-export function MediaKitDrawer({ creator, kit, canAct, onSaved, onClose }: {
+export function MediaKitModal({ creator, kit, canAct, onSaved, onClose }: {
   creator: Creator; kit?: MediaKit; canAct: boolean; onSaved: (kit: MediaKit) => void; onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(kit));
@@ -91,7 +124,7 @@ export function MediaKitDrawer({ creator, kit, canAct, onSaved, onClose }: {
     <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={close}>Fechar</button>
   </div> : <button type="button" className="ds-button" onClick={close}>Fechar</button>;
 
-  return <Drawer open width="lg" title={`Mídia kit · @${creator.handle}`} description={`${creatorCompact(creator.followers)} seguidores`} onClose={close} footer={footer}>
+  return <CenterModal title={`Mídia kit · @${creator.handle}`} subtitle={`${creatorCompact(creator.followers)} seguidores`} onClose={close} footer={footer}>
     <div style={STACK} aria-label={`Mídia kit de @${creator.handle}`}>
       {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
       {saved ? <p className="studioOk" role="status">{saved}</p> : null}
@@ -163,10 +196,10 @@ export function MediaKitDrawer({ creator, kit, canAct, onSaved, onClose }: {
         <textarea style={FULL} rows={4} value={draft.notes} maxLength={4000} disabled={!canAct} onChange={(e) => set({ notes: e.target.value })}
           placeholder="ex.: prazo de entrega, uso de imagem, permuta, histórico de campanhas" /></label>
     </div>
-  </Drawer>;
+  </CenterModal>;
 }
 
-/** Aba "Mídia kit e valores": a lista dos criadores da marca com o resumo e o botão que abre a gaveta. */
+/** Aba "Mídia kit e valores": a lista dos criadores da marca com o resumo e o botão que abre o modal. */
 export default function MediaKits({ creators, kits, loading, onOpen }: {
   creators: Creator[]; kits: Record<string, MediaKit>; loading: boolean; onOpen: (creator: Creator) => void;
 }) {
