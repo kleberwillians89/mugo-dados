@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { listAssignees, type Person } from "../../app/crm";
-import { BRIEFING_ROLES, CONTENT_ANGLES, briefingText, cleanDirection, sendBriefing, type BriefingRole, type CalendarItem } from "../../app/studio";
+import { BRIEFING_ROLES, CONTENT_ANGLES, CREATIVE_DIRECTION_FIELDS, briefingText, cleanDirection, sendBriefing, type BriefingRole, type CalendarItem } from "../../app/studio";
 
-/** Briefing da peça: ler, copiar e enviar para quem vai fazer (vira tarefa com o Direcionamento Criativo salvo).
- *  A geração de briefing com IA saiu desta janela: a orientação da peça agora é o Direcionamento Criativo, no topo. */
-export default function BriefingPanel({ item, hook, disabled, pending }: { item: CalendarItem; hook?: string; disabled?: boolean;
+/** Briefing da peça (primeiro bloco da janela): ler, copiar, enviar para quem vai fazer e, pelo botão
+ *  "Editar peça", abrir a edição do direcionamento criativo. A geração de briefing com IA saiu desta janela. */
+export default function BriefingPanel({ item, hook, disabled, pending, editing, onEdit }: { item: CalendarItem; hook?: string; disabled?: boolean;
   /** O Direcionamento Criativo mudou e não foi salvo: a tarefa leva o que está salvo. */
-  pending?: boolean }) {
+  pending?: boolean;
+  /** A edição da peça está aberta (logo abaixo deste bloco). */
+  editing?: boolean;
+  /** Abre ou fecha a edição da peça. Sem ele, o botão não aparece. */
+  onEdit?: () => void }) {
   const current = item;
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -40,9 +44,11 @@ export default function BriefingPanel({ item, hook, disabled, pending }: { item:
     catch { /* navegador sem permissão de copiar */ }
   };
   const row = (label: string, value?: string | null) => value ? <div><b>{label}</b><p>{value}</p></div> : null;
+  const direction = cleanDirection(current.creative_direction);
 
   return <details className="postFromMatrix postBriefing" open>
     <summary>Briefing da peça</summary>
+    {CREATIVE_DIRECTION_FIELDS.map((f) => <div key={f.key}>{row(f.label, direction[f.key])}</div>)}
     {hasBriefing ? <>
       {row("Ângulo", b.angle ? CONTENT_ANGLES[b.angle] || b.angle : null)}
       {row("Resumo", b.summary)}
@@ -54,8 +60,10 @@ export default function BriefingPanel({ item, hook, disabled, pending }: { item:
       {b.tech_requirements?.length ? <div><b>Requisitos técnicos</b><ul>{b.tech_requirements.map((d) => <li key={d}>{d}</li>)}</ul></div> : null}
       {row("Roteiro", current.script)}
       {row("Direção da arte", current.visual_idea)}
-    </> : <p className="postBriefingEmpty">{hasDirection ? "O Direcionamento Criativo salvo (no topo) é o que vai para quem cria." : "Escreva o Direcionamento Criativo no topo e salve: é ele que vai para quem cria."}</p>}
+    </> : hasDirection ? null : <p className="postBriefingEmpty">Esta peça ainda não tem briefing. Clique em <b>Editar peça</b> para escrever o que quem cria precisa saber.</p>}
     <div className="postBriefingActions">
+      {onEdit ? <button type="button" className="ds-button is-primary" disabled={disabled} aria-expanded={Boolean(editing)} onClick={onEdit}>
+        {editing ? "Fechar edição" : "Editar peça"}</button> : null}
       {has ? <button type="button" className="ds-button" onClick={() => void copy()}>{copied ? "Briefing copiado ✓" : "Copiar briefing"}</button> : null}
       {has && !sending ? <button type="button" className="ds-button" disabled={disabled} onClick={() => setSending(true)}>Enviar para…</button> : null}
     </div>
