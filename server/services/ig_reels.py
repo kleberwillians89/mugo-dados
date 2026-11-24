@@ -68,6 +68,11 @@ def clean_reels_options(value: Any) -> Dict[str, Any]:
         instruction = _text(value.get("story_instruction"), 500)
         if instruction:
             out["story_instruction"] = instruction
+        scale = value.get("story_sticker_scale")
+        if isinstance(scale, (int, float)) and not isinstance(scale, bool):
+            import math
+            if math.isfinite(scale):
+                out["story_sticker_scale"] = int(max(60, min(140, round(scale))))
         position = value.get("story_sticker_position")
         if isinstance(position, dict):
             try:
