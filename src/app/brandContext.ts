@@ -6,7 +6,7 @@ export type HealthItem = { id: string; level: HealthLevel; title: string; detail
 export type LearningStatus = { since: string | null; last_learning_at: string | null; new_signals: number };
 export type ContextHealth = { ok: true; score: number; items: HealthItem[]; learning: LearningStatus };
 
-export type LearningSource = "ajuste" | "comentario" | "reescrita" | "aprovacao" | "whatsapp";
+export type LearningSource = "ajuste" | "comentario" | "reescrita" | "aprovacao" | "whatsapp" | "criadores" | "equipe" | "resultados";
 export type SuggestedFact = { fato: string; origem: LearningSource; origem_rotulo: string; evidencia: string; confianca: "alta" | "media" };
 export type LearningSuggestion = { ok: true; facts: SuggestedFact[]; signals: number; since: string | null; message: string | null };
 

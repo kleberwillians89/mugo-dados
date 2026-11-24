@@ -784,6 +784,9 @@ async def send_decision(client_id: str, thread: Dict[str, Any], number: Dict[str
             else:
                 raise
         provider_id = str(((out.get("messages") or [{}])[0] or {}).get("id") or f"mugoverso-ai:{uuid.uuid4()}")
+        if sent == 0 and decision.get("_ai_original"):
+            # A equipe corrigiu a sugestão antes de enviar: o par (IA → equipe) vira sinal de aprendizado da marca.
+            payload = {**(payload or {}), "ai_original": str(decision["_ai_original"])[:1000]}
         await _record(client_id, thread, number, provider_id=provider_id, kind=body["type"], text=text, payload=payload, by_ai=by_ai)
         sent += 1
     return sent
@@ -1033,7 +1036,9 @@ async def send_suggestion(client_id: str, thread_id: str, *, text: Optional[str]
     reply = re.sub(r"[ \t]+", " ", str(text if text is not None else suggestion.get("reply") or "")).strip()[:1000]
     if not reply:
         raise WhatsAppAiError("EMPTY", "Escreva a mensagem.")
-    decision = {"reply": reply, "buttons": list(suggestion.get("buttons") or [])[:3],
+    original = re.sub(r"[ \t]+", " ", str(suggestion.get("reply") or "")).strip()
+    decision = {"reply": reply, "_ai_original": original if original and original != reply else None,
+                "buttons": list(suggestion.get("buttons") or [])[:3],
                 "products": [by_handle[p["handle"]] for p in suggestion.get("products") or [] if p.get("handle") in by_handle]}
     sent = await send_decision(client_id, thread, number, decision, meta=meta, match=match,
                         style=settings.get("product_style") or "carrossel", button=settings.get("product_button") or "Garantir meu look")
