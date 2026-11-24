@@ -31,3 +31,14 @@ export function getPendingLearning() {
 export function discardPendingLearning(id: string) {
   return http<{ ok: true }>(base(`/learn/pending/${encodeURIComponent(id)}/discard`), { method: "POST" });
 }
+
+/** Respostas que a IA mandou sozinha, sorteadas para a equipe avaliar (👍👎). */
+export type AutoReply = { channel: "whatsapp" | "direct" | "comentario"; channel_label: string; ref_id: string; customer_text: string; ai_text: string };
+export function getAutoReplySample() {
+  return http<{ ok: true; replies: AutoReply[] }>(base("/learn/sample"));
+}
+export function rateAutoReply(reply: AutoReply, rating: "up" | "down", reason?: string) {
+  return http<{ ok: true }>(base("/learn/rate"), { method: "POST", body: JSON.stringify({
+    channel: reply.channel, ref_id: reply.ref_id, customer_text: reply.customer_text, ai_text: reply.ai_text, rating,
+    reason: reason?.trim() || null }) });
+}

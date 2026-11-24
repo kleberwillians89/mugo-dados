@@ -149,7 +149,16 @@ async def usage_signals(client_id: str, *, since: Optional[str] = None, days: in
         "criadores": await creator_signals(client_id, start),
         "respostas_da_equipe": await team_reply_signals(client_id, start),
         "resultados": await result_signals(client_id, start),
+        "piloto_automatico": await _autopilot(client_id, start),
     }
+
+
+async def _autopilot(client_id: str, start: str) -> Dict[str, Any]:
+    try:
+        from .autopilot_signals import signals
+        return await signals(client_id, start)
+    except Exception:  # noqa: BLE001 — sem esses sinais o aprendizado segue com os outros
+        return {}
 
 
 async def creator_signals(client_id: str, start: str) -> List[Dict[str, Any]]:
@@ -229,7 +238,8 @@ async def result_signals(client_id: str, start: str) -> Dict[str, Any]:
 def count_signals(signals: Dict[str, Any]) -> int:
     wa = signals.get("whatsapp") or {}
     team = signals.get("respostas_da_equipe") or {}
-    return (len(signals.get("criadores") or []) + len(team.get("instagram") or []) + len(team.get("whatsapp") or [])
+    from .autopilot_signals import count as autopilot_count
+    return (autopilot_count(signals.get("piloto_automatico") or {}) + len(signals.get("criadores") or []) + len(team.get("instagram") or []) + len(team.get("whatsapp") or [])
             + len(team.get("correcoes_da_ia") or []) + len(team.get("direct") or []) + len(signals.get("ajustes_pedidos") or []) + len(signals.get("comentarios_do_cliente") or [])
             + len(signals.get("textos_reescritos_pelo_cliente") or []) + len(signals.get("aprovados_pelo_cliente") or [])
             + len(wa.get("perguntas_recentes") or []))

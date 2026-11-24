@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const api = vi.hoisted(() => ({ getContextHealth: vi.fn(), suggestLearning: vi.fn(), confirmLearning: vi.fn(), getPendingLearning: vi.fn(), discardPendingLearning: vi.fn() }));
+const api = vi.hoisted(() => ({ getContextHealth: vi.fn(), suggestLearning: vi.fn(), confirmLearning: vi.fn(), getPendingLearning: vi.fn(), discardPendingLearning: vi.fn(), getAutoReplySample: vi.fn(), rateAutoReply: vi.fn() }));
 vi.mock("../../app/brandContext", () => api);
 
 import BrandLearning from "./BrandLearning";
@@ -23,6 +23,8 @@ beforeEach(() => {
   api.getContextHealth.mockResolvedValue(HEALTH);
   api.getPendingLearning.mockResolvedValue({ ok: true, pending: null });
   api.discardPendingLearning.mockResolvedValue({ ok: true });
+  api.getAutoReplySample.mockResolvedValue({ ok: true, replies: [] });
+  api.rateAutoReply.mockResolvedValue({ ok: true });
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
@@ -91,6 +93,29 @@ describe("Aprender com o uso", () => {
     await act(async () => { button("Descartar")!.click(); });
     expect(api.discardPendingLearning).toHaveBeenCalledWith("p1");
     expect(host.textContent).not.toContain("A IA separou");
+  });
+
+  it("respostas automáticas: 👍 salva direto, 👎 pede o motivo", async () => {
+    const replies = [
+      { channel: "whatsapp", channel_label: "WhatsApp", ref_id: "w1", customer_text: "Tem o 50ml?", ai_text: "Prezada cliente, temos disponibilidade." },
+      { channel: "comentario", channel_label: "Comentário", ref_id: "c1", customer_text: "Amei!", ai_text: "Obrigada 💛" },
+    ];
+    api.getAutoReplySample.mockResolvedValue({ ok: true, replies });
+    await show(<BrandLearning />);
+    expect(host.textContent).toContain("Respostas que a IA mandou sozinha");
+    const card = (id: string) => host.querySelector(`[data-reply="${id}"]`)!;
+    await act(async () => { card("c1").querySelector<HTMLButtonElement>('[aria-label="Resposta boa"]')!.click(); });
+    expect(api.rateAutoReply).toHaveBeenCalledWith(replies[1], "up", undefined);
+    await act(async () => { card("w1").querySelector<HTMLButtonElement>('[aria-label="Resposta ruim"]')!.click(); });
+    const input = host.querySelector<HTMLInputElement>(".bcAutoReplies input[type=text]")!;
+    expect(input).not.toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "formal demais");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { button("Enviar")!.click(); });
+    expect(api.rateAutoReply).toHaveBeenLastCalledWith(replies[0], "down", "formal demais");
+    expect(host.textContent).toContain("2 avaliada(s)");
   });
 
   it("sem nada novo, explica e não grava", async () => {
