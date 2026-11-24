@@ -134,7 +134,7 @@ async def _summary(client_id: str, data: Dict[str, Any], social: Optional[Dict[s
     if not any(slim.values()):
         return None
     try:
-        out = await llm_json(client_id=client_id,
+        out = await llm_json(brand="dados", client_id=client_id,
             instructions=("Você é o estrategista da agência Mugô fechando o mês do cliente. Escreva o resumo do mês em 3 a 5 "
                           "pontos curtos e depois 2 a 3 próximos passos práticos. Use SÓ os números dados (não invente métrica, "
                           "não arredonde para cima). Português do Brasil, direto, sem emoji, sem travessão."),

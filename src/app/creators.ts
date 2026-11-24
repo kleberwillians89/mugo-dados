@@ -44,9 +44,11 @@ export const resolveCreator = (network: CreatorNetwork, q: string) =>
   http<{ saved: CreatorPick[]; exact: CreatorPick | null; similar?: CreatorPick[] }>(path(`/resolve?${new URLSearchParams({ network, q })}`));
 /** Busca por NOME no Instagram (Apify, só a equipe Mugô). */
 export const searchPeople = (query: string) => http<{ query: string; people: CreatorPick[] }>(path("/people-search"), post({ query }, SLOW_MS));
-export type CreatorSuggestion = { creator: Creator; reason: string };
+export type CreatorSuggestion = { creator: Creator; reason: string; fit?: number | null };
+/** Perfis que existem mas a IA tirou da lista, agrupados pelo motivo (poucos seguidores, sem posts recentes...). */
+export type SuggestFiltered = Record<string, string[]>;
 export const suggestCreators = (campaign_type: Shortlist["campaign_type"], brief: string, count = 6) =>
-  http<{ suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean }>(path("/suggest"), post({ campaign_type, brief: brief.trim() || null, count }, SLOW_MS));
+  http<{ suggestions: CreatorSuggestion[]; discarded: string[]; filtered?: SuggestFiltered; context_available: boolean }>(path("/suggest"), post({ campaign_type, brief: brief.trim() || null, count }, SLOW_MS));
 export const refreshCreator = (id: string) => http<Creator>(path(`/${encodeURIComponent(id)}/refresh`), { method: "POST" });
 // Cliente: tira o criador da lista da empresa. Agência: exclui do banco inteiro.
 export const deleteCreator = (id: string) => http<{ ok: true; scope: "company" | "bank" }>(path(`/${encodeURIComponent(id)}`), { method: "DELETE" });

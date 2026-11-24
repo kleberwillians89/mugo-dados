@@ -37,12 +37,14 @@ def _accepts_temperature(model: str) -> bool:
 async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: Dict[str, Any],
                    temperature: float = 0.6, timeout: float = 90, model: str | None = None,
                    images: tuple | list = (), client_id: str | None = None, leak_check: bool = True,
-                   guidance: bool = True, max_output_tokens: int | None = None) -> Dict[str, Any]:
+                   guidance: bool = True, max_output_tokens: int | None = None,
+                   brand: str | None = None) -> Dict[str, Any]:
     """Resposta da IA em JSON. Com a marca conhecida (client_id ou a empresa já autorizada na requisição),
     passa pela auditoria anti-vazamento: citou outra marca da Mugô → refaz 1 vez avisando; citou de novo → bloqueia.
 
     ``guidance=False`` não anexa a orientação criativa (para conversas que não escrevem peças: menos tokens).
-    ``max_output_tokens`` limita o tamanho da resposta."""
+    ``max_output_tokens`` limita o tamanho da resposta.
+    ``brand`` (atendimento, conteudo, estrategia, dados, criadores) anexa o cérebro da marca às instruções."""
     cid = client_id
     if cid is None and leak_check:
         from .tenant import _REQUEST_CLIENT
@@ -50,6 +52,11 @@ async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: 
     if cid is None:
         from .tenant import _REQUEST_CLIENT
         cid = _REQUEST_CLIENT.get()
+    if brand and cid:
+        from .brand_brain import brand_block
+        block = await brand_block(cid, brand)
+        if block:
+            instructions = f"{instructions}\n\n{block}"
     extra = {"guidance": guidance, "max_output_tokens": max_output_tokens, "client_id": cid}
     data = await _llm_json_once(instructions=instructions, prompt=prompt, schema_name=schema_name, schema=schema,
                                 temperature=temperature, timeout=timeout, model=model, images=images, **extra)

@@ -75,9 +75,12 @@ async def _call_openai_json(prompt: str, client_id: str) -> Dict[str, Any]:
     api_key = runtime.api_key
     model = runtime.model
 
+    from .brand_brain import brand_block
+    brain = await brand_block(client_id, "dados")
     payload = {
         "model": model,
-        "instructions": "Você é um estrategista sênior de social media para agência. Nunca invente dados.",
+        "instructions": "Você é um estrategista sênior de social media para agência. Nunca invente dados."
+                        + (f"\n\n{brain}" if brain else ""),
         "input": prompt,
         "temperature": 0.35,
         "max_output_tokens": bounded_output_tokens("summary", None, model),
