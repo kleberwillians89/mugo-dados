@@ -87,7 +87,7 @@ export default function MentionReview({ start, end, onChanged }: { start: string
   }
 
   return <section className="bhCard bhMentions" aria-labelledby="bh-mentions">
-    <h2 id="bh-mentions">Escuta social do Instagram</h2>
+    <h2 id="bh-mentions">Classificação de sentimento no Instagram</h2>
     <p className="bhSub">Cobertura desta tela: comentários e mensagens já coletados do Instagram conectado, no período selecionado. A coleta em mar aberto ainda não está configurada.</p>
     <p className="bhSub">Abra uma menção para ver a origem e revisar o sentimento ou o assunto.</p>
     <div className="bhMentionsBar">

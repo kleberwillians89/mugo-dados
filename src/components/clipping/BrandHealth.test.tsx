@@ -83,11 +83,11 @@ describe("Saúde da marca", () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => root.render(<BrandHealth canManage />));
-    const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Escuta social")!;
+    const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Classificação de sentimento")!;
     expect(container.querySelector(".bhMentions")).toBeNull();
     trigger.focus();
     await act(async () => trigger.click());
-    expect(container.querySelector('[role="dialog"][aria-label="Escuta social"] .bhMentions')).toBeTruthy();
+    expect(container.querySelector('[role="dialog"][aria-label="Classificação de sentimento"] .bhMentions')).toBeTruthy();
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);
