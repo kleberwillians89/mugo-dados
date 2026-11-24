@@ -64,6 +64,17 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("Pilares", quick)
         self.assertNotIn("elogiam", quick)
 
+    def test_performance_lessons_go_in_by_purpose(self):
+        lessons = [{"tipo": "post", "resultado": "acima", "aprendizado": "Reels \"bastidor\", terça às 19h: 1,8x o alcance médio."},
+                   {"tipo": "anúncio", "resultado": "abaixo", "aprendizado": "Carrossel de preço: CTR 0,4x a mediana."}]
+        block = brand_brain.render("estrategia", business=self.business, profile={}, memory="", voice=None, lessons=lessons)
+        self.assertIn("1,8x o alcance médio", block)
+        self.assertIn("[anúncio, abaixo]", block)
+        quick = brand_brain.render("atendimento", business=self.business, profile={}, memory="", voice=None, lessons=lessons)
+        self.assertNotIn("alcance médio", quick)
+        one = brand_brain.render("criadores", business={}, profile={}, memory="", voice=None, lessons=lessons * 3)
+        self.assertEqual(one.count("· ["), 3)
+
     def test_empty_brand_gives_empty_block(self):
         self.assertEqual(brand_brain.render("estrategia", business={}, profile={}, memory="", voice=None), "")
 

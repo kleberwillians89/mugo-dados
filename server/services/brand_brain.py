@@ -1,7 +1,8 @@
 """Cérebro da marca: o que a agência sabe de uma marca, num formato só, para todas as IAs.
 
 Junta, por empresa: contexto do negócio, perfil da marca (tom, personalidade, público, restrições),
-memória da marca (material enviado + fatos confirmados, inclusive os aprendidos com o uso) e a voz do público.
+memória da marca (material enviado + fatos confirmados, inclusive os aprendidos com o uso), a voz do público e
+as conclusões do ciclo fechado (``brand_learnings``: o que cada post e anúncio rendeu contra a média).
 Antes cada IA montava o seu recorte, e algumas (criadores, relatórios, resumos, campanhas) quase não viam a marca.
 
 Uso: ``llm_json(..., brand="estrategia")`` anexa o bloco às instruções. Cada finalidade leva só o que serve a ela,
@@ -23,20 +24,20 @@ from typing import Any, Dict, Tuple
 PURPOSES: Dict[str, Dict[str, Any]] = {
     "atendimento": {"business": ("product_description", "commercial_context", "differentiators", "audience"),
                     "profile": ("tone_of_voice", "personality", "keywords_avoid", "restrictions"),
-                    "memory": 1500, "voice": False, "chars": 3000},
+                    "memory": 1500, "voice": False, "lessons": 0, "chars": 3000},
     "conteudo": {"business": ("segment", "product_description", "audience", "positioning", "differentiators"),
                  "profile": ("tone_of_voice", "personality", "audience", "pillars", "keywords_use", "keywords_avoid", "restrictions"),
-                 "memory": 1800, "voice": True, "chars": 4200},
+                 "memory": 1800, "voice": True, "lessons": 4, "chars": 4800},
     "estrategia": {"business": ("segment", "product_description", "audience", "positioning", "differentiators",
                                 "commercial_context", "goals", "strategic_notes"),
                    "profile": ("tone_of_voice", "personality", "audience", "pillars", "keywords_avoid", "restrictions"),
-                   "memory": 2500, "voice": True, "chars": 5500},
+                   "memory": 2500, "voice": True, "lessons": 6, "chars": 6400},
     "dados": {"business": ("segment", "audience", "positioning", "commercial_context", "goals"),
-              "profile": ("audience",), "memory": 900, "voice": True, "chars": 2400},
+              "profile": ("audience",), "memory": 900, "voice": True, "lessons": 4, "chars": 3000},
     "criadores": {"business": ("segment", "product_description", "audience", "positioning", "differentiators",
                                "commercial_context", "goals", "strategic_notes"),
                   "profile": ("tone_of_voice", "personality", "audience", "pillars", "visual_identity", "keywords_avoid", "restrictions"),
-                  "memory": 2500, "voice": True, "chars": 6000},
+                  "memory": 2500, "voice": True, "lessons": 3, "chars": 6500},
 }
 
 LABELS = {
@@ -58,7 +59,8 @@ def _value(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
-def render(purpose: str, *, business: Dict[str, Any], profile: Dict[str, Any], memory: str, voice: str | None) -> str:
+def render(purpose: str, *, business: Dict[str, Any], profile: Dict[str, Any], memory: str, voice: str | None,
+           lessons: list | None = None) -> str:
     """Bloco pronto para as instruções. Puro (sem banco), para teste."""
     spec = PURPOSES.get(purpose) or PURPOSES["estrategia"]
     lines = []
@@ -73,6 +75,10 @@ def render(purpose: str, *, business: Dict[str, Any], profile: Dict[str, Any], m
             lines.append(f"- {label}: {text[:FIELD_CHARS]}")
     if spec["voice"] and voice:
         lines.append(f"- Como o público fala da marca: {_value(voice)[:400]}")
+    picked = [l for l in (lessons or []) if l.get("aprendizado")][: spec.get("lessons", 0)]
+    if picked:
+        lines.append("- O que os posts e anúncios recentes renderam (contra a média da própria conta):\n"
+                     + "\n".join(f"  · [{l.get('tipo')}, {l.get('resultado')}] {str(l['aprendizado'])[:260]}" for l in picked))
     memory = (memory or "").strip()[: spec["memory"]]
     if memory:
         lines.append(f"- Memória da marca (material enviado e aprendizados confirmados):\n{memory}")
@@ -109,7 +115,14 @@ async def _load(client_id: str, purpose: str) -> str:
             voice = await audience_voice(client_id)
         except Exception:  # noqa: BLE001
             voice = None
-    return render(purpose, business=business, profile=profile, memory=memory, voice=voice)
+    lessons: list = []
+    if spec.get("lessons"):
+        try:
+            from .brand_learnings import recent
+            lessons = await recent(client_id, limit=spec["lessons"])
+        except Exception:  # noqa: BLE001
+            lessons = []
+    return render(purpose, business=business, profile=profile, memory=memory, voice=voice, lessons=lessons)
 
 
 async def brand_block(client_id: str | None, purpose: str) -> str:

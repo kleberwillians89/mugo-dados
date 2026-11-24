@@ -40,12 +40,19 @@ class SignalTests(unittest.IsolatedAsyncioTestCase):
             if "payload->>ai_original" in kwargs["filters"]:
                 return [{"text": "Oi! Temos sim 💛", "payload": {"ai_original": "Olá, prezada cliente. Temos disponibilidade."}}]
             return [{"text": "Separei pra você"}]
-        tables = {"ig_engagement_actions": [{"text": "Obrigada, linda!"}], "whatsapp_messages": wa}
+        def ig(kwargs):
+            if "ai_original" in kwargs["filters"]:
+                return [{"text": "Amamos 💛", "ai_original": "Agradecemos imensamente o seu comentário."}]
+            return [{"text": "Obrigada, linda!"}]
+        tables = {"ig_engagement_actions": ig, "whatsapp_messages": wa, "ig_dm_messages": [{"text": "Te mandei o link aqui"}]}
         with patch.object(brand_signals, "sb_select", fake_select(tables)):
             out = await brand_signals.team_reply_signals(CID, "2026-11-01")
         self.assertEqual(out["instagram"], ["Obrigada, linda!"])
         self.assertEqual(out["whatsapp"], ["Separei pra você"])
-        self.assertEqual(out["correcoes_da_ia"][0]["equipe_enviou"], "Oi! Temos sim 💛")
+        self.assertEqual(out["direct"], ["Te mandei o link aqui"])
+        channels = {c["canal"]: c for c in out["correcoes_da_ia"]}
+        self.assertEqual(channels["comentario"]["ia_sugeriu"], "Agradecemos imensamente o seu comentário.")
+        self.assertEqual(channels["whatsapp"]["equipe_enviou"], "Oi! Temos sim 💛")
 
     def test_new_signals_count_but_results_do_not(self):
         signals = {"criadores": [{}, {}], "respostas_da_equipe": {"instagram": ["a"], "whatsapp": [], "correcoes_da_ia": [{}]},
@@ -61,6 +68,31 @@ class SignalTests(unittest.IsolatedAsyncioTestCase):
             out = await brand_signals.usage_signals(CID)
         self.assertEqual(out["criadores"], [])
         self.assertEqual(out["respostas_da_equipe"]["correcoes_da_ia"], [])
+
+
+class CommentCorrectionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_log_keeps_ai_original_only_when_changed_and_survives_missing_column(self):
+        from services import ig_engagement
+        comment = {"comment_id": "17900000001", "media_id": "m1"}
+        insert = AsyncMock()
+        with patch.object(ig_engagement, "sb_insert", insert):
+            await ig_engagement._log(CID, comment, kind="resposta_manual", status="enviado", text="Amamos 💛",
+                                     ai_original="Agradecemos imensamente.")
+        self.assertEqual(insert.await_args.args[1]["ai_original"], "Agradecemos imensamente.")
+        insert.reset_mock()
+        with patch.object(ig_engagement, "sb_insert", insert):
+            await ig_engagement._log(CID, comment, kind="resposta_manual", status="enviado", text="Amamos", ai_original="Amamos")
+        self.assertNotIn("ai_original", insert.await_args.args[1])  # mandou igual: não é correção
+        calls = []
+
+        async def no_column(table, row, **kwargs):
+            calls.append(row)
+            if "ai_original" in row:
+                raise RuntimeError("coluna ai_original não existe")
+        with patch.object(ig_engagement, "sb_insert", no_column):
+            await ig_engagement._log(CID, comment, kind="resposta_manual", status="enviado", text="Amamos 💛", ai_original="Outro")
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("ai_original", calls[1])  # sem a migração, a resposta continua registrada
 
 
 class WhatsAppCorrectionTests(unittest.IsolatedAsyncioTestCase):

@@ -178,6 +178,14 @@ async def team_reply_signals(client_id: str, start: str) -> Dict[str, Any]:
     ig = await _safe_select("ig_engagement_actions", select="text,created_at", limit=20, order="created_at.desc",
                             filters={"client_id": f"eq.{client_id}", "kind": "eq.resposta_manual", "status": "eq.enviado",
                                      "created_at": f"gte.{start}"})
+    # Comentário respondido a partir da sugestão da IA, com o texto mudado pela equipe (coluna da migração 000147).
+    ig_fixed = await _safe_select("ig_engagement_actions", select="text,ai_original,created_at", limit=20, order="created_at.desc",
+                                  filters={"client_id": f"eq.{client_id}", "status": "eq.enviado", "ai_original": "not.is.null",
+                                           "created_at": f"gte.{start}"})
+    # Direct do Instagram: o que a equipe escreveu à mão na caixa de entrada.
+    dm = await _safe_select("ig_dm_messages", select="text,created_at", limit=20, order="created_at.desc",
+                            filters={"client_id": f"eq.{client_id}", "direction": "eq.out", "by_app": "eq.false",
+                                     "created_at": f"gte.{start}"})
     wa = await _safe_select("whatsapp_messages", select="text,payload,created_at", limit=40, order="created_at.desc",
                             filters={"client_id": f"eq.{client_id}", "direction": "eq.out", "by_ai": "eq.false",
                                      "type": "eq.text", "created_at": f"gte.{start}"})
@@ -185,15 +193,17 @@ async def team_reply_signals(client_id: str, start: str) -> Dict[str, Any]:
     fixed = await _safe_select("whatsapp_messages", select="text,payload,created_at", limit=20, order="created_at.desc",
                                filters={"client_id": f"eq.{client_id}", "direction": "eq.out", "payload->>ai_original": "not.is.null",
                                         "created_at": f"gte.{start}"})
-    corrections = []
+    corrections = [{"canal": "comentario", "ia_sugeriu": _clean(r.get("ai_original"), 300), "equipe_enviou": _clean(r.get("text"), 300)}
+                   for r in ig_fixed if _clean(r.get("ai_original"), 300) and _clean(r.get("text"), 300)]
     for row in fixed:
         payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
         original, text = _clean(payload.get("ai_original"), 300), _clean(row.get("text"), 300)
         if original and text:
-            corrections.append({"ia_sugeriu": original, "equipe_enviou": text})
+            corrections.append({"canal": "whatsapp", "ia_sugeriu": original, "equipe_enviou": text})
     manual = [t for t in (_clean(r.get("text"), 300) for r in wa) if t]
     return {"instagram": [t for t in (_clean(r.get("text"), 200) for r in ig) if t][:12],
-            "whatsapp": manual[:12], "correcoes_da_ia": corrections[:12]}
+            "direct": [t for t in (_clean(r.get("text"), 200) for r in dm) if t][:12],
+            "whatsapp": manual[:12], "correcoes_da_ia": corrections[:16]}
 
 
 async def result_signals(client_id: str, start: str) -> Dict[str, Any]:
@@ -220,6 +230,6 @@ def count_signals(signals: Dict[str, Any]) -> int:
     wa = signals.get("whatsapp") or {}
     team = signals.get("respostas_da_equipe") or {}
     return (len(signals.get("criadores") or []) + len(team.get("instagram") or []) + len(team.get("whatsapp") or [])
-            + len(team.get("correcoes_da_ia") or []) + len(signals.get("ajustes_pedidos") or []) + len(signals.get("comentarios_do_cliente") or [])
+            + len(team.get("correcoes_da_ia") or []) + len(team.get("direct") or []) + len(signals.get("ajustes_pedidos") or []) + len(signals.get("comentarios_do_cliente") or [])
             + len(signals.get("textos_reescritos_pelo_cliente") or []) + len(signals.get("aprovados_pelo_cliente") or [])
             + len(wa.get("perguntas_recentes") or []))
