@@ -2,7 +2,7 @@ import { CalendarDays, ShoppingBag, TrendingUp, TriangleAlert, Zap } from "lucid
 import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
 import PostReview from "./PostReview";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
 import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, cleanDirection, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
 import { PLATFORM_FORMATS } from "../../app/contentOps";
 import type { PostDraft } from "../../app/studioCalendar";
@@ -108,7 +108,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
       },
     }));
   };
-  const moveSticker = (e: React.PointerEvent<HTMLDivElement>) => {
+  const moveSticker = (e: PointerEvent<HTMLDivElement>) => {
     if (stickerPointer.current !== e.pointerId) return;
     const card = e.currentTarget;
     const frame = card.parentElement;
