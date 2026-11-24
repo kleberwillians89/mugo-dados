@@ -7,6 +7,17 @@
    ============================================================ */
 
    :root{
+    /* Identidade Mugô (referência: página Planejar). Fonte única da paleta: use estas variáveis nas telas novas
+       e ao migrar as antigas, aos poucos. Não mudam o significado das cores de gráficos, alertas e indicadores. */
+    --mugo-red: #b22234;
+    --mugo-rose: #c67777;
+    --mugo-deep-blue: #0c4160;
+    --mugo-gold: #c79830;
+    --mugo-aged-gold: #b79830;
+    --mugo-ivory: #f9f5ef;
+    --mugo-soft-gray: #e7eceb;
+    --mugo-sand: #e6d5bb;
+
     /* Paleta base */
     --bg: #f4f6f8;
     --mugo-blue: #1e3f5a;

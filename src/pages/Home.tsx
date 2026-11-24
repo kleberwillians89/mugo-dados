@@ -38,9 +38,9 @@ export default function Home({ canView, onOpen }: Props) {
   return <Shell title="Início" variant="editorial"><div className="ds-page processHomePage">
     <PageHeader company={getActiveClientName() || "empresa"} title="O que vamos fazer hoje?" back={false} />
     <div className="processHomeGrid" aria-label="Processos do Mugoverso">
-      {actions.map((action) => {
+      {actions.map((action, index) => {
         const Icon = action.icon;
-        return <a key={action.route} className="processHomeCard" href={getPathForRoute(action.route)} onClick={(event) => open(event, action.route)}>
+        return <a key={action.route} className="processHomeCard" data-accent={index % 4} href={getPathForRoute(action.route)} onClick={(event) => open(event, action.route)}>
           <Icon size={22} aria-hidden="true" />
           <span><strong>{action.title}</strong><small>{action.description}</small></span>
           <ArrowRight size={18} aria-hidden="true" />
