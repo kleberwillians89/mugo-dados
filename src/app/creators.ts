@@ -69,3 +69,25 @@ export function creatorCompact(value: number | null | undefined) {
 export function creatorNumber(value: number | null | undefined, suffix = "") {
   return value == null ? "—" : value.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + suffix;
 }
+
+/** Mídia kit e valores do criador nesta empresa (migração 000144). Valores são da marca: cada cliente vê só os seus. */
+export type KitPrice = { deliverable: string; amount: number | null; notes?: string | null };
+export type KitFile = { url: string; name: string; kind?: string | null; uploaded_at?: string | null };
+/** Fechamento com o criador: fica no histórico para sempre ter a informação. */
+export type KitDeal = { id?: string; closed_at: string; what: string; amount: number | null; notes?: string | null; closed_by?: string | null };
+export type MediaKit = { creator_id: string; files: KitFile[]; prices: KitPrice[]; email: string | null; phone: string | null; contact: string | null;
+  deals: KitDeal[]; notes: string | null; updated_at?: string };
+export const listMediaKits = () => http<{ kits: MediaKit[] }>(path("/media-kits"));
+export const saveMediaKit = (creatorId: string, kit: Omit<MediaKit, "creator_id" | "updated_at">) =>
+  http<MediaKit>(path(`/${encodeURIComponent(creatorId)}/media-kit`), { method: "PUT", body: JSON.stringify(kit) });
+export const KIT_ACCEPT = "application/pdf,image/png,image/jpeg,image/webp";
+/** Envia o arquivo direto ao Storage (link assinado) e devolve o link permanente. */
+export async function uploadMediaKit(file: File): Promise<KitFile> {
+  const type = file.type || "application/pdf";
+  const target = await http<{ upload_url: string; public_url: string }>(path("/media-kits/upload"), post({ content_type: type }));
+  const response = await fetch(target.upload_url, { method: "PUT", body: file, headers: { "Content-Type": type, "x-upsert": "false" } });
+  if (!response.ok) throw new Error("Não foi possível enviar o arquivo.");
+  return { url: target.public_url, name: file.name.slice(0, 160), kind: type === "application/pdf" ? "pdf" : "imagem", uploaded_at: new Date().toISOString() };
+}
+export const brl = (value: number | null | undefined) =>
+  value == null ? "—" : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
