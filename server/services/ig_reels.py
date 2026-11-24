@@ -62,6 +62,9 @@ def clean_reels_options(value: Any) -> Dict[str, Any]:
     if music:
         out["music"] = music
     # Opções de Stories ficam no JSON já existente; não são parâmetros da Graph API.
+    story_music_note = _text(value.get("story_music_note"), 200)
+    if story_music_note:
+        out["story_music_note"] = story_music_note
     allowed_story_stickers = {"poll", "question", "quiz", "emoji_slider", "link", "countdown", "music"}
     if value.get("story_sticker") in allowed_story_stickers:
         out["story_sticker"] = value["story_sticker"]
