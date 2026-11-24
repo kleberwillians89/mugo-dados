@@ -15,7 +15,7 @@
 .processAttention nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.processAttention a{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:var(--radius-sm);background:rgba(21,24,27,.05);color:var(--text-primary);font-size:13px;font-weight:600;text-decoration:none}
 .processComplementary{display:flex;align-items:baseline;gap:14px;padding:2px 0;color:var(--text-secondary);font-size:12px}.processComplementary>strong{color:var(--text-primary);font-weight:650}.processComplementary>span{display:flex;flex-wrap:wrap;gap:7px 14px}.processComplementary a{color:var(--text-secondary);text-underline-offset:3px}
 /* Planejar: composição editorial isolada da grade dos demais processos. */
-.planningEntryPage{--planning-red:#b22234;--planning-rose:#c67777;--planning-blue:#0c4160;--planning-gold:#c79830;--planning-aged-gold:#b79830;--planning-ivory:#f9f5ef;--planning-gray:#e7eceb;--planning-sand:#e6d5bb;max-width:1180px;gap:28px}
+.planningEntryPage{--planning-red:var(--mugo-red);--planning-rose:var(--mugo-rose);--planning-blue:var(--mugo-deep-blue);--planning-gold:var(--mugo-gold);--planning-aged-gold:var(--mugo-aged-gold);--planning-ivory:var(--mugo-ivory);--planning-gray:var(--mugo-soft-gray);--planning-sand:var(--mugo-sand);max-width:1180px;gap:28px}
 .planningCurrent,.planningStart,.planningExplore{display:flex;flex-direction:column;gap:16px}
 .planningCurrent{position:relative;overflow:hidden;padding:28px 30px;border:1px solid color-mix(in srgb,var(--planning-blue) 20%,var(--border-subtle));border-radius:20px;background:linear-gradient(125deg,color-mix(in srgb,var(--planning-blue) 96%,#000) 0 35%,color-mix(in srgb,var(--planning-blue) 91%,var(--surface)) 100%);color:#fff;box-shadow:0 18px 44px rgba(12,65,96,.16)}
 .planningCurrent::after{position:absolute;right:-70px;bottom:-110px;width:280px;height:280px;border:1px solid rgba(230,213,187,.2);border-radius:50%;content:"";box-shadow:0 0 0 42px rgba(230,213,187,.05)}
@@ -51,3 +51,14 @@
 @media(max-width:900px){.planningStartGrid,.planningToolGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.planningCurrentContent{align-items:flex-start;flex-direction:column}.planningSectionHeading{align-items:flex-start;flex-direction:column;gap:8px}.planningSectionHeading p{text-align:left}}
 @media(max-width:760px){.processHomeGrid,.processToolGrid{grid-template-columns:1fr}.processAttention,.processComplementary{align-items:flex-start;flex-direction:column}.processAttention nav{justify-content:flex-start}}
 @media(max-width:620px){.planningEntryPage{gap:22px}.planningCurrent{padding:23px 20px}.planningCurrent h2,.planningSectionHeading h2{font-size:22px}.planningPrimaryAction{width:100%}.planningStartGrid,.planningToolGrid{grid-template-columns:1fr}.planningStartCard,.planningToolCard{min-height:auto}.planningToolCard{padding-right:42px}}
+
+/* Identidade Mugô nos cards da Home e das entradas de processo (mesma linguagem do Planejar): ícone com a paleta,
+   hover em azul profundo. Só visual; a estrutura e os links não mudam. */
+.processHomeCard:hover,.processToolCard:hover{border-color:var(--mugo-deep-blue);box-shadow:0 12px 28px rgba(12,65,96,.1)}
+.processHomeCard>svg:first-child,.processToolIcon{background:var(--mugo-deep-blue);color:#fff;padding:10px;box-sizing:border-box}
+.processHomeCard[data-accent="1"]>svg:first-child,.processToolCard[data-accent="1"] .processToolIcon{background:var(--mugo-red)}
+.processHomeCard[data-accent="2"]>svg:first-child,.processToolCard[data-accent="2"] .processToolIcon{background:var(--mugo-gold);color:#241b0c}
+.processHomeCard[data-accent="3"]>svg:first-child,.processToolCard[data-accent="3"] .processToolIcon{background:var(--mugo-rose)}
+.processToolCard[data-accent="4"] .processToolIcon{background:var(--mugo-aged-gold);color:#241b0c}
+.processToolCard[data-accent="5"] .processToolIcon{background:color-mix(in srgb,var(--mugo-deep-blue) 72%,var(--mugo-soft-gray))}
+.processHomeCard:focus-visible,.processToolCard:focus-visible{outline:2px solid var(--mugo-deep-blue);outline-offset:2px}

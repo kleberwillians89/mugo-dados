@@ -168,9 +168,9 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
     <PageHeader company={getActiveClientName() || "empresa"} title={process.title} />
     <p className="processEntryLead">{process.lead}</p>
     {tools.length ? <div className="processToolGrid" aria-label={`Ferramentas de ${process.title}`}>
-      {tools.map((tool) => {
+      {tools.map((tool, index) => {
         const Icon = tool.icon;
-        return <a key={`${tool.label}:${tool.route}`} className="processToolCard" href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
+        return <a key={`${tool.label}:${tool.route}`} className="processToolCard" data-accent={index % 6} href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
           <span className="processToolIcon"><Icon size={20} aria-hidden="true" /></span>
           <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
           <ArrowRight size={18} aria-hidden="true" className="processToolArrow" />
@@ -180,9 +180,9 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
     {relationshipTools.length ? <section className="processToolSection" aria-labelledby="process-relationship-title">
       <h2 id="process-relationship-title">Relacionamento</h2>
       <div className="processToolGrid">
-        {relationshipTools.map((tool) => {
+        {relationshipTools.map((tool, index) => {
           const Icon = tool.icon;
-          return <a key={`${tool.label}:${tool.route}`} className="processToolCard" href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
+          return <a key={`${tool.label}:${tool.route}`} className="processToolCard" data-accent={(index + 3) % 6} href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
             <span className="processToolIcon"><Icon size={20} aria-hidden="true" /></span>
             <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
             <ArrowRight size={18} aria-hidden="true" className="processToolArrow" />
