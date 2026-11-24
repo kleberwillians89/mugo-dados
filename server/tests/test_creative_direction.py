@@ -33,7 +33,9 @@ class SaveTests(unittest.IsolatedAsyncioTestCase):
     async def test_update_saves_with_the_post_scoped_by_client(self):
         with patch.object(sc, "sb_update", AsyncMock(return_value=[{"id": "i1"}])) as update:
             await sc.update_item("roove", "i1", {"creative_direction": {**DIRECTION, "lixo": "x"}}, user_id="u")
-        self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.i1"})
+        self.assertEqual(update.await_args.kwargs["filters"], {
+            "client_id": "eq.roove", "id": "eq.i1", "deleted_at": "is.null",
+        })
         self.assertEqual(update.await_args.kwargs["patch"], {"creative_direction": DIRECTION})
 
     async def test_other_edits_do_not_touch_the_direction(self):
