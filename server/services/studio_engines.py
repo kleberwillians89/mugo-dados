@@ -188,7 +188,7 @@ async def strategy_chat(client_id: str, month: str, messages: List[Dict[str, str
         f"DADOS DA MARCA:\n{to_prompt(intel)}\n\n"
         f"CONVERSA (responda à última mensagem):\n{json.dumps(history, ensure_ascii=False)}"
     )
-    data = await llm_json(client_id=client_id, 
+    data = await llm_json(client_id=client_id, tier="forte",
         instructions=("Você é o Head de Estratégia de conteúdo da agência. Direto, específico e provocativo quando ajudar. "
                       "Use os números e aprendizados dos DADOS para justificar; se um dado faltar, diga qual. "
                       "Responda em Markdown curto (até 12 linhas). Em suggested_actions, até 3 próximos passos objetivos."),
@@ -310,7 +310,7 @@ async def generate_briefing(client_id: str, item_id: str, direction: Optional[Di
         + "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
         + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(intel.get('marca'))}"
     )
-    data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_briefing",
+    data = await llm_json(client_id=client_id, tier="forte", instructions=ROLE, prompt=prompt, schema_name="studio_briefing",
                           schema=_briefing_schema(), temperature=0.4)
     briefing = clean_briefing(data)
     if not briefing.get("objective") and not briefing.get("key_message"):

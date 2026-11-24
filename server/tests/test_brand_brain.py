@@ -25,7 +25,7 @@ COVERAGE = {
     "business_brain": "propria", "radar_brand": "propria", "studio_clipping": "propria", "brand_health": "propria",
     "intelligence": "propria",
     "media_briefing": "sem_marca", "brand_ocr": "sem_marca", "brand_knowledge": "sem_marca", "brand_learning": "sem_marca",
-    "studio_import": "sem_marca", "studio_messages": "sem_marca", "studio_llm": "sem_marca", "ai_runtime": "sem_marca", "brand_brain": "sem_marca",
+    "studio_import": "sem_marca", "studio_messages": "sem_marca", "studio_llm": "sem_marca", "ai_runtime": "sem_marca", "brand_brain": "sem_marca", "web_research": "sem_marca",
 }
 
 

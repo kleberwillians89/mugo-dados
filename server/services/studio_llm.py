@@ -28,6 +28,24 @@ def profile_model() -> str:
     return (os.getenv("OPENAI_PROFILE_MODEL") or "gpt-4.1").strip()
 
 
+# Modelo por tarefa: o que é estratégico (planejar, campanha, documento, mídia, criadores, análise do mês) roda no modelo
+# forte; respostas rápidas (comentários, Direct, WhatsApp) e tarefas técnicas seguem no padrão da empresa.
+STRONG_PURPOSES = ("estrategia", "criadores")
+
+
+def strategy_model() -> str:
+    return (os.getenv("OPENAI_STRATEGY_MODEL") or profile_model()).strip()
+
+
+def task_model(model: str | None, *, brand: str | None = None, tier: str | None = None) -> str | None:
+    """Modelo pedido explicitamente vence; senão, tarefa estratégica (pela finalidade ou ``tier="forte"``) usa o forte."""
+    if model:
+        return model
+    if tier == "forte" or (brand in STRONG_PURPOSES and tier != "leve"):
+        return strategy_model()
+    return None
+
+
 def _accepts_temperature(model: str) -> bool:
     # Modelos de raciocínio (o1/o3/o4, gpt-5) não aceitam temperature.
     low = model.lower()
@@ -38,13 +56,15 @@ async def llm_json(*, instructions: str, prompt: str, schema_name: str, schema: 
                    temperature: float = 0.6, timeout: float = 90, model: str | None = None,
                    images: tuple | list = (), client_id: str | None = None, leak_check: bool = True,
                    guidance: bool = True, max_output_tokens: int | None = None,
-                   brand: str | None = None) -> Dict[str, Any]:
+                   brand: str | None = None, tier: str | None = None) -> Dict[str, Any]:
     """Resposta da IA em JSON. Com a marca conhecida (client_id ou a empresa já autorizada na requisição),
     passa pela auditoria anti-vazamento: citou outra marca da Mugô → refaz 1 vez avisando; citou de novo → bloqueia.
 
     ``guidance=False`` não anexa a orientação criativa (para conversas que não escrevem peças: menos tokens).
     ``max_output_tokens`` limita o tamanho da resposta.
-    ``brand`` (atendimento, conteudo, estrategia, dados, criadores) anexa o cérebro da marca às instruções."""
+    ``brand`` (atendimento, conteudo, estrategia, dados, criadores) anexa o cérebro da marca às instruções.
+    ``tier`` ("forte"/"leve") força o modelo; sem ele, estratégia e criadores usam o modelo forte (``task_model``)."""
+    model = task_model(model, brand=brand, tier=tier)
     cid = client_id
     if cid is None and leak_check:
         from .tenant import _REQUEST_CLIENT

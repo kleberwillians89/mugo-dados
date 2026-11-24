@@ -297,7 +297,7 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SuggestTests(unittest.IsolatedAsyncioTestCase):
-    async def run_suggest(self, llm_items, lookup_side_effect, count=2, fit=None, history=None, campaign="influencer"):
+    async def run_suggest(self, llm_items, lookup_side_effect, count=2, fit=None, history=None, campaign="influencer", web=""):
         lookup = AsyncMock(side_effect=lookup_side_effect)
         calls = []
 
@@ -312,6 +312,7 @@ class SuggestTests(unittest.IsolatedAsyncioTestCase):
              patch.object(creators, "get_active_connection_for_client", AsyncMock(return_value={"username": "ruahparfums"})), \
              patch.object(creators, "creator_history", AsyncMock(return_value=history or empty)), \
              patch.object(creators, "_recent_posts", AsyncMock(return_value={})), \
+             patch.object(creators, "_web_creators", AsyncMock(return_value=web)), \
              patch.object(creators, "sb_delete", AsyncMock(return_value=[])), \
              patch("services.studio_llm.llm_json", fake_llm), \
              patch.object(creators, "lookup", lookup):
@@ -356,6 +357,17 @@ class SuggestTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["brand"], "criadores")
         self.assertIn("FECHARAM", first["prompt"])
         self.assertEqual(first["model"], "gpt-4.1")
+
+    async def test_handles_found_on_the_web_are_checked_first(self):
+        web = "- @perfumista.br (40 mil) https://www.instagram.com/olfato_raro/ e https://instagram.com/p/abc"
+        result, lookup = await self.run_suggest([{"handle": "outra", "reason": "x"}],
+                                                lambda cid, n, h: {"id": h, "handle": h, "followers": 40000}, count=3, web=web)
+        checked = [c.args[2] for c in lookup.await_args_list]
+        self.assertEqual(checked[:2], ["perfumista.br", "olfato_raro"])
+        self.assertIn("CRIADORES ENCONTRADOS NA WEB", self.calls[0]["prompt"])
+
+    def test_web_handles(self):
+        self.assertEqual(creators.web_handles("@a.b x instagram.com/reel/123 instagram.com/c_d e-mail x@y.com"), ["a.b", "c_d"])
 
     def test_gate_rules(self):
         from datetime import datetime, timezone

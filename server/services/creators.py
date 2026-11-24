@@ -554,6 +554,36 @@ async def _rate_fit(client_id: str, candidates: List[Dict[str, Any]], posts: Dic
     return out
 
 
+def web_handles(text: str, limit: int = 12) -> List[str]:
+    """@ do Instagram citados na pesquisa (texto ou URL instagram.com/x). Puro, para teste."""
+    import re
+    found: List[str] = []
+    for raw in re.findall(r"instagram\.com/([A-Za-z0-9._]{2,30})|(?<![\w@])@([A-Za-z0-9._]{2,30})", text or ""):
+        handle = (raw[0] or raw[1]).strip(".").lower()
+        if handle in ("p", "reel", "reels", "explore", "stories", "accounts", "tv") or not handle:
+            continue
+        try:
+            handle = providers.normalize_handle("instagram", handle)
+        except ValueError:
+            continue
+        if handle not in found:
+            found.append(handle)
+    return found[:limit]
+
+
+async def _web_creators(client_id: str, brand: str, context: Dict[str, Any], brief: Optional[str], campaign_type: str) -> str:
+    from .web_research import research
+    niche = "; ".join(str(context.get(k))[:200] for k in ("segment", "product_description", "audience") if context.get(k))
+    if not niche and not brief:
+        return ""
+    kind = "criadores de UGC" if campaign_type == "ugc" else "influenciadores"
+    question = (f"Quais {kind} brasileiros no Instagram, ativos hoje, falam de: {niche or brief}? "
+                + (f"Campanha: {str(brief)[:300]}. " if brief else "")
+                + f"A marca é {brand}; não liste a própria marca nem lojas. Para cada um, dê o @ exato do Instagram, "
+                "o porte aproximado e por que combina. Prefira listas e matérias recentes.")
+    return await research(client_id, question, feature="creators")
+
+
 async def suggest(client_id: str, campaign_type: str, brief: Optional[str], count: int) -> Dict[str, Any]:
     """IA indica com o cérebro da marca e o histórico de criadores; a Meta confirma que existe; filtros de porte e
     atividade; a IA lê bio e legendas reais e só fica quem tem afinidade de verdade."""
@@ -567,6 +597,11 @@ async def suggest(client_id: str, campaign_type: str, brief: Optional[str], coun
     if brief:
         lines.append(f"Briefing da campanha: {brief[:1000]}")
     lines.append(f"Tipo de campanha: {'UGC (conteúdo para a marca usar)' if campaign_type == 'ugc' else 'influência (alcance na audiência do criador)'}")
+    web = await _web_creators(client_id, client.get("name") or "", context.get("context") or {}, brief, campaign_type)
+    if web:
+        from .web_research import evidence_block
+        lines.append(evidence_block(web, "CRIADORES ENCONTRADOS NA WEB"))
+        lines.append("Priorize os @ que aparecem na pesquisa (existem de verdade); complete com outros só se tiver alta confiança.")
     lines.append(f"Indique {min(count * 3, MAX_CANDIDATES)} perfis do Instagram.")
     data = await llm_json(client_id=client_id, brand="criadores", instructions=SUGGEST_INSTRUCTIONS, prompt="\n".join(lines),
                           schema_name="creator_suggestions", schema=SUGGEST_SCHEMA, temperature=0.4, timeout=90,
@@ -576,6 +611,10 @@ async def suggest(client_id: str, campaign_type: str, brief: Optional[str], coun
     own = str(connection.get("username") or "").lstrip("@").lower()
     skip = {own, *history.get("na_base", [])}
     candidates: Dict[str, str] = {}
+    # @ citados na pesquisa entram mesmo que a IA não os repita: são os mais prováveis de existir.
+    for handle in web_handles(web):
+        if handle not in skip:
+            candidates.setdefault(handle, "Encontrado em pesquisa na web sobre o nicho da marca.")
     for item in data.get("suggestions") or []:
         try:
             handle = providers.normalize_handle("instagram", item.get("handle") or "")
