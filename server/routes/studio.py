@@ -2427,6 +2427,31 @@ async def generate_project(client_id: str, kind: ProjectKind, project_id: UUID, 
         raise _known(exc) from None
 
 
+class ProjectResearchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    references: Optional[str] = Field(default=None, max_length=180)
+    suppliers: Optional[str] = Field(default=None, max_length=180)
+    market: Optional[str] = Field(default=None, max_length=180)
+    selected: Optional[List[str]] = Field(default=None, max_length=10)
+
+
+@router.post("/projects/{kind}/{project_id}/research")
+async def research_project(client_id: str, kind: ProjectKind, project_id: UUID, body: ProjectResearchInput,
+                           authorization: str | None = Header(default=None)):
+    from services.studio_projects import update_research
+
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    queries = {key: value for key, value in body.model_dump(exclude={"selected"}).items() if value}
+    if bool(queries) == (body.selected is not None):
+        raise HTTPException(status_code=422, detail="Envie as consultas ou a seleção de referências.")
+    try:
+        project = await update_research(cid, str(project_id), kind, queries=queries or None, selected=body.selected)
+        return {"project": project}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
 @router.post("/projects/{kind}/{project_id}/chat")
 async def project_chat(client_id: str, kind: ProjectKind, project_id: UUID, body: ProjectChat, authorization: str | None = Header(default=None)):
     from services.studio_projects import chat
@@ -2457,6 +2482,7 @@ async def project_to_brief(client_id: str, kind: ProjectKind, project_id: UUID, 
 ERRORS.update({
     "EVENT_LOCATION_REQUIRED": (422, "Coloque o local do evento para puxar clima e notícias."),
     "SUPPLIER_NAME_REQUIRED": (422, "Dê o nome do fornecedor."),
+    "PROJECT_RESEARCH_CONFLICT": (409, "O projeto mudou durante a pesquisa. Reabra o projeto e tente novamente."),
     "SUPPLIER_CATEGORY_INVALID": (422, "Categoria inválida."),
     "SUPPLIER_EMAIL_INVALID": (422, "E-mail inválido."),
     "SUPPLIER_RATING_INVALID": (422, "Nota de 1 a 5."),
