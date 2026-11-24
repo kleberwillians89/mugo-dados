@@ -18,7 +18,16 @@ export function getContextHealth() {
 export function suggestLearning() {
   return http<LearningSuggestion>(base("/learn/suggest"), { method: "POST", timeoutMs: 150_000 });
 }
-export function confirmLearning(facts: string[]) {
+export function confirmLearning(facts: string[], suggestionId?: string | null) {
   return http<{ ok: true; saved: number; knowledge: string | null; sources: number | null }>(base("/learn/confirm"),
-    { method: "POST", body: JSON.stringify({ facts }) });
+    { method: "POST", body: JSON.stringify(suggestionId ? { facts, suggestion_id: suggestionId } : { facts }) });
+}
+
+/** Aprendizados que o job semanal separou sozinho, esperando revisão da equipe. */
+export type PendingLearning = { id: string; week: string; facts: SuggestedFact[]; signals: number; created_at: string | null };
+export function getPendingLearning() {
+  return http<{ ok: true; pending: PendingLearning | null }>(base("/learn/pending"));
+}
+export function discardPendingLearning(id: string) {
+  return http<{ ok: true }>(base(`/learn/pending/${encodeURIComponent(id)}/discard`), { method: "POST" });
 }

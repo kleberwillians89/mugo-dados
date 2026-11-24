@@ -50,6 +50,7 @@ SCHEDULE: List[Tuple[str, str]] = [
     ("27 * * * *", "brand-health"),  # sentimento de comentários/Direct + alertas de termos sensíveis
     ("25 11 * * *", "brand-knowledge-retry"),  # 08:25 em São Paulo: material que a IA não leu volta a ser lido
     ("20 12 1 * *", "brand-profile-monthly"),
+    ("15 11 * * 1", "brand-learning-weekly"),  # segunda 08:15 em São Paulo: aprendizados da semana pendentes de revisão
     ("40 12 1 * *", "media-strategies-monthly"),  # dia 1, 09:40 em São Paulo: estratégias prontas do mês
     ("0-59/5 * * * *", "whatsapp-bulk-due"),  # disparo em massa: fila e agendadas (envia até o fim, fora do Render)
     ("5 11 * * *", "brand-learnings"),  # 08:05 em São Paulo: o que os posts e anúncios renderam vira aprendizado da IA

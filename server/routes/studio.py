@@ -2093,6 +2093,7 @@ async def write_knowledge(client_id: str, body: KnowledgeInput, authorization: s
 class LearningConfirmInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     facts: List[str] = Field(min_length=1, max_length=10)
+    suggestion_id: Optional[UUID] = None
 
 
 @router.get("/knowledge/health")
@@ -2119,12 +2120,33 @@ async def brand_learning_suggest(client_id: str, authorization: str | None = Hea
 @router.post("/knowledge/learn/confirm", status_code=201)
 async def brand_learning_confirm(client_id: str, body: LearningConfirmInput, authorization: str | None = Header(default=None)):
     """Grava na memória da marca só os fatos que a pessoa aprovou."""
-    from services.brand_learning import confirm
+    from services.brand_learning import confirm, resolve
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
     try:
-        return {"ok": True, **await confirm(cid, body.facts, user_id=await require_user_id(authorization))}
+        result = await confirm(cid, body.facts, user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
+    if body.suggestion_id:
+        await resolve(cid, str(body.suggestion_id), "revisada", user_id=uid)
+    return {"ok": True, **result}
+
+
+@router.get("/knowledge/learn/pending")
+async def brand_learning_pending(client_id: str, authorization: str | None = Header(default=None)):
+    """Aprendizados da semana que a IA separou sozinha, esperando revisão."""
+    from services.brand_learning import pending
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    return {"ok": True, "pending": await pending(cid)}
+
+
+@router.post("/knowledge/learn/pending/{suggestion_id}/discard")
+async def brand_learning_discard(client_id: str, suggestion_id: UUID, authorization: str | None = Header(default=None)):
+    from services.brand_learning import resolve
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    if not await resolve(cid, str(suggestion_id), "descartada", user_id=await require_user_id(authorization)):
+        raise HTTPException(404, "Sugestão não encontrada.")
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------- importar configurações do planejamento

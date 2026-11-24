@@ -87,7 +87,9 @@ async def status(client_id: str) -> Dict[str, Any]:
     """Quantos sinais novos esperam para virar aprendizado (sem IA): a tela mostra o aviso."""
     since = await last_learning_at(client_id)
     signals = await usage_signals(client_id, since=since)
-    return {"since": since, "last_learning_at": since, "new_signals": count_signals(signals)}
+    waiting = await pending(client_id)
+    return {"since": since, "last_learning_at": since, "new_signals": count_signals(signals),
+            "pending_facts": len(waiting["facts"]) if waiting else 0}
 
 
 async def suggest(client_id: str) -> Dict[str, Any]:
@@ -133,6 +135,76 @@ async def confirm(client_id: str, facts: List[str], *, user_id: str) -> Dict[str
     except Exception:  # noqa: BLE001
         pass
     return {"saved": len(clean), "knowledge": result.get("knowledge"), "sources": result.get("sources")}
+
+
+# ------------------------------------------------------------------ aprendizado semanal (automático, com revisão)
+
+WEEKLY = "brand_learning_suggestions"
+
+
+def week_key(today: Optional[datetime] = None) -> str:
+    year, week, _ = (today or datetime.now(timezone.utc)).isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+async def pending(client_id: str) -> Optional[Dict[str, Any]]:
+    """Sugestão da semana esperando revisão (None sem pendência ou antes da migração 000146)."""
+    from .ig_supabase import sb_select
+    try:
+        rows = await sb_select(WEEKLY, select="id,week,facts,signals,created_at", order="created_at.desc", limit=1,
+                               filters={"client_id": f"eq.{client_id}", "status": "eq.pendente"})
+    except Exception:  # noqa: BLE001
+        return None
+    row = rows[0] if rows else None
+    if not row or not row.get("facts"):
+        return None
+    return {"id": row["id"], "week": row["week"], "facts": row["facts"], "signals": row.get("signals") or 0,
+            "created_at": row.get("created_at")}
+
+
+async def resolve(client_id: str, suggestion_id: str, status: str, *, user_id: str) -> bool:
+    from .ig_supabase import sb_update
+    if status not in ("revisada", "descartada"):
+        raise StudioError("INVALID_STATUS")
+    try:
+        rows = await sb_update(WEEKLY, filters={"client_id": f"eq.{client_id}", "id": f"eq.{suggestion_id}", "status": "eq.pendente"},
+                               patch={"status": status, "reviewed_by": user_id, "reviewed_at": datetime.now(timezone.utc).isoformat()})
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(rows)
+
+
+async def _weekly_clients() -> List[str]:
+    from .studio_brand_brain import _active_clients
+    return await _active_clients()
+
+
+async def run_weekly(client_id: Optional[str] = None) -> Dict[str, Any]:
+    """Toda semana: para cada marca ativa com sinais novos, a IA propõe os fatos e deixa pendente para a equipe.
+    Não grava na memória e não avança o marco do aprendizado: isso só acontece quando alguém confirma."""
+    from .ig_supabase import sb_insert, sb_select, sb_update
+    week = week_key()
+    clients = [client_id] if client_id else await _weekly_clients()
+    created = skipped = empty = failed = 0
+    for cid in clients:
+        try:
+            if await sb_select(WEEKLY, select="id", filters={"client_id": f"eq.{cid}", "week": f"eq.{week}"}, limit=1):
+                skipped += 1
+                continue
+            result = await suggest(cid)
+            if not result.get("facts"):
+                empty += 1
+                continue
+            # A sugestão nova já contém os sinais da antiga (o marco só anda na confirmação): a antiga sai da fila.
+            await sb_update(WEEKLY, filters={"client_id": f"eq.{cid}", "status": "eq.pendente"}, patch={"status": "substituida"})
+            await sb_insert(WEEKLY, {"client_id": cid, "week": week, "facts": result["facts"], "signals": result.get("signals") or 0,
+                                     "status": "pendente"}, returning="minimal")
+            created += 1
+        except Exception as exc:  # noqa: BLE001 — uma marca não para as outras
+            failed += 1
+            print(f"[brand_learning] weekly client_id={cid} failed={getattr(exc, 'code', type(exc).__name__)}")
+    print(f"[brand_learning] weekly week={week} clients={len(clients)} created={created} skipped={skipped} empty={empty} failed={failed}")
+    return {"week": week, "clients": len(clients), "created": created, "skipped": skipped, "empty": empty, "failed": failed}
 
 
 def label(source: Optional[str]) -> str:
