@@ -125,6 +125,11 @@
   min-width: 0;
 }
 .ds-pageHeaderIdentity{ display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* Botão "Voltar" das páginas internas (PageHeader): discreto, acima do título. */
+.ds-backButton{ display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 4px 10px 4px 6px; margin-left: -6px;
+  border: 0; border-radius: 999px; background: transparent; color: var(--ds-text-muted, #5f665f); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.ds-backButton:hover{ background: rgba(12, 65, 96, .08); color: #0c4160; }
+.ds-backButton:focus-visible{ outline: 2px solid #0c4160; outline-offset: 2px; }
 .ds-pageHeaderAside{
   display: flex;
   flex-direction: column;
