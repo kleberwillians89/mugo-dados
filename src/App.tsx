@@ -1,7 +1,7 @@
 import { DataHealthProvider } from "./app/DataHealthContext";
 import { DataHealthSummary } from "./components/data/DataFreshness";
 import { markReadStage } from "./app/readPerformance";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import {
   disableLocalAuth,
@@ -20,6 +20,7 @@ import { routeAfterInvitationAccepted, shouldOpenHomeAfterSignIn } from "./app/a
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
 import { canViewAppRoute, OPT_IN_CODES } from "./app/teamRules";
+import { WorkContext, type WorkValue } from "./app/WorkContext";
 import { reportTokenFromPath } from "./app/monthlyReport";
 import type { MyAccess } from "./app/team";
 import AppNavigation, { type NavigationUser } from "./components/shell/AppNavigation";
@@ -887,6 +888,13 @@ function PrivateApp() {
     return canViewAppRoute(target, can);
   };
   const canEdit = (module: string) => can(`${module}.edit`);
+  // Kanban integrado (Shell): mesma regra da página Tarefas para escolher o quadro; o recorte é do backend.
+  const workValue = useMemo<WorkValue>(() => ({
+    route, clientId: activeClientId, userId: session?.user?.id || null,
+    mode: !canView("tasks") ? null : teamHere || canEdit("tasks") ? "team" : "client",
+    canManage: teamHere || canEdit("tasks"), isAgency: teamHere,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [route, activeClientId, session?.user?.id, teamHere, accessForClient, activeClientRole, localMode]);
 
   // Lançar campanha abre a Mídia On direto (sem tela intermediária). Substitui a entrada do histórico para o
   // "voltar" do navegador não cair de novo em /lancar-campanha. Sem acesso à Mídia On, mostra a entrada normal.
@@ -986,6 +994,7 @@ function PrivateApp() {
       />
       <div className="appFrameMain">
       {route !== "meta" && route !== "google" ? <DataHealthSummary onReconnect={canManageIntegrations ? () => setView("setup") : undefined} /> : null}
+      <WorkContext.Provider value={workValue}>
       <Suspense fallback={<PageLoading />}>
       {route === "not_found" ? (
         <NotFound onGoHome={() => openRoute("home")} />
@@ -1132,6 +1141,7 @@ function PrivateApp() {
       </>
       )}
       </Suspense>
+      </WorkContext.Provider>
       </div>
       {activeClientId && (session || localMode) ? <Suspense fallback={null}><ChatWidget key={`chat:${activeClientId}`} clientId={activeClientId} team={teamHere} /></Suspense> : null}
       </div>
