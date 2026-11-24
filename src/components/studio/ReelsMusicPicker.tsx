@@ -53,6 +53,12 @@ export default function ReelsMusicPicker({ value, onChange, disabled, format = "
 
   useEffect(() => () => { searchVersion.current += 1; player.current?.pause(); }, []);
   useEffect(() => { if (open && !results.length && !busy && !error) void search("", kind); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Busca automática sem precisar clicar em "Buscar"; o contador ignora respostas antigas.
+  useEffect(() => {
+    if (!open || !query.trim()) return;
+    const timer = window.setTimeout(() => { void search(query, kind); }, 500);
+    return () => window.clearTimeout(timer);
+  }, [open, query, kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(audio: ReelsAudio) {
     if (!audio.preview_url) return;
@@ -97,7 +103,7 @@ export default function ReelsMusicPicker({ value, onChange, disabled, format = "
     {open ? <div className="reelsMusicBox">
       <div className="reelsSeg" role="group" aria-label="Tipo de áudio">
         {(["music", "original_sound"] as const).map((t) => <button key={t} type="button" className={kind === t ? "is-on" : ""} aria-pressed={kind === t}
-          onClick={() => { setKind(t); void search(query, t); }}>{t === "music" ? "Músicas" : "Áudios de Reels"}</button>)}
+          onClick={() => { setKind(t); searchVersion.current += 1; if (!query.trim()) void search("", t); }}>{t === "music" ? "Músicas" : "Áudios de Reels"}</button>)}
       </div>
       {/* div, não <form>: o modal já é um formulário e form dentro de form enviava a página (recarregava o Mugoverso). */}
       <div className="reelsMusicSearch" role="search">
