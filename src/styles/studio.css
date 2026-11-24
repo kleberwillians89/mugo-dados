@@ -1966,3 +1966,15 @@
 .mediaVerdict{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--mugo-soft-gray,#e7eceb);color:var(--mugo-deep-blue,#0c4160)}
 .mediaVerdict.is-positive{background:#e3f2e8;color:#1f6b3a}.mediaVerdict.is-warning{background:#f8ecd2;color:#8a5a00}
 .mediaVerdict.is-negative{background:#f6dcdf;color:var(--mugo-red,#b22234)}
+
+/* Mídia On: indicadores compactos abaixo das campanhas */
+.mediaKpiStrip{display:grid;gap:12px;padding:16px 18px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:16px;background:#fff}
+.mediaKpiHead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+.mediaKpiHead h2{margin:0;font-size:18px;color:var(--mugo-deep-blue,#0c4160)}.mediaKpiHead small{color:var(--text-secondary,#5c6670)}
+.mediaKpiGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0}
+.mediaKpiGrid div{padding:10px 12px;border-radius:12px;background:var(--mugo-ivory,#f9f5ef)}
+.mediaKpiGrid dt{font-size:12px;color:var(--text-secondary,#5c6670)}.mediaKpiGrid dd{margin:2px 0 0;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.mediaKpiFoot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+.mediaKpiFoot small{color:var(--text-secondary,#5c6670);line-height:1.5}
+.mediaKpiFoot .ds-button{display:inline-flex;align-items:center;gap:6px}
+.mediaAnalysisHead{margin:8px 0 0}.mediaAnalysisHead h2{margin:0;font-size:18px}.mediaAnalysisHead p{margin:4px 0 0;color:var(--text-secondary,#5c6670);font-size:13px}

@@ -17,6 +17,7 @@ import Delta from "../components/data/Delta";
 import SegmentedControl from "../components/data/SegmentedControl";
 import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsPanel";
 import MediaLiveRead from "../components/studio/MediaLiveRead";
+import MediaKpiStrip from "../components/studio/MediaKpiStrip";
 import GoogleAdsPanel, { type GooglePrepareRequest } from "../components/studio/GoogleAdsPanel";
 import MediaCampaignHub from "../components/studio/MediaCampaignHub";
 import MediaLiveCampaigns from "../components/studio/MediaLiveCampaigns";
@@ -271,16 +272,19 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
       onRefresh={() => void loadCampaignBriefs()} onEditBrief={() => navigateToAppRoute("briefing")}
       onMeta={prepareBriefForMeta} onGoogle={prepareBriefForGoogle}
     /> : null}
+    {canManageCampaigns ? <div className="mediaAdCreation" id="media-campaign-builder">
+      {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} /> : null}
+      <GoogleAdsPanel request={googlePrepare} />
+    </div> : null}
+    {canManage ? <MediaKpiStrip onOpen={(target) => { navigateToAppRoute(target); window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state })); }} /> : null}
+    <div className="mediaAnalysisHead"><h2>Planejamento e análise de mídia</h2>
+      <p>Estratégia do mês, verba por canal e relatórios aprofundados. A operação das campanhas fica acima.</p></div>
     <div className="mediaExperienceSwitch" role="group" aria-label="Modo de visualização">
       <button type="button" className={`mediaExperienceButton is-simple ${experienceMode === "simple" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "simple"} onClick={() => setExperienceMode("simple")}>Resumo Executivo</button>
       <button type="button" className={`mediaExperienceButton is-technical ${experienceMode === "technical" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "technical"} onClick={() => setExperienceMode("technical")}>Análise Técnica</button>
     </div>
-    {canManageCampaigns ? <div className="mediaAdCreation" id="media-campaign-builder">
-      {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} /> : null}
-      <GoogleAdsPanel request={googlePrepare} />
-    </div> : null}
     {canManage && experienceMode === "technical" ? <BrandContextPanel clientId={getActiveClientId()} /> : null}
 
     {canManage && experienceMode === "technical" ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
