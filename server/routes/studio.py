@@ -198,6 +198,7 @@ class ReelsOptionsInput(BaseModel):
     story_sticker: Optional[Literal["poll", "question", "quiz", "emoji_slider", "link", "countdown", "music"]] = None
     story_instruction: Optional[str] = Field(default=None, max_length=500)
     story_sticker_position: Optional[Dict[str, float]] = None
+    story_sticker_scale: Optional[int] = Field(default=None, ge=60, le=140)
 
 
 class ProductTagInput(BaseModel):

@@ -215,6 +215,8 @@ export type ReelsOptions = {
   story_instruction?: string;
   /** Centro do sticker na prévia, em % da área 9:16 (0–100). */
   story_sticker_position?: { x: number; y: number };
+  /** Escala visual do sticker em %, de 60 a 140 (padrão 100). */
+  story_sticker_scale?: number;
 };
 export type ReelsMusic = { audio_id: string; title?: string; artist?: string | null; cover?: string | null; audio_volume?: number; video_volume?: number };
 export type ReelsAudio = { audio_id: string; title: string; artist: string | null; duration_ms: number | null; cover: string | null;
