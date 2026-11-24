@@ -217,6 +217,8 @@ export type ReelsOptions = {
   story_sticker_position?: { x: number; y: number };
   /** Escala visual do sticker em %, de 60 a 140 (padrão 100). */
   story_sticker_scale?: number;
+  /** Faixa informada para adicionar manualmente ao Story (sem inventar audio_id da Meta). */
+  story_music_note?: string;
 };
 export type ReelsMusic = { audio_id: string; title?: string; artist?: string | null; cover?: string | null; audio_volume?: number; video_volume?: number };
 export type ReelsAudio = { audio_id: string; title: string; artist: string | null; duration_ms: number | null; cover: string | null;

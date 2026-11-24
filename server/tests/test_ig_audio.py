@@ -84,6 +84,43 @@ class StoryStickerPositionTests(unittest.TestCase):
         self.assertNotIn("story_sticker_position", without_sticker)
 
 
+class StoryManualMusicTests(unittest.TestCase):
+    def test_nome_digitado_sem_id_nao_vira_audio_de_api(self):
+        opts = clean_reels_options({"story_music_note": "Ben — Magnólia"})
+        self.assertEqual(opts["story_music_note"], "Ben — Magnólia")
+        self.assertNotIn("music", opts)
+
+    def test_story_com_musica_digitada_e_manual(self):
+        from services.ig_publish import media_for
+        item = {"format": "stories", "art_url": "https://cdn.x/story.png",
+                "reels_options": {"story_music_note": "Ben — Magnólia"}}
+        plan, manual = media_for(item)
+        self.assertIsNone(plan)
+        self.assertIn("Ben — Magnólia", manual)
+
+
+
+class AudioSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_titulo_artista_encontrado_quando_busca_composta_nao_retorna(self):
+        original = MagicMock(status_code=200, content=b"x")
+        original.json.return_value = {"audio": []}
+        fallback = MagicMock(status_code=200, content=b"x")
+        fallback.json.return_value = {"audio": [
+            {"audio_id": "7", "title": "Magnólia", "display_artist": "Ben"},
+            {"audio_id": "8", "title": "Outra música", "display_artist": "Outro"},
+        ]}
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=[original, fallback, fallback])
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        with patch("services.ig_engagement.credentials", AsyncMock(return_value={"ig_user_id": "178", "token": "t"})), \
+                patch.object(ig_audio.httpx, "AsyncClient", return_value=client):
+            out = await ig_audio.search_audio("tenant", "Ben Magnólia")
+        self.assertEqual([song["audio_id"] for song in out], ["7"])
+        self.assertEqual(client.get.await_count, 3)
+
+
+
 
 class MusicRelevanceTests(unittest.TestCase):
     def test_titulo_exato_vence_resultados_genericos(self):

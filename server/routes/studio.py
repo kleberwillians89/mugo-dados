@@ -199,6 +199,7 @@ class ReelsOptionsInput(BaseModel):
     story_instruction: Optional[str] = Field(default=None, max_length=500)
     story_sticker_position: Optional[Dict[str, float]] = None
     story_sticker_scale: Optional[int] = Field(default=None, ge=60, le=140)
+    story_music_note: Optional[str] = Field(default=None, max_length=200)
 
 
 class ProductTagInput(BaseModel):

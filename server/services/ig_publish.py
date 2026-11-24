@@ -101,9 +101,15 @@ def story_manual_instruction(item: Dict[str, Any]) -> Optional[str]:
     labels = {"poll": "enquete", "question": "caixa de perguntas", "quiz": "quiz",
               "emoji_slider": "controle de emoji", "link": "link clicável",
               "countdown": "contagem regressiva", "music": "música"}
+    music_note = str(opts.get("story_music_note") or "").strip()[:200]
     if sticker not in labels:
+        if music_note:
+            return (f"Story com música solicitada: adicione no aplicativo Instagram a faixa “{music_note}” "
+                    "e depois marque como publicado no Mugô Verso.")
         return None
     instruction = str(opts.get("story_instruction") or "").strip()[:180]
+    if music_note:
+        instruction = (instruction + f" · Música solicitada: {music_note}").strip(" · ")[:180]
     return (f"Story interativo ({labels[sticker]}): publique manualmente pelo Instagram e adicione o sticker nativo. "
             + (f"Instrução: {instruction}. " if instruction else "")
             + "Depois marque como publicado no Mugô Verso.")

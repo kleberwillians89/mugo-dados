@@ -6,6 +6,8 @@ type Props = {
   value?: ReelsMusic; onChange: (next: ReelsMusic | undefined) => void; disabled?: boolean;
   /** Formato da pauta: só o Reels recebe a música pela API; nos outros ela fica anotada para a equipe pôr no app. */
   format?: StudioFormat;
+  manualNote?: string;
+  onManualNote?: (note: string) => void;
 };
 
 const time = (ms: number | null) => {
@@ -20,8 +22,9 @@ const time = (ms: number | null) => {
  * No Reels a música vai na publicação automática; em Stories, imagem e carrossel a API da Meta não aceita música,
  * então ela fica na pauta e o post vira publicação à mão (a equipe põe a música no app do Instagram).
  */
-export default function ReelsMusicPicker({ value, onChange, disabled, format = "reels" }: Props) {
+export default function ReelsMusicPicker({ value, onChange, disabled, format = "reels", manualNote = "", onManualNote }: Props) {
   const autoMusic = format === "reels" || format === "video";
+  const story = format === "stories";
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"music" | "original_sound">("music");
@@ -50,6 +53,12 @@ export default function ReelsMusicPicker({ value, onChange, disabled, format = "
 
   useEffect(() => () => { searchVersion.current += 1; player.current?.pause(); }, []);
   useEffect(() => { if (open && !results.length && !busy && !error) void search("", kind); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Busca automática sem precisar clicar em "Buscar"; o contador ignora respostas antigas.
+  useEffect(() => {
+    if (!open || !query.trim()) return;
+    const timer = window.setTimeout(() => { void search(query, kind); }, 500);
+    return () => window.clearTimeout(timer);
+  }, [open, query, kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(audio: ReelsAudio) {
     if (!audio.preview_url) return;
@@ -69,7 +78,12 @@ export default function ReelsMusicPicker({ value, onChange, disabled, format = "
   }
 
   return <section className="reelsOptsBlock" aria-labelledby="reels-music-title">
-    <span className="postArtTitle" id="reels-music-title">Música</span>
+    <span className="postArtTitle" id="reels-music-title">Música {story ? "do Story" : ""}</span>
+    {story && onManualNote ? <label>Faixa que você quer usar no Instagram (nome original e artista)
+      <input type="text" maxLength={200} placeholder="Ex.: Magnólia — Ben" disabled={disabled}
+        value={manualNote} onChange={(e) => onManualNote(e.target.value)} />
+      <small className="postArtHint">Você pode escrever a música exata mesmo que ela não apareça na biblioteca limitada da Meta. A equipe adicionará a faixa no aplicativo Instagram antes de publicar.</small>
+    </label> : null}
     {value ? <div className="reelsMusicPicked">
       {value.cover ? <img src={value.cover} alt="" /> : <span className="reelsMusicIcon"><Music size={18} aria-hidden="true" /></span>}
       <div><b>{value.title || "Música escolhida"}</b>{value.artist ? <small>{value.artist}</small> : null}</div>
@@ -89,7 +103,7 @@ export default function ReelsMusicPicker({ value, onChange, disabled, format = "
     {open ? <div className="reelsMusicBox">
       <div className="reelsSeg" role="group" aria-label="Tipo de áudio">
         {(["music", "original_sound"] as const).map((t) => <button key={t} type="button" className={kind === t ? "is-on" : ""} aria-pressed={kind === t}
-          onClick={() => { setKind(t); void search(query, t); }}>{t === "music" ? "Músicas" : "Áudios de Reels"}</button>)}
+          onClick={() => { setKind(t); searchVersion.current += 1; if (!query.trim()) void search("", t); }}>{t === "music" ? "Músicas" : "Áudios de Reels"}</button>)}
       </div>
       {/* div, não <form>: o modal já é um formulário e form dentro de form enviava a página (recarregava o Mugoverso). */}
       <div className="reelsMusicSearch" role="search">
@@ -106,7 +120,7 @@ export default function ReelsMusicPicker({ value, onChange, disabled, format = "
           onClick={() => toggle(a)}>{playing === a.audio_id ? <Pause size={15} /> : <Play size={15} />}</button> : null}
         <button type="button" className="ds-button is-primary" disabled={disabled} onClick={() => choose(a)}>Usar</button>
       </li>)}</ul>
-      <small className="libHint">Resultados do catálogo liberado pela Meta, ordenados por correspondência com a busca. Ouça o trecho quando disponível; a música entra na publicação do Reels.</small>
+      <small className="libHint">A busca consulta apenas as faixas disponibilizadas pela Meta, não todo o catálogo do Instagram. Não substituímos a música pedida por outra. Em Stories, escreva o nome original acima para a equipe adicionar manualmente.</small>
     </div> : null}
     {value && !autoMusic ? <small className="postArtHint is-pending">A Meta só põe música sozinha no Reels. Em {STUDIO_FORMATS[format] || format} a música fica
       anotada na pauta e, na hora marcada, o post fica para <b>publicar à mão</b> no app do Instagram com essa música.</small> : null}

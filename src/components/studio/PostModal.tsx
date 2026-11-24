@@ -17,6 +17,7 @@ import Collaborators from "./Collaborators";
 import ProductTags from "./ProductTags";
 import ReelsOptions from "./ReelsOptions";
 import ReelsMusicPicker from "./ReelsMusicPicker";
+import StoryLayoutMaker from "./StoryLayoutMaker";
 import { frameSrc } from "./reelsOptions.helpers";
 import AiSuggestionCard from "./AiSuggestionCard";
 import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
@@ -128,7 +129,8 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
     const y = Math.min(rect.height - halfHeight, Math.max(halfHeight, e.clientY - rect.top));
     placeSticker((x / rect.width) * 100, (y / rect.height) * 100);
   };
-  const autoPublish = AUTO_PUBLISH_CHANNELS.includes(channel) && !interactiveStory;
+  const storyWithMusic = channel === "instagram" && draft.format === "stories" && Boolean(reelsOpts.music || reelsOpts.story_music_note?.trim());
+  const autoPublish = AUTO_PUBLISH_CHANNELS.includes(channel) && !interactiveStory && !storyWithMusic;
   const formatsFor = PLATFORM_FORMATS[channel] || (Object.keys(STUDIO_FORMATS) as StudioFormat[]);
   const when = draft.date ? localParts(`${draft.date}T${draft.time || "12:00"}:00-03:00`) : null;
   const caption = draft.caption_draft || "";
@@ -165,10 +167,23 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
     finally { setUploading(null); }
   }
 
+  async function createStoryArt(file: File) {
+    if (uploading || busy) return;
+    setUploadError(null);
+    setUploading("Criando arte do Story…");
+    try {
+      const publicUrl = await uploadArt(item?.id || null, file);
+      setDraft((current) => ({ ...current, art_url: [publicUrl, ...artList(current.art_url).slice(1)].join("\\n") }));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Não foi possível salvar a arte gerada.");
+      throw err;
+    } finally { setUploading(null); }
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     // Sem campo "Pauta": o nome interno vem da 1ª linha da legenda (ou formato + data).
-    const firstLine = (draft.caption_draft || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
+    const firstLine = (draft.format === "stories" ? (draft.reels_options?.story_instruction || draft.reels_options?.story_music_note || "") : (draft.caption_draft || "")).split("\n").map((l) => l.trim()).find(Boolean) || "";
     const title = draft.title?.trim() || (firstLine ? firstLine.slice(0, 80) : `${STUDIO_FORMATS[draft.format]} de ${draft.date.split("-").reverse().slice(0, 2).join("/")}`);
     if (await onSave({ ...draft, title }) && !item) onClose();
   }
@@ -253,7 +268,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
             </div>
           </div> : null}
         </div>}
-        <div className="igActions" aria-hidden="true">
+        {draft.format !== "stories" ? <><div className="igActions" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.4 5c2 0 3.4 1.1 4.1 2.4h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z" /></svg>
           <svg viewBox="0 0 24 24"><path d="M20.5 12a8.5 8.5 0 1 1-3.1-6.6L21 4l-1 4.1A8.4 8.4 0 0 1 20.5 12z" /></svg>
           <svg viewBox="0 0 24 24"><path d="M22 3 2 10.5l7.5 3L22 3zM9.5 13.5 12 21l10-18" /></svg>
@@ -263,7 +278,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           <p><strong>{handle.slice(1)}</strong> {shortCaption || <em>Sem legenda ainda.</em>}
             {caption.length > 125 ? <button type="button" onClick={() => setCaptionOpen(!captionOpen)}>{captionOpen ? " menos" : " mais"}</button> : null}</p>
           {when ? <small>{when.weekday}, {when.label} · {when.time}</small> : null}
-        </div>
+        </div></> : null}
         {isReels ? <div className="reelsPreviewBar">
           <div className="reelsSeg" role="group" aria-label="Ver a prévia como">
             <button type="button" className={reelsView === "reels" ? "is-on" : ""} aria-pressed={reelsView === "reels"} onClick={() => setReelsView("reels")}>Reels</button>
@@ -328,6 +343,8 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
             <p className="postArtWarn" role="status">Este Story precisa ser finalizado no aplicativo do Instagram. O Mugô Verso guarda a arte, o horário e as instruções, mas <b>não publicará automaticamente sem o sticker</b>. Na data agendada ficará pendente de publicação manual.</p>
           </> : <small className="postArtHint">A imagem ou vídeo será publicado automaticamente, sem stickers interativos.</small>}
         </div> : null}
+        {canManage && !clientMode && channel === "instagram" && draft.format === "stories" ? <StoryLayoutMaker
+          disabled={busy || Boolean(uploading)} onGenerate={createStoryArt} /> : null}
         {canManage && !clientMode ? <div className="postArt">
           <span className="postArtTitle">{isReels ? "Vídeo do Reels" : "Arte do post"} {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
           <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}
@@ -370,8 +387,10 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
         }}>{Object.entries(STUDIO_CHANNELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label> : null}
         {channel !== "instagram" && canManage && !clientMode ? <small className="postArtHint">{channelLabel} não publica sozinho pelo Mugoverso: depois da aprovação, agende para a equipe ser lembrada na hora e publique à mão.</small> : null}
         {canManage && !clientMode && channel === "instagram" ? <ReelsMusicPicker value={reelsOpts.music} format={draft.format} disabled={busy}
-          onChange={(music) => set({ reels_options: { ...reelsOpts, music } })} /> : null}
-        <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+          manualNote={reelsOpts.story_music_note || ""}
+          onManualNote={(note) => set({ reels_options: { ...reelsOpts, story_music_note: note } })}
+          onChange={(music) => set({ reels_options: { ...reelsOpts, music, ...(draft.format === "stories" && music ? { story_music_note: [music.title, music.artist].filter(Boolean).join(" — ") } : {}) } })} /> : null}
+        {draft.format !== "stories" ? <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label> : <small className="postArtHint">Stories não têm legenda no Instagram. O texto visível deve estar na arte ou no sticker.</small>}
         {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} pending={directionPending} /> : null}
         {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
           disabled={busy} isStory={draft.format === "stories"} /> : null}
