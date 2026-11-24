@@ -176,12 +176,13 @@ class MentionReviewTests(unittest.IsolatedAsyncioTestCase):
                  "sentiment": "positivo", "theme": None, "sentiment_ai": None, "health_excluded": False, "reviewed_at": None}]
         posts = [{"media_id": "m1", "caption": "Lançamento", "permalink": "https://instagram.com/p/x", "timestamp": "2026-11-02T10:00:00+00:00"}]
         own = [{"username": "mugo"}]
-        sel = AsyncMock(side_effect=[rows, own, posts])
+        sel = AsyncMock(side_effect=[rows, [{"id": 7, "theme_reviewed": True, "theme_ai": "produto"}], own, posts])
         with patch.object(bh, "sb_select", sel):
             out = await bh.list_mentions("c1", start=date(2026, 11, 1), end=date(2026, 11, 30), source="comments", show="negativo")
         self.assertEqual([i["id"] for i in out["items"]], ["7"])
         item = out["items"][0]
         self.assertEqual((item["author"], item["sentiment_ai"], item["post"]["permalink"]), ("@ana", "negativo", "https://instagram.com/p/x"))
+        self.assertEqual(item["theme_ai"], "produto")
         first = sel.await_args_list[0].kwargs
         self.assertEqual(first["filters"]["sentiment"], "eq.negativo")
         self.assertEqual(first["filters"]["client_id"], "eq.c1")
@@ -213,6 +214,18 @@ class MentionReviewTests(unittest.IsolatedAsyncioTestCase):
             out = await bh.review_mention("c1", source="comments", mention_id="7", user_id="u1", reset=True)
         self.assertEqual(upd.await_args.kwargs["patch"]["sentiment"], "negativo")
         self.assertFalse(out["excluded"])
+
+    async def test_review_theme_saves_original_and_reset_restores_it(self):
+        row = {"id": 7, "theme": "produto", "theme_reviewed": False, "theme_ai": None,
+               "sentiment": "neutro", "reviewed_at": None, "analyzed_at": "2026-11-03"}
+        update = AsyncMock(return_value=[])
+        with patch.object(bh, "sb_select", AsyncMock(return_value=[row])), patch.object(bh, "sb_update", update):
+            result = await bh.review_mention("c1", source="comments", mention_id="7", user_id="u1", theme=" entrega ")
+            self.assertEqual((result["theme"], result["theme_ai"]), ("entrega", "produto"))
+            row.update(update.await_args.kwargs["patch"])
+            result = await bh.review_mention("c1", source="comments", mention_id="7", user_id="u1", reset=True)
+            self.assertEqual(result["theme"], "produto")
+            self.assertFalse(update.await_args.kwargs["patch"]["theme_reviewed"])
 
     async def test_review_rejects_bad_ids_and_other_brands(self):
         with self.assertRaises(bh.StudioError):
