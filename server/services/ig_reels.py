@@ -68,6 +68,18 @@ def clean_reels_options(value: Any) -> Dict[str, Any]:
         instruction = _text(value.get("story_instruction"), 500)
         if instruction:
             out["story_instruction"] = instruction
+        position = value.get("story_sticker_position")
+        if isinstance(position, dict):
+            try:
+                import math
+                x, y = float(position["x"]), float(position["y"])
+                if math.isfinite(x) and math.isfinite(y):
+                    out["story_sticker_position"] = {
+                        "x": round(max(0.0, min(100.0, x)), 2),
+                        "y": round(max(0.0, min(100.0, y)), 2),
+                    }
+            except (KeyError, ValueError, TypeError, OverflowError):
+                pass
     return out
 
 

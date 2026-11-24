@@ -50,6 +50,28 @@ class SearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((params["audio_type"], params["user_id"], params["search_query"]), ("music", "178", "hit"))
 
 
+class StoryStickerPositionTests(unittest.TestCase):
+    def test_posicao_salva_e_arredondada(self):
+        options = clean_reels_options({
+            "story_sticker": "poll", "story_instruction": "Enquete",
+            "story_sticker_position": {"x": 24.126, "y": 72.788},
+        })
+        self.assertEqual(options["story_sticker_position"], {"x": 24.13, "y": 72.79})
+
+    def test_posicao_fora_do_limite_e_recortada(self):
+        options = clean_reels_options({"story_sticker": "question",
+                                       "story_sticker_position": {"x": -10, "y": 110}})
+        self.assertEqual(options["story_sticker_position"], {"x": 0.0, "y": 100.0})
+
+    def test_posicao_invalida_ou_sem_sticker_nao_e_persistida(self):
+        invalid = clean_reels_options({"story_sticker": "poll",
+                                       "story_sticker_position": {"x": "NaN", "y": 15}})
+        self.assertNotIn("story_sticker_position", invalid)
+        without_sticker = clean_reels_options({"story_sticker_position": {"x": 30, "y": 50}})
+        self.assertNotIn("story_sticker_position", without_sticker)
+
+
+
 class MusicRelevanceTests(unittest.TestCase):
     def test_titulo_exato_vence_resultados_genericos(self):
         songs = [
