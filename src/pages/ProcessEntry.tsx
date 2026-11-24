@@ -65,6 +65,9 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
       { label: "CRM", description: "Consulte clientes e relacionamento.", route: "customers", icon: Users },
       { label: "Clipping", description: "Veja notícias, alertas e sinais da marca.", route: "clipping", icon: Search },
       { label: "Relatórios", description: "Abra os relatórios consolidados disponíveis.", route: "social_report", icon: FileText },
+      // Antes ficavam em "Ferramentas complementares" no Início.
+      { label: "Tira-dúvidas", description: "Pergunte à IA sobre os dados e a marca.", route: "mugo_ia", icon: Sparkles },
+      { label: "O que a IA fez", description: "Propostas e ações da IA na base de clientes.", route: "ai_actions", icon: Sparkles },
     ],
   },
 };

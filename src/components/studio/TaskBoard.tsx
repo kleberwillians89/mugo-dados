@@ -6,6 +6,7 @@ import { getPathForRoute } from "../../app/routes";
 import { STUDIO_FORMATS, decideCalendarItem, getPipeline, listContacts, localParts, sendForApproval, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
 import PostReview from "./PostReview";
 import { OPEN, handleFromName, monthKey, sortTasks } from "./taskBoard.helpers";
+import { OPEN_TASK_EVENT } from "../shell/workKanban.helpers";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const DEPARTMENTS = ["Desenvolvimento", "Design", "Mídia", "Social Media", "Criação", "Dados", "CRM", "Operações", "Estratégia", "Atendimento"];
@@ -171,6 +172,19 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     setDraft(toDraft(task)); setComment(""); setInternalNote(false); setHistory(null); setNotice(null); setSentLink(null);
     try { const out = await taskHistory(task.id); setHistory({ id: task.id, events: out.events }); } catch { setHistory({ id: task.id, events: [] }); }
   }
+
+  // Aviso de tarefa clicado no Kanban: abre aqui mesmo, só se a tarefa estiver no que este quadro carregou.
+  const tasksRef = useRef(tasks);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const id = (event as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      const task = id ? tasksRef.current.find((item) => item.id === id) : undefined;
+      if (task) { openedNotificationTask.current = id!; void openTask(task); }
+    };
+    window.addEventListener(OPEN_TASK_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_TASK_EVENT, onOpen);
+  });
 
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("task");

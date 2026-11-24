@@ -22,3 +22,6 @@ export const kanbanCache = {
   set: (key: string, counts: KanbanCounts) => { cache = { key, at: Date.now(), counts }; },
   clear: () => { cache = null; },
 };
+
+/** Pede ao quadro aberto para mostrar uma tarefa (o quadro só abre tarefas que ele mesmo carregou: escopo preservado). */
+export const OPEN_TASK_EVENT = "mugo:open-task";

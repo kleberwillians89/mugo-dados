@@ -23,11 +23,11 @@ describe("nova entrada e processos", () => {
     await act(async () => root.render(<Home canView={() => true} onOpen={open} />));
     expect(host.textContent).toContain("O que vamos fazer hoje?");
     for (const label of ["Planejar", "Criar conteúdo", "Lançar campanha", "Analisar resultados"]) expect(host.textContent).toContain(label);
-    expect(host.textContent).toContain("Precisa da sua atenção");
+    expect(host.textContent).not.toContain("Precisa da sua atenção");
     expect(host.textContent).toContain("Aprovação Interna");
     expect(host.textContent).toContain("Aprovação Final");
-    expect(host.textContent).toContain("Ferramentas complementares");
-    expect(host.textContent).toContain("Tira-dúvidas");
+    expect(host.textContent).not.toContain("Ferramentas complementares");
+    expect(host.textContent).not.toContain("Tira-dúvidas");  // foi para Analisar resultados
     for (const moved of ["WhatsApp", "E-mail marketing", "Captação", "Comentários"]) expect(host.textContent).not.toContain(moved);
     expect(host.textContent).not.toMatch(/\d+ pendência/);
     const planning = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Planejar"))!;

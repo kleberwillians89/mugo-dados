@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { ArrowRight, BarChart3, CheckCircle2, Megaphone, PenLine, Target } from "lucide-react";
+import WorkKanban from "../components/shell/WorkKanban";
 import { getActiveClientName } from "../app/activeClient";
 import { getPathForRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
@@ -15,19 +16,13 @@ const ACTIONS: { title: string; description: string; route: AppRoute; icon: type
   { title: "Analisar resultados", description: "Entender o que funcionou.", route: "process_analysis", icon: BarChart3 },
 ];
 
-const COMPLEMENTARY: { label: string; route: AppRoute }[] = [
-  { label: "Tira-dúvidas", route: "mugo_ia" },
-  { label: "O que a IA fez", route: "ai_actions" },
-];
-
 export default function Home({ canView, onOpen }: Props) {
   const actions = ACTIONS.filter((action) => canView(action.route));
-  const attention = [
-    canView("tasks") ? { label: "Abrir meu trabalho", route: "tasks" as AppRoute } : null,
+  // Atalhos de aprovação ao lado do Kanban, conforme a permissão de cada pessoa.
+  const approvals = [
     canView("internal_approval") ? { label: "Aprovação Interna", route: "internal_approval" as AppRoute } : null,
     canView("final_approval") ? { label: "Aprovação Final", route: "final_approval" as AppRoute } : null,
   ].filter((item): item is { label: string; route: AppRoute } => Boolean(item));
-  const complementary = COMPLEMENTARY.filter((item) => canView(item.route));
 
   function open(event: ReactMouseEvent<HTMLAnchorElement>, route: AppRoute) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -37,6 +32,13 @@ export default function Home({ canView, onOpen }: Props) {
 
   return <Shell title="Início" variant="editorial"><div className="ds-page processHomePage">
     <PageHeader company={getActiveClientName() || "empresa"} title="O que vamos fazer hoje?" back={false} />
+    <div className="processHomeWork">
+    <WorkKanban place="home" />
+    {approvals.length ? <nav className="processApprovals" aria-label="Aprovações">
+      <CheckCircle2 size={17} aria-hidden="true" />
+      {approvals.map((item) => <a key={item.route} href={getPathForRoute(item.route)} onClick={(event) => open(event, item.route)}>{item.label}<ArrowRight size={15} aria-hidden="true" /></a>)}
+    </nav> : null}
+    </div>
     <div className="processHomeGrid" aria-label="Processos do Mugoverso">
       {actions.map((action, index) => {
         const Icon = action.icon;
@@ -47,13 +49,5 @@ export default function Home({ canView, onOpen }: Props) {
         </a>;
       })}
     </div>
-    {attention.length ? <section className="processAttention" aria-labelledby="process-attention-title">
-      <div><CheckCircle2 size={19} aria-hidden="true" /><span><strong id="process-attention-title">Precisa da sua atenção</strong><small>Acesse as pendências disponíveis para o seu perfil.</small></span></div>
-      <nav aria-label="Atalhos de atenção">{attention.map((item) => <a key={item.route} href={getPathForRoute(item.route)} onClick={(event) => open(event, item.route)}>{item.label}<ArrowRight size={15} aria-hidden="true" /></a>)}</nav>
-    </section> : null}
-    {complementary.length ? <nav className="processComplementary" aria-label="Ferramentas complementares">
-      <strong>Ferramentas complementares</strong>
-      <span>{complementary.map((item) => <a key={item.route} href={getPathForRoute(item.route)} onClick={(event) => open(event, item.route)}>{item.label}</a>)}</span>
-    </nav> : null}
   </div></Shell>;
 }

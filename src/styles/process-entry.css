@@ -62,3 +62,10 @@
 .processToolCard[data-accent="4"] .processToolIcon{background:var(--mugo-aged-gold);color:#241b0c}
 .processToolCard[data-accent="5"] .processToolIcon{background:color-mix(in srgb,var(--mugo-deep-blue) 72%,var(--mugo-soft-gray))}
 .processHomeCard:focus-visible,.processToolCard:focus-visible{outline:2px solid var(--mugo-deep-blue);outline-offset:2px}
+/* Atalhos de aprovação ao lado do Kanban, no Início */
+.processHomeWork{display:grid;gap:12px;min-width:0}
+.processApprovals{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.processApprovals>svg{color:var(--mugo-deep-blue,#0c4160)}
+.processApprovals a{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:6px 14px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:999px;background:#fff;color:var(--mugo-deep-blue,#0c4160);font-weight:600;font-size:14px;text-decoration:none}
+.processApprovals a:hover{border-color:var(--mugo-deep-blue,#0c4160)}
+.processApprovals a:focus-visible{outline:2px solid var(--mugo-deep-blue,#0c4160);outline-offset:2px}
