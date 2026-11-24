@@ -146,11 +146,80 @@ async def usage_signals(client_id: str, *, since: Optional[str] = None, days: in
         "aprovados_pelo_cliente": [{"pauta": _clean(r.get("title"), 160), "pilar": _clean(r.get("pillar"), 80),
                                     "gancho": _clean(r.get("hook"), 200)} for r in approved][:12],
         "whatsapp": whatsapp,
+        "criadores": await creator_signals(client_id, start),
+        "respostas_da_equipe": await team_reply_signals(client_id, start),
+        "resultados": await result_signals(client_id, start),
     }
+
+
+async def creator_signals(client_id: str, start: str) -> List[Dict[str, Any]]:
+    """Criadores que fecharam ou não fecharam desde ``start``: perfil, porte, o que foi feito e o motivo."""
+    kits = await _safe_select("creator_media_kits", select="creator_id,status,status_note,status_at,deals", limit=40,
+                              order="status_at.desc", filters={"client_id": f"eq.{client_id}", "status": "in.(fechado,nao_fechou)",
+                                                               "status_at": f"gte.{start}"})
+    ids = [str(k["creator_id"]) for k in kits if k.get("creator_id")]
+    creators = await _safe_select("creators", select="id,handle,followers,biography", limit=40,
+                                  filters={"id": f"in.({','.join(ids)})"}) if ids else []
+    by_id = {str(c["id"]): c for c in creators}
+    out = []
+    for kit in kits:
+        c = by_id.get(str(kit.get("creator_id")))
+        if not c:
+            continue
+        deal = next(iter(kit.get("deals") or []), {}) or {}
+        out.append({"criador": f"@{c.get('handle')}", "seguidores": c.get("followers"), "bio": _clean(c.get("biography"), 140),
+                    "resultado": "fechou" if kit.get("status") == "fechado" else "nao_fechou",
+                    "entrega": _clean(deal.get("what"), 100), "valor": deal.get("amount"), "motivo": _clean(kit.get("status_note"), 200)})
+    return out[:20]
+
+
+async def team_reply_signals(client_id: str, start: str) -> Dict[str, Any]:
+    """Como a equipe responde de verdade: respostas manuais no Instagram e no WhatsApp, e correções da sugestão da IA."""
+    ig = await _safe_select("ig_engagement_actions", select="text,created_at", limit=20, order="created_at.desc",
+                            filters={"client_id": f"eq.{client_id}", "kind": "eq.resposta_manual", "status": "eq.enviado",
+                                     "created_at": f"gte.{start}"})
+    wa = await _safe_select("whatsapp_messages", select="text,payload,created_at", limit=40, order="created_at.desc",
+                            filters={"client_id": f"eq.{client_id}", "direction": "eq.out", "by_ai": "eq.false",
+                                     "type": "eq.text", "created_at": f"gte.{start}"})
+    # Sugestão da IA aprovada com texto mudado sai como by_ai=true, com o original guardado no payload.
+    fixed = await _safe_select("whatsapp_messages", select="text,payload,created_at", limit=20, order="created_at.desc",
+                               filters={"client_id": f"eq.{client_id}", "direction": "eq.out", "payload->>ai_original": "not.is.null",
+                                        "created_at": f"gte.{start}"})
+    corrections = []
+    for row in fixed:
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        original, text = _clean(payload.get("ai_original"), 300), _clean(row.get("text"), 300)
+        if original and text:
+            corrections.append({"ia_sugeriu": original, "equipe_enviou": text})
+    manual = [t for t in (_clean(r.get("text"), 300) for r in wa) if t]
+    return {"instagram": [t for t in (_clean(r.get("text"), 200) for r in ig) if t][:12],
+            "whatsapp": manual[:12], "correcoes_da_ia": corrections[:12]}
+
+
+async def result_signals(client_id: str, start: str) -> Dict[str, Any]:
+    """Contexto de resultado (não conta como sinal novo): posts que mais alcançaram e metas encerradas no período."""
+    out: Dict[str, Any] = {}
+    try:
+        from .studio_calendar import top_posts
+        out["posts_que_mais_alcancaram"] = (await top_posts(client_id, days=60))[:5]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from .goals import list_goals
+        today = datetime.now(timezone.utc).date()
+        goals = (await list_goals(client_id, start[:10], today.isoformat())).get("goals") or []
+        out["metas"] = [{"meta": _clean(g.get("label"), 100), "status": g.get("status"),
+                         "progresso_pct": round(g["progress_percent"]) if isinstance(g.get("progress_percent"), (int, float)) else None}
+                        for g in goals if g.get("status") in ("META_ATINGIDA", "ABAIXO_DO_RITMO", "ATENCAO")][:8]
+    except Exception:  # noqa: BLE001
+        pass
+    return {k: v for k, v in out.items() if v}
 
 
 def count_signals(signals: Dict[str, Any]) -> int:
     wa = signals.get("whatsapp") or {}
-    return (len(signals.get("ajustes_pedidos") or []) + len(signals.get("comentarios_do_cliente") or [])
+    team = signals.get("respostas_da_equipe") or {}
+    return (len(signals.get("criadores") or []) + len(team.get("instagram") or []) + len(team.get("whatsapp") or [])
+            + len(team.get("correcoes_da_ia") or []) + len(signals.get("ajustes_pedidos") or []) + len(signals.get("comentarios_do_cliente") or [])
             + len(signals.get("textos_reescritos_pelo_cliente") or []) + len(signals.get("aprovados_pelo_cliente") or [])
             + len(wa.get("perguntas_recentes") or []))
