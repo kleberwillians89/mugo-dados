@@ -100,6 +100,27 @@ class StoryManualMusicTests(unittest.TestCase):
 
 
 
+class AudioSearchFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_titulo_artista_encontrado_quando_busca_composta_nao_retorna(self):
+        original = MagicMock(status_code=200, content=b"x")
+        original.json.return_value = {"audio": []}
+        fallback = MagicMock(status_code=200, content=b"x")
+        fallback.json.return_value = {"audio": [
+            {"audio_id": "7", "title": "Magnólia", "display_artist": "Ben"},
+            {"audio_id": "8", "title": "Outra música", "display_artist": "Outro"},
+        ]}
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=[original, fallback, fallback])
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        with patch("services.ig_engagement.credentials", AsyncMock(return_value={"ig_user_id": "178", "token": "t"})), \
+                patch.object(ig_audio.httpx, "AsyncClient", return_value=client):
+            out = await ig_audio.search_audio("tenant", "Ben Magnólia")
+        self.assertEqual([song["audio_id"] for song in out], ["7"])
+        self.assertEqual(client.get.await_count, 3)
+
+
+
 
 class MusicRelevanceTests(unittest.TestCase):
     def test_titulo_exato_vence_resultados_genericos(self):
