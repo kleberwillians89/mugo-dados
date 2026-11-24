@@ -852,6 +852,7 @@ class MentionReview(BaseModel):
     sentiment: Optional[Literal["positivo", "neutro", "misto", "negativo"]] = None
     excluded: Optional[bool] = None
     reset: bool = False
+    theme: Optional[str] = Field(default=None, max_length=80)
 
 
 @router.get("/clipping/health/mentions")
@@ -876,7 +877,7 @@ async def brand_health_review(client_id: str, source: Literal["comments", "direc
     cid = await require_client_role(client_id, authorization, allowed_roles=WEIGHT_EDITORS)
     try:
         return await brand_health.review_mention(cid, source=source, mention_id=mention_id[:64], user_id=await require_user_id(authorization),
-                                                 sentiment=body.sentiment, excluded=body.excluded, reset=body.reset)
+                                                 sentiment=body.sentiment, excluded=body.excluded, reset=body.reset, theme=body.theme)
     except StudioError as exc:
         raise _health_error(exc) from None
 

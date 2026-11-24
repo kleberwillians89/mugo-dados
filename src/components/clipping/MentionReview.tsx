@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CircleAlert } from "lucide-react";
 import {
   SENTIMENT_NAME, SENTIMENT_ORDER, getMentions, reviewMention,
-  type HealthSentiment, type Mention, type MentionShow, type MentionSource,
+  type HealthSentiment, type MentionReview as MentionReviewInput, type Mention, type MentionShow, type MentionSource,
 } from "../../app/brandHealth";
 import SegmentedControl from "../data/SegmentedControl";
 
@@ -19,23 +19,25 @@ function MentionInfo({ m, canReview, onSaved, onClose }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function save(body: { sentiment?: HealthSentiment; excluded?: boolean; reset?: boolean }) {
+  const [theme, setTheme] = useState(m.theme ?? "");
+  async function save(body: MentionReviewInput) {
     setBusy(true); setError(null);
     try {
       const out = await reviewMention(m.source, m.id, body);
+      if (out.theme !== undefined) setTheme(out.theme ?? "");
       onSaved({ ...m, ...out });
     } catch (cause) {
       setError(cause instanceof Error && cause.message ? cause.message : "Não foi possível salvar a revisão.");
     } finally { setBusy(false); }
   }
-  return <div className="bhMentionInfo" role="dialog" aria-label="De onde veio este comentário">
+  return <div className="bhMentionInfo" role="region" aria-label="De onde veio esta menção">
     <dl>
       <dt>Rede</dt><dd>Instagram · {m.source === "comments" ? "comentário no post" : "mensagem no Direct"}</dd>
       <dt>Quem</dt><dd>{m.author ?? "—"}</dd>
       <dt>Quando</dt><dd>{when(m.at)}</dd>
       {m.post ? <><dt>Post</dt><dd>{m.post.caption ?? "Post sem legenda"}{m.post.at ? ` · publicado ${when(m.post.at)}` : ""}
         {m.post.permalink ? <> · <a href={m.post.permalink} target="_blank" rel="noreferrer">abrir o post ↗</a></> : null}</dd></> : null}
-      <dt>A IA entendeu</dt><dd>{m.sentiment_ai ? SENTIMENT_NAME[m.sentiment_ai] : "ainda sem análise"}{m.theme ? ` · assunto “${m.theme}”` : ""}</dd>
+      <dt>A IA entendeu</dt><dd>{m.sentiment_ai ? SENTIMENT_NAME[m.sentiment_ai] : "ainda sem análise"}{" · "}{(m.theme_ai === undefined ? m.theme : m.theme_ai) || "sem assunto"}</dd>
       {m.reviewed_at ? <><dt>Revisado</dt><dd>{when(m.reviewed_at)}</dd></> : null}
     </dl>
     {canReview ? <div className="bhMentionEdit">
@@ -44,6 +46,10 @@ function MentionInfo({ m, canReview, onSaved, onClose }: {
           {!m.sentiment ? <option value="" disabled>Escolha</option> : null}
           {SENTIMENT_ORDER.map((s) => <option key={s} value={s}>{SENTIMENT_NAME[s]}</option>)}
         </select></label>
+      {m.can_edit_theme ? <form onSubmit={(e) => { e.preventDefault(); void save({ theme }); }}>
+        <label>Assunto revisado<input value={theme} maxLength={80} onChange={(e) => setTheme(e.target.value)} /></label>
+        <button type="submit" className="ds-button" disabled={busy || theme.trim() === (m.theme ?? "")}>Salvar assunto</button>
+      </form> : null}
       <label className="bhCheck"><input type="checkbox" checked={!m.excluded} disabled={busy} onChange={(e) => void save({ excluded: !e.target.checked })} />
         Contar na avaliação da marca</label>
       {m.reviewed_at ? <button type="button" className="studioLink" disabled={busy} onClick={() => void save({ reset: true })}>Voltar ao que a IA disse</button> : null}
@@ -81,8 +87,9 @@ export default function MentionReview({ start, end, onChanged }: { start: string
   }
 
   return <section className="bhCard bhMentions" aria-labelledby="bh-mentions">
-    <h2 id="bh-mentions">Comentários e Direct, um a um</h2>
-    <p className="bhSub">Clique no <b>!</b> para ver de onde veio. Se a IA não entendeu o duplo sentido, a equipe corrige o sentimento ou tira da avaliação da marca.</p>
+    <h2 id="bh-mentions">Escuta social do Instagram</h2>
+    <p className="bhSub">Cobertura desta tela: comentários e mensagens já coletados do Instagram conectado, no período selecionado. A coleta em mar aberto ainda não está configurada.</p>
+    <p className="bhSub">Abra uma menção para ver a origem e revisar o sentimento ou o assunto.</p>
     <div className="bhMentionsBar">
       <SegmentedControl ariaLabel="Canal" value={source} onSelect={(id) => setSource(id as MentionSource)}
         options={[{ id: "comments", label: "Comentários" }, { id: "direct", label: "Direct" }]} />

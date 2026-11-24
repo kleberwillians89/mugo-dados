@@ -7,6 +7,9 @@ import {
 import DateRangePicker from "./DateRangePicker";
 import HealthIndexCard from "./HealthIndexCard";
 import MentionReview from "./MentionReview";
+import Modal from "../Modal";
+import { MessageSquare } from "lucide-react";
+import "../../styles/companies.css";
 import WordCloud from "../WordCloud";
 import "../../styles/brandHealth.css";
 import PageSkeleton from "../data/PageSkeleton";
@@ -140,6 +143,7 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
 
   const tooManyDays = grain === "day" && (new Date(range.end).getTime() - new Date(range.start).getTime()) / 864e5 > 400;
   const [nonce, setNonce] = useState(0);
+  const [listeningOpen, setListeningOpen] = useState(false);
   const requestKey = `${clientId}|${range.start}|${range.end}|${grain}|${sources.join(",")}|${nonce}`;
   const load = useCallback(async (key: string) => {
     try {
@@ -177,6 +181,10 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
       <SegmentedControl ariaLabel="Agrupar por" value={grain} onSelect={(id) => setGrain(id as typeof grain)} options={GRAINS.map((g) => ({ id: g, label: GRAIN_NAME[g] }))} />
       <DateRangePicker value={range} onChange={setRange} />
       <span className="bhMuted">vs período anterior</span>
+      <button type="button" className="ds-button" aria-haspopup="dialog" disabled={tooManyDays}
+        onClick={() => setListeningOpen(true)}>
+        <MessageSquare size={16} aria-hidden="true" /> Escuta social
+      </button>
       <div className="bhChips">{SOURCES.map((s) => <button key={s} type="button" aria-pressed={sources.includes(s)} className={sources.includes(s) ? "is-on" : ""} onClick={() => toggleSource(s)}>{SOURCE_CHIP[s]}</button>)}</div>
     </div>
     {canManage && k && k.unanalyzed > 0 ? <div className="bhPending" role="status">
@@ -188,7 +196,12 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
     {state.error ? <p className="studioError" role="alert">{state.error}</p> : null}
     {state.loading && !d ? <PageSkeleton label="Carregando a saúde da marca…" /> : null}
 
-    {!tooManyDays ? <HealthIndexCard start={range.start} end={range.end} /> : null}
+    {!tooManyDays ? <HealthIndexCard start={range.start} end={range.end} revision={nonce} /> : null}
+    <div className="bhListeningModal">
+      <Modal open={listeningOpen} title="Escuta social" onClose={() => setListeningOpen(false)}>
+        <MentionReview start={range.start} end={range.end} onChanged={() => setNonce((n) => n + 1)} />
+      </Modal>
+    </div>
     {d?.words?.length ? <section className={state.loading ? "bhCard bhWords is-loading" : "bhCard bhWords"} aria-labelledby="bh-words">
       <h2 id="bh-words">Palavras mais citadas</h2>
       <p className="bhSub">Notícias, comentários e Direct do período. Quanto maior a palavra, mais ela aparece; a cor mostra o tom que predomina. Passe o mouse para ver a divisão.</p>
@@ -269,7 +282,6 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
                 <td>{t.tone ? <span className={`bhTone is-${t.tone}`}>{SENTIMENT_NAME[t.tone].toLowerCase()}</span> : "—"}</td></tr>)}</tbody></table>}
         </section>
       </div>
-      {sources.some((s) => s !== "news") ? <MentionReview start={range.start} end={range.end} onChanged={() => setNonce((n) => n + 1)} /> : null}
       <HowToRead title="Como ler a saúde da conversa"
         items={[
           { term: "Nota da conversa", text: "80% vem do sentimento (elogios menos reclamações) e 20% dos alertas abertos. É o pilar “Conversa” do índice." },

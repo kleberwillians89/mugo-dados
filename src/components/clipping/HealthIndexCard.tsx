@@ -67,10 +67,18 @@ function WeightsEditor({ data, onSaved, onCancel }: { data: HealthIndex; onSaved
 }
 
 /** Índice de saúde MUGOVERSO: nota geral 0–100 + os 5 pilares que ligam conversa, atenção, mídia e vendas. */
-export default function HealthIndexCard({ start, end, compact = false }: { start: string; end: string; compact?: boolean }) {
+const PILLAR_SOURCES = {
+  conversa: "Clipping, comentários e Direct coletados",
+  atencao: "Insights do Instagram conectado",
+  conversao: "Pedidos e receita da loja conectada",
+  presenca: "Clipping e perfis medidos no Benchmarking",
+  reputacao: "Alertas abertos da Saúde da Marca",
+};
+
+export default function HealthIndexCard({ start, end, compact = false, revision = 0 }: { start: string; end: string; compact?: boolean; revision?: number }) {
   const clientId = getActiveClientId();
   const [nonce, setNonce] = useState(0);
-  const key = `${clientId}|${start}|${end}|${nonce}`;
+  const key = `${clientId}|${start}|${end}|${nonce}|${revision}`;
   const [state, setState] = useState<{ key: string; data: HealthIndex | null; previousIndex: number | null; error: string | null }>({ key: "", data: null, previousIndex: null, error: null });
   const [editing, setEditing] = useState(false);
 
@@ -150,6 +158,18 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
     </div>
 
     {editing ? <WeightsEditor data={d} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); setNonce((n) => n + 1); }} /> : null}
+    <details className="hiMethod">
+      <summary>Ver cálculo do índice</summary>
+      <div className="hiMethodBody">
+      <p>Período {d.period.start} a {d.period.end}. Comparação com {d.period.previous_start} a {d.period.previous_end}.</p>
+      <p>Índice = soma de (nota × peso configurado) ÷ soma dos pesos dos pilares com nota e peso maior que zero, arredondada.</p>
+      <p>Cobertura = soma dos pesos que entraram ÷ soma de todos os pesos configurados × 100.</p>
+      <ul>{d.pillars.map((pillar) => <li key={pillar.key}>
+        <strong>{pillar.name}</strong> · {pillar.score ?? "Sem nota"} · peso configurado {pillar.weight}% · peso usado {nf.format(pillar.effective_weight)}%
+        {" · "}{PILLAR_SOURCES[pillar.key]}{" · "}{pillar.score == null ? pillar.reason : pillar.detail}
+      </li>)}</ul>
+      </div>
+    </details>
     <HowToRead title="Como ler a nota" intro="Vai de 0 a 100 e junta cinco sinais da marca."
       items={[
         { term: "Conversa", text: "O que as pessoas falam da marca: elogios contra reclamações. Comentário no próprio perfil pesa metade e amostra pequena puxa para o neutro." },

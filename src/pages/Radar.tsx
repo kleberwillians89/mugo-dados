@@ -59,7 +59,14 @@ export default function Radar({ embedded = false }: { embedded?: boolean } = {})
   }, [clientId]);
   useEffect(() => { void loadOverview(); }, [loadOverview]);
 
-  const signals = useMemo(() => (view?.items || []).filter((item: Clipping) => item.relevant !== false), [view]);
+  const signals = useMemo(() => {
+    const now = Date.now();
+    const since = now - 30 * 86_400_000;
+    return (view?.items || []).filter((item: Clipping) => {
+      const at = Date.parse(item.published_at || item.created_at || "");
+      return item.relevant !== false && at >= since && at <= now;
+    });
+  }, [view]);
   const items = useMemo(() => signals.filter((item) => kind === "todos" || item.kind === kind)
     .sort((a, b) => (b.published_at || b.created_at || "").localeCompare(a.published_at || a.created_at || "")).slice(0, 12), [signals, kind]);
   const topics = (insights?.themes || []).filter((t) => t.key && t.count > 0).slice(0, 10);
@@ -95,6 +102,15 @@ export default function Radar({ embedded = false }: { embedded?: boolean } = {})
       <div className="mlCard mlKpi"><span className="mlLbl">Em alta e ligado à marca</span><b>{overview ? trends.length : "—"}</b><small>assuntos hoje</small></div>
       <div className="mlCard mlKpi"><span className="mlLbl">Oportunidades</span><b>{opportunities.length}</b><small>com fonte</small></div>
     </div>
+
+    <details className="mlCard">
+      <summary>Como o Radar calcula esses números</summary>
+      <ul>
+        <li><strong>Marca e concorrentes:</strong> contagem por categoria das notícias não arquivadas e não marcadas como irrelevantes no Clipping. A janela usa a data da publicação, ou a data de coleta quando ela falta, nos últimos 30 dias. A leitura usa até 100 itens devolvidos pelo Clipping.</li>
+        <li><strong>Assuntos em alta:</strong> contagem dos assuntos do Google Trends Brasil selecionados por relevância para esta marca na leitura do dia.</li>
+        <li><strong>Oportunidades:</strong> até quatro notícias dessa janela com sugestões registradas. Cada notícia conta uma vez.</li>
+      </ul>
+    </details>
 
     <section className="mlBlock" aria-labelledby="radar-trends">
       <div className="mlRow mlSpread"><h3 id="radar-trends"><TrendingUp size={17} aria-hidden="true" /> Em alta no Brasil e ligado a {company}</h3>
