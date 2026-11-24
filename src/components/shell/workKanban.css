@@ -1,12 +1,11 @@
 /* Kanban integrado e recolhível (Shell). Recolhido: faixa fina; expandido: o quadro de Tarefas. Paleta Mugô. */
-.workKanban{ margin: 0 0 18px; border: 1px solid var(--mugo-soft-gray); border-radius: 14px; background: #fff; }
+.workKanban{ margin: 0 0 18px; min-width: 0; max-width: 100%; border: 1px solid var(--mugo-soft-gray); border-radius: 14px; background: #fff; }
 .workKanban.is-open{ box-shadow: 0 6px 24px rgba(12, 65, 96, .06); }
 .workKanbanBar{ display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 8px 12px 8px 14px; min-height: 44px; }
 .workKanbanTitle{ display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--mugo-deep-blue); }
 .workKanbanCounts{ display: inline-flex; flex-wrap: wrap; gap: 6px 14px; flex: 1 1 auto; font-size: 14px; color: #5f665f; }
 .workKanbanCounts b{ color: #1b1f1c; }
 .workKanbanCounts .is-late, .workKanbanCounts .is-late b{ color: var(--mugo-red); }
-.workKanbanLink{ font-size: 13px; color: #5f665f; text-decoration: underline; }
 .workKanbanToggle{ display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--mugo-sand); border-radius: 999px; padding: 5px 12px;
   background: var(--mugo-ivory); color: var(--mugo-deep-blue); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .workKanbanToggle:hover{ background: var(--mugo-sand); }
@@ -14,6 +13,17 @@
 .workKanbanBoard{ border-top: 1px solid var(--mugo-soft-gray); padding: 12px; overflow-x: auto; }
 @media (max-width: 640px){
   .workKanbanBar{ padding: 8px 10px; }
-  .workKanbanLink{ display: none; }
   .workKanbanBoard{ padding: 8px; }
 }
+
+/* Avisos de tarefas (antes no chat flutuante) */
+.workKanbanNotices{position:relative}
+.workKanbanBell{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:4px 10px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:999px;background:#fff;color:var(--mugo-deep-blue,#0c4160);cursor:pointer}
+.workKanbanBell b{min-width:18px;padding:0 5px;border-radius:999px;background:var(--mugo-red,#b22234);color:#fff;font-size:11px;line-height:18px;text-align:center}
+.workKanbanNoticeList{position:absolute;right:0;top:calc(100% + 6px);z-index:40;width:min(360px,calc(100vw - 32px));max-height:60vh;overflow-y:auto;display:grid;gap:2px;padding:6px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:14px;background:#fff;box-shadow:0 12px 32px rgba(10,13,16,.16)}
+.workKanbanNoticeList p{margin:8px;color:var(--text-secondary,#5c6670);font-size:13px}
+.workKanbanNoticeList button{display:grid;gap:2px;text-align:left;padding:8px 10px;border:0;border-radius:10px;background:transparent;cursor:pointer}
+.workKanbanNoticeList button:hover{background:var(--mugo-ivory,#f9f5ef)}
+.workKanbanNoticeList button.is-unread strong::before{content:"";display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:var(--mugo-red,#b22234);vertical-align:middle}
+.workKanbanNoticeList strong{font-size:13px}.workKanbanNoticeList span{font-size:12px;color:var(--text-secondary,#5c6670)}
+.workKanban.is-home{margin:0}

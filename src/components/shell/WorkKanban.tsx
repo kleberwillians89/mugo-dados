@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, KanbanSquare } from "lucide-react";
-import { dueInfo, listClientTasks, listCrmTasks, type TaskStatus } from "../../app/crm";
-import { getPathForRoute, navigateToAppRoute } from "../../app/routes";
+import { Bell, ChevronDown, ChevronUp, KanbanSquare } from "lucide-react";
+import { dueInfo, listClientTasks, listCrmTasks, listTaskNotifications, markTaskNotificationRead, type TaskAssignmentMessage, type TaskStatus } from "../../app/crm";
 import { useWork } from "../../app/WorkContext";
 import TaskBoard from "../studio/TaskBoard";
 import ClientTasks from "../studio/ClientTasks";
-import { KANBAN_ROUTES, kanbanCache, type KanbanCounts as Counts } from "./workKanban.helpers";
+import { KANBAN_ROUTES, OPEN_TASK_EVENT, kanbanCache, type KanbanCounts as Counts } from "./workKanban.helpers";
 import "./workKanban.css";
 
 
@@ -13,8 +12,9 @@ const OPEN_KEY = (userId: string | null) => `mugo:kanban:open:${userId || "anon"
 const IN_PROGRESS: TaskStatus[] = ["pending", "in_progress", "changes"];
 const IN_APPROVAL: TaskStatus[] = ["internal_review", "client_review"];
 
+/** Primeira vez (nada salvo): expandido. Depois vale a escolha da pessoa. */
 function readOpen(userId: string | null): boolean {
-  try { return window.localStorage.getItem(OPEN_KEY(userId)) === "1"; } catch { return false; }
+  try { return window.localStorage.getItem(OPEN_KEY(userId)) !== "0"; } catch { return true; }
 }
 
 /**
@@ -22,9 +22,10 @@ function readOpen(userId: string | null): boolean {
  * Expandido: o mesmo quadro da página Tarefas (equipe) ou as tarefas visíveis ao cliente. A escolha fica salva por
  * pessoa. Os dados e as permissões são os de /tasks e /client-tasks: nada é duplicado aqui.
  */
-export default function WorkKanban() {
+export default function WorkKanban({ place = "shell" }: { place?: "shell" | "home" }) {
   const work = useWork();
-  const show = Boolean(work && work.mode && work.clientId && KANBAN_ROUTES.has(work.route));
+  // No Início o Kanban vem dentro da página (antes dos processos); nas outras telas, pelo Shell.
+  const show = Boolean(work && work.mode && work.clientId && (place === "home" || KANBAN_ROUTES.has(work.route)));
   const userId = work?.userId ?? null;
   const [open, setOpen] = useState(() => readOpen(userId));
   const [counts, setCounts] = useState<Counts | null>(null);
@@ -71,7 +72,7 @@ export default function WorkKanban() {
     try { window.localStorage.setItem(OPEN_KEY(userId), next ? "1" : "0"); } catch { /* sem storage: só nesta tela */ }
   };
 
-  return <section className={`workKanban${open ? " is-open" : ""}`} aria-label="Kanban de tarefas">
+  return <section className={`workKanban${open ? " is-open" : ""}${place === "home" ? " is-home" : ""}`} aria-label="Kanban de tarefas">
     <div className="workKanbanBar">
       <span className="workKanbanTitle"><KanbanSquare size={17} aria-hidden="true" /> Kanban</span>
       {counts ? <span className="workKanbanCounts" aria-live="polite">
@@ -79,12 +80,13 @@ export default function WorkKanban() {
         <span><b>{counts.approval}</b> em aprovação</span>
         {counts.late ? <span className="is-late"><b>{counts.late}</b> atrasada{counts.late > 1 ? "s" : ""}</span> : null}
       </span> : <span className="workKanbanCounts" />}
-      <a className="workKanbanLink" href={getPathForRoute("tasks")} onClick={(event) => {
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        event.preventDefault();
-        navigateToAppRoute("tasks");
-        window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
-      }}>Ver página completa</a>
+      {work.mode === "team" ? <KanbanNotices onOpenTask={(taskId) => {
+        if (!open) { setOpen(true); try { window.localStorage.setItem(OPEN_KEY(userId), "1"); } catch { /* sem storage */ } }
+        const url = new URL(window.location.href);
+        url.searchParams.set("task", taskId);
+        window.history.replaceState(window.history.state, "", url);
+        window.dispatchEvent(new CustomEvent(OPEN_TASK_EVENT, { detail: { taskId } }));
+      }} /> : null}
       <button type="button" className="workKanbanToggle" aria-expanded={open} onClick={toggle}>
         {open ? <>Recolher <ChevronUp size={16} aria-hidden="true" /></> : <>Expandir <ChevronDown size={16} aria-hidden="true" /></>}
       </button>
@@ -95,4 +97,51 @@ export default function WorkKanban() {
         : <ClientTasks isAgency={false} clientId={work.clientId} standalone />}
     </div> : null}
   </section>;
+}
+
+
+/**
+ * Avisos de atribuição (os mesmos do antigo chat flutuante): sino com os não lidos na faixa do Kanban.
+ * Abrir um aviso marca como lido e abre a tarefa no próprio quadro. Nada é apagado.
+ */
+function KanbanNotices({ onOpenTask }: { onOpenTask: (taskId: string) => void }) {
+  const [messages, setMessages] = useState<TaskAssignmentMessage[]>([]);
+  const [unread, setUnread] = useState(0);
+  const [open, setOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const out = await listTaskNotifications();
+      setMessages(out.messages || []); setUnread(out.unread || 0);
+    } catch { /* sem avisos: a faixa segue */ }
+  }, []);
+  useEffect(() => {
+    const first = window.setTimeout(() => void load(), 0);
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [load]);
+
+  async function view(message: TaskAssignmentMessage) {
+    setOpen(false);
+    if (!message.read_at) {
+      setMessages((cur) => cur.map((m) => m.id === message.id ? { ...m, read_at: new Date().toISOString() } : m));
+      setUnread((n) => Math.max(0, n - 1));
+      try { await markTaskNotificationRead(message.id); } catch { /* abrir a tarefa não depende de marcar como lido */ }
+    }
+    onOpenTask(message.task_id);
+  }
+
+  return <div className="workKanbanNotices">
+    <button type="button" className="workKanbanBell" aria-expanded={open} aria-haspopup="true"
+      aria-label={unread ? `Avisos de tarefas: ${unread} não lido${unread > 1 ? "s" : ""}` : "Avisos de tarefas"}
+      onClick={() => { setOpen((o) => !o); if (!open) void load(); }}>
+      <Bell size={16} aria-hidden="true" />{unread ? <b>{unread}</b> : null}
+    </button>
+    {open ? <div className="workKanbanNoticeList" role="dialog" aria-label="Avisos de tarefas">
+      {!messages.length ? <p>Nenhum aviso recebido ainda.</p> : messages.slice(0, 20).map((m) =>
+        <button type="button" key={m.id} className={m.read_at ? "" : "is-unread"} onClick={() => void view(m)}>
+          <strong>{m.title}</strong><span>{m.body}</span>
+        </button>)}
+    </div> : null}
+  </div>;
 }

@@ -3,26 +3,31 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), listClientTasks: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), listClientTasks: vi.fn(), listTaskNotifications: vi.fn(), markTaskNotificationRead: vi.fn() }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
 const board = vi.hoisted(() => vi.fn((props: { canManage: boolean; isAgency: boolean }) => <div data-testid="board">quadro {String(props.canManage)} {String(props.isAgency)}</div>));
 vi.mock("../studio/TaskBoard", () => ({ default: board }));
 vi.mock("../studio/ClientTasks", () => ({ default: () => <div data-testid="client">tarefas do cliente</div> }));
 
 import WorkKanban from "./WorkKanban";
-import { kanbanCache } from "./workKanban.helpers";
+import { OPEN_TASK_EVENT, kanbanCache } from "./workKanban.helpers";
 import { WorkContext, type WorkValue } from "../../app/WorkContext";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement; let root: Root;
-beforeEach(() => { host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); kanbanCache.clear(); window.localStorage.clear(); });
+beforeEach(() => {
+  host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); kanbanCache.clear(); window.localStorage.clear();
+  crm.listTaskNotifications.mockResolvedValue({ messages: [], unread: 0 });
+  crm.markTaskNotificationRead.mockResolvedValue({ ok: true });
+});
+const collapsed = (...users: string[]) => users.forEach((u) => window.localStorage.setItem(`mugo:kanban:open:${u}`, "0"));
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
 
 const TEAM: WorkValue = { route: "media", clientId: "ruah", userId: "u1", mode: "team", canManage: true, isAgency: false };
 const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
 const btn = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(label));
-async function show(value: WorkValue | null) {
-  await act(async () => { root.render(value ? <WorkContext.Provider value={value}><WorkKanban /></WorkContext.Provider> : <WorkKanban />); });
+async function show(value: WorkValue | null, place: "shell" | "home" = "shell") {
+  await act(async () => { root.render(value ? <WorkContext.Provider value={value}><WorkKanban place={place} /></WorkContext.Provider> : <WorkKanban place={place} />); });
   await act(async () => {});
 }
 
@@ -32,6 +37,7 @@ describe("Kanban integrado e recolhível", () => {
       { status: "in_progress", due_date: null }, { status: "pending", due_date: yesterday }, { status: "internal_review", due_date: null },
       { status: "completed", due_date: yesterday },
     ] });
+    collapsed("u1");
     await show(TEAM);
     expect(host.textContent).toContain("Kanban");
     expect(host.textContent).toMatch(/2\s*em andamento/);
@@ -43,6 +49,7 @@ describe("Kanban integrado e recolhível", () => {
 
   it("expandir mostra o quadro de Tarefas com as permissões do contexto e a escolha fica salva por pessoa", async () => {
     crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
+    collapsed("u1", "u2");
     await show(TEAM);
     await act(async () => { btn("Expandir")!.click(); });
     expect(host.querySelector("[data-testid=board]")?.textContent).toBe("quadro true false");
@@ -56,6 +63,7 @@ describe("Kanban integrado e recolhível", () => {
 
   it("cliente vê só as tarefas visíveis a ele (outro endpoint e outro quadro)", async () => {
     crm.listClientTasks.mockResolvedValue({ available: true, tasks: [{ status: "client_review", due_date: null }] });
+    collapsed("u1");
     await show({ ...TEAM, mode: "client", canManage: false });
     expect(crm.listCrmTasks).not.toHaveBeenCalled();
     expect(host.textContent).toMatch(/1\s*em aprovação/);
@@ -76,8 +84,49 @@ describe("Kanban integrado e recolhível", () => {
 
   it("não busca de novo a cada troca de tela (cache curto)", async () => {
     crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
+    collapsed("u1");
     await show(TEAM);
     await show({ ...TEAM, route: "calendar" });
     expect(crm.listCrmTasks).toHaveBeenCalledTimes(1);
+  });
+
+  it("primeira vez: abre expandido; sem link para a página completa", async () => {
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
+    await show(TEAM);
+    expect(host.querySelector("[data-testid=board]")).not.toBeNull();
+    expect(host.textContent).not.toContain("Ver página completa");
+  });
+
+  it("no Início aparece pela própria página", async () => {
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
+    await show({ ...TEAM, route: "home" }, "home");
+    expect(host.querySelector(".workKanban.is-home")).not.toBeNull();
+  });
+
+  it("avisos de atribuição ficam no sino: abrir marca como lido e pede a tarefa ao quadro", async () => {
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
+    crm.listTaskNotifications.mockResolvedValue({ unread: 1, messages: [
+      { id: "n1", task_id: "t9", title: "Nova tarefa para você", body: "Post BF", task_url: "", read_at: null, whatsapp_status: "sent", created_at: "" }] });
+    const opened = vi.fn();
+    window.addEventListener(OPEN_TASK_EVENT, opened);
+    collapsed("u1");
+    await show(TEAM);
+    const bell = host.querySelector<HTMLButtonElement>(".workKanbanBell")!;
+    expect(bell.getAttribute("aria-label")).toContain("1 não lido");
+    await act(async () => { bell.click(); });
+    await act(async () => { [...host.querySelectorAll(".workKanbanNoticeList button")][0].dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(crm.markTaskNotificationRead).toHaveBeenCalledWith("n1");
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ taskId: "t9" });
+    expect(host.querySelector("[data-testid=board]")).not.toBeNull();  // abre o quadro para mostrar a tarefa
+    expect(new URL(window.location.href).searchParams.get("task")).toBe("t9");
+    window.removeEventListener(OPEN_TASK_EVENT, opened);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("cliente não vê o sino de avisos da equipe", async () => {
+    crm.listClientTasks.mockResolvedValue({ available: true, tasks: [] });
+    await show({ ...TEAM, mode: "client", canManage: false });
+    expect(host.querySelector(".workKanbanBell")).toBeNull();
+    expect(crm.listTaskNotifications).not.toHaveBeenCalled();
   });
 });
