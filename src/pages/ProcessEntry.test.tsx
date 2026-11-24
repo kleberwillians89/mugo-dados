@@ -72,6 +72,14 @@ describe("nova entrada e processos", () => {
     for (const tool of ["Radar", "Benchmarking", "Planejamento", "Metas", "Matriz Tática de Conteúdo", "Calendário"]) expect(host.textContent).toContain(tool);
     expect(host.textContent).not.toMatch(/\d+ (planejamentos?|projetos?|pendências?)/i);
 
+    // Criar planejamento leva direto ao formulário (link com ?novo=1 e pedido de sessão no clique).
+    const create = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Criar planejamento"))!;
+    expect(create.getAttribute("href")).toBe("/planejamento?novo=1");
+    await act(async () => create.click());
+    expect(open).toHaveBeenCalledWith("planning");
+    expect(window.sessionStorage.getItem("mugo:projects:new")).toBe("planejamento");
+    window.sessionStorage.clear();
+
     const continuePlanning = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Continuar planejamento"))!;
     expect(continuePlanning.getAttribute("href")).toBe("/planejamento");
     await act(async () => continuePlanning.click());

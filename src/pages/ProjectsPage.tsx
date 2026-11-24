@@ -4,6 +4,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { getPathForRoute } from "../app/routes";
 import { BUDGET_LABELS, PROJECT_COLUMNS, brl, chatProject, createProject, deleteProject, generateProject, listProjects, projectToBrief,
   researchProject, updateProject, type ResearchCategory, type BudgetCategory, type ProductionPlan, type Project, type ProjectInputs, type ProjectKind, type ProjectStatus } from "../app/projects";
+import { takeNewProjectRequest } from "../app/newProjectRequest";
 import Shell from "../components/Shell";
 import EventRadar from "../components/projects/EventRadar";
 import { EventSuppliers, SupplierBook } from "../components/projects/Suppliers";
@@ -24,6 +25,7 @@ const message = (cause: unknown, fallback: string) => (cause instanceof Error &&
 const fmtDate = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "");
 type Run = <T>(key: string, fn: () => Promise<T>, fallback: string) => Promise<T | null>;
 
+
 /** Planejamento (CSO) e Evento (produção RTV e eventos), trazidos da iAgência no layout do MUGOVERSO. Só a equipe. */
 export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
   const clientId = getActiveClientId();
@@ -31,7 +33,7 @@ export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [formats, setFormats] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(() => takeNewProjectRequest(kind));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
