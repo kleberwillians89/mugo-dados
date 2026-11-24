@@ -5,7 +5,7 @@ import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorCompact, creatorNumber, deleteCreator,
   getCreatorUsage, getShortlist, listCreators, listShortlists, lookupCreator, refreshCreator, removeFromShortlist,
-  kitSummary, listMediaKits, searchCreators, suggestCreators, updateShortlistItem,
+  kitPayload, kitSummary, listMediaKits, saveMediaKit, searchCreators, suggestCreators, updateShortlistItem,
   type MediaKit, type Creator, type CreatorNetwork, type CreatorSuggestion, type CreatorUsage, type ItemStatus, type Shortlist, type ShortlistItem,
 } from "../app/creators";
 import Shell from "../components/Shell";
@@ -20,7 +20,7 @@ const MISSING_LABEL: Record<string, string> = {
 const NETWORK_OPTIONS = Object.entries(CREATOR_NETWORKS).map(([id, label]) => ({ id, label }));
 // TikTok e descoberta usam créditos Apify da Mugô: só a agência.
 const CLIENT_NETWORK_OPTIONS = NETWORK_OPTIONS.filter((o) => o.id !== "tiktok");
-const TAB_OPTIONS = [{ id: "criadores", label: "Criadores" }, { id: "kits", label: "Mídia kit e valores" }];
+const TAB_OPTIONS = [{ id: "criadores", label: "Criadores" }, { id: "kits", label: "CRM criadores" }];
 const CAMPAIGN_OPTIONS = [{ id: "influencer", label: "Influência" }, { id: "ugc", label: "UGC" }];
 type Busy = null | "lookup" | "search" | "suggest" | "other";
 type SuggestResult = { suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean };
@@ -178,7 +178,16 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
     <SegmentedControl ariaLabel="Seção" options={TAB_OPTIONS} value={tab} onSelect={(id) => setTab(id as "criadores" | "kits")} />
     {kitOpen ? <MediaKitModal key={kitOpen.id} creator={kitOpen} kit={kits[kitOpen.id]} canAct={canAct}
       onSaved={(kit) => setKits((k) => ({ ...k, [kit.creator_id]: kit }))} onClose={() => setKitOpen(null)} /> : null}
-    {tab === "kits" ? <div className="creatorWork"><MediaKits creators={creators} kits={kits} loading={kitsLoading} onOpen={setKitOpen} /></div> :
+    {tab === "kits" ? <div className="creatorWork">
+      {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
+      <MediaKits creators={creators} kits={kits} loading={kitsLoading} canAct={canAct} onOpen={setKitOpen}
+      onStatus={async (creator, status) => {
+        setError(null);
+        try {
+          const saved = await saveMediaKit(creator.id, { ...kitPayload(kits[creator.id]), status });
+          setKits((k) => ({ ...k, [creator.id]: { ...saved, creator_id: creator.id } }));
+        } catch (cause) { setError(message(cause, "Não foi possível mudar o status.")); }
+      }} /></div> :
     <div className="creatorWork">
       {canAct ? <div className="creatorPanels">
         <section className="creatorCard" aria-labelledby="creator-find">

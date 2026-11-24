@@ -91,6 +91,8 @@ class MediaKitInput(Strict):
     phone: Optional[str] = Field(default=None, max_length=40)
     contact: Optional[str] = Field(default=None, max_length=300)
     deals: list[DealInput] = Field(default_factory=list, max_length=kits.MAX_DEALS)
+    status: Optional[Literal["novo", "contatado", "negociando", "fechado", "nao_fechou"]] = None
+    status_note: Optional[str] = Field(default=None, max_length=500)
     notes: Optional[str] = Field(default=None, max_length=4000)
 
 

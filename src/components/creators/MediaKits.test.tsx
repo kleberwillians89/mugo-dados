@@ -30,12 +30,37 @@ async function show(kit?: MediaKit, canAct = true, onSaved = vi.fn()) {
 }
 
 describe("Mídia kit e valores", () => {
-  it("a lista mostra o resumo e o botão abre a modal do criador", async () => {
-    const onOpen = vi.fn();
-    await act(async () => { root.render(<MediaKits creators={[CREATOR]} kits={{ c1: KIT }} loading={false} onOpen={onOpen} />); });
-    expect(host.textContent).toContain("Fechado ✓ 01/10/2026");
+  it("CRM criadores: filtra por status, mostra valores e contatos, e troca o status", async () => {
+    const onOpen = vi.fn(); const onStatus = vi.fn(async () => undefined);
+    const other = { ...CREATOR, id: "c2", handle: "bia" } as Creator;
+    const kits = { c1: { ...KIT, prices: [{ deliverable: "1 Reels", amount: 9000 }], phone: "11 99999-0000" }, c2: { ...KIT, creator_id: "c2", deals: [], status: "nao_fechou", status_note: "Sem verba" } } as Record<string, MediaKit>;
+    await act(async () => { root.render(<MediaKits creators={[CREATOR, other]} kits={kits} loading={false} canAct onOpen={onOpen} onStatus={onStatus} />); });
+    expect(host.textContent).toContain("CRM criadores · 2");
+    expect(host.textContent).toMatch(/1 Reels: R\$\s9\.000,00/);
+    expect(host.textContent).toContain("ana@x.com");
+    expect(host.textContent).toContain("01/10/2026");
+    expect(host.textContent).toContain("Sem verba");
+    await act(async () => { btn("Não fechou · 1")!.click(); });
+    expect(host.textContent).not.toContain("@ana");
+    await act(async () => { btn("Todos · 2")!.click(); });
+    const select = host.querySelector("select[aria-label='Status de @ana']") as HTMLSelectElement;
+    expect(select.value).toBe("fechado");  // tinha fechamento
+    await act(async () => { select.value = "negociando"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(onStatus).toHaveBeenCalledWith(CREATOR, "negociando");
     await act(async () => { btn("Abrir mídia kit")!.click(); });
     expect(onOpen).toHaveBeenCalledWith(CREATOR);
+  });
+
+  it("arrastar e soltar envia o mídia kit", async () => {
+    api.uploadMediaKit.mockResolvedValue({ url: "https://x/kit.pdf", name: "kit.pdf", kind: "pdf" });
+    await show();
+    const zone = document.querySelector("[aria-label='Arraste o mídia kit aqui ou clique para escolher']") as HTMLElement;
+    const file = new File(["%PDF"], "kit.pdf", { type: "application/pdf" });
+    const drop = new Event("drop", { bubbles: true, cancelable: true }) as Event & { dataTransfer: unknown };
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [file] } });
+    await act(async () => { zone.dispatchEvent(drop); });
+    expect(api.uploadMediaKit).toHaveBeenCalledWith(file);
+    expect(document.body.textContent).toContain("kit.pdf");
   });
 
   it("salva e-mail, telefone e valores do criador", async () => {
@@ -63,6 +88,7 @@ describe("Mídia kit e valores", () => {
     const sent = api.saveMediaKit.mock.calls[0][1];
     expect(sent.deals).toHaveLength(2);
     expect(sent.deals[0]).toMatchObject({ what: "1 Reels Black Friday", amount: 1800 });
+    expect(sent.status).toBe("fechado");  // registrar fechamento já marca Fechado no CRM
     expect(sent.deals[1]).toMatchObject({ id: "d0", what: "Stories outubro" });  // histórico antigo fica
     expect(sent.email).toBe("ana@x.com");
     expect(document.body.textContent).toContain("Fechamento com @ana registrado");

@@ -75,10 +75,23 @@ export type KitPrice = { deliverable: string; amount: number | null; notes?: str
 export type KitFile = { url: string; name: string; kind?: string | null; uploaded_at?: string | null };
 /** Fechamento com o criador: fica no histórico para sempre ter a informação. */
 export type KitDeal = { id?: string; closed_at: string; what: string; amount: number | null; notes?: string | null; closed_by?: string | null };
+/** CRM de criadores (migração 000145): onde está a negociação com cada criador nesta marca. */
+export type KitStatus = "novo" | "contatado" | "negociando" | "fechado" | "nao_fechou";
+export const KIT_STATUS: Record<KitStatus, string> = { novo: "Novo", contatado: "Contatado", negociando: "Em negociação", fechado: "Fechado", nao_fechou: "Não fechou" };
+export const KIT_STATUS_COLOR: Record<KitStatus, { bg: string; fg: string }> = {
+  novo: { bg: "#eef0f3", fg: "#4b5563" }, contatado: { bg: "#e8f0fb", fg: "#1f4f8f" }, negociando: { bg: "#fdf3e1", fg: "#8a5a00" },
+  fechado: { bg: "#e5f4ea", fg: "#1d6b3a" }, nao_fechou: { bg: "#fbe9e9", fg: "#9b2c2c" },
+};
 export type MediaKit = { creator_id: string; files: KitFile[]; prices: KitPrice[]; email: string | null; phone: string | null; contact: string | null;
-  deals: KitDeal[]; notes: string | null; updated_at?: string };
+  deals: KitDeal[]; notes: string | null; status?: KitStatus; status_note?: string | null; status_at?: string | null; updated_at?: string };
+export type MediaKitPayload = Omit<MediaKit, "creator_id" | "updated_at" | "status_at">;
+/** O registro salvo como payload (para mudar só o status sem perder o resto). */
+export const kitPayload = (kit?: MediaKit): MediaKitPayload => ({ files: kit?.files || [], prices: kit?.prices || [], email: kit?.email || null,
+  phone: kit?.phone || null, contact: kit?.contact || null, deals: kit?.deals || [], notes: kit?.notes || null,
+  status: kit?.status || (kit?.deals?.length ? "fechado" : "novo"), status_note: kit?.status_note || null });
+export const kitStatus = (kit?: MediaKit): KitStatus => kit?.status || (kit?.deals?.length ? "fechado" : "novo");
 export const listMediaKits = () => http<{ kits: MediaKit[] }>(path("/media-kits"));
-export const saveMediaKit = (creatorId: string, kit: Omit<MediaKit, "creator_id" | "updated_at">) =>
+export const saveMediaKit = (creatorId: string, kit: MediaKitPayload) =>
   http<MediaKit>(path(`/${encodeURIComponent(creatorId)}/media-kit`), { method: "PUT", body: JSON.stringify(kit) });
 export const KIT_ACCEPT = "application/pdf,image/png,image/jpeg,image/webp";
 /** Envia o arquivo direto ao Storage (link assinado) e devolve o link permanente. */
@@ -93,11 +106,11 @@ export const brl = (value: number | null | undefined) =>
   value == null ? "—" : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
 
 export const kitDateBR = (iso: string) => iso.split("-").reverse().join("/");
-/** Resumo de uma linha: "Kit ✓ (1) · 3 valor(es) · a partir de R$ 800 · Fechado ✓ 24/11/2026". */
+/** Resumo de uma linha: "Fechado · Kit ✓ (1) · 3 valor(es) · a partir de R$ 800 · último fechamento 24/11/2026". */
 export function kitSummary(kit?: MediaKit): string {
-  if (!kit) return "Sem mídia kit";
+  if (!kit) return "Novo · sem mídia kit";
   const amounts = (kit.prices || []).map((p) => p.amount).filter((a): a is number => a != null);
-  return [kit.files?.length ? `Kit ✓ (${kit.files.length})` : "Sem arquivo",
+  return [KIT_STATUS[kitStatus(kit)], kit.files?.length ? `Kit ✓ (${kit.files.length})` : "Sem arquivo",
     amounts.length ? `${kit.prices.length} valor(es) · a partir de ${brl(Math.min(...amounts))}` : "",
-    kit.deals?.length ? `Fechado ✓ ${kitDateBR(kit.deals[0].closed_at)}${kit.deals.length > 1 ? ` (${kit.deals.length}x)` : ""}` : ""].filter(Boolean).join(" · ");
+    kit.deals?.length ? `último fechamento ${kitDateBR(kit.deals[0].closed_at)}${kit.deals.length > 1 ? ` (${kit.deals.length}x)` : ""}` : ""].filter(Boolean).join(" · ");
 }
