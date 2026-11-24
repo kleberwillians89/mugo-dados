@@ -98,6 +98,17 @@ async def read_audiences(client_id: str, authorization: Optional[str] = Header(d
         raise _http(exc) from None
 
 
+@router.get("/live-read")
+async def live_read(client_id: str, refresh: bool = False, authorization: Optional[str] = Header(default=None)):
+    """Leitura da IA das campanhas no ar, com os números da Meta de agora, cada uma julgada pelo próprio objetivo."""
+    from services.media_live_read import read
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await read(cid, refresh=refresh)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.get("/preflight")
 async def account_publication_preflight(client_id: str,
                                          objective: str = Query(default="leads", max_length=20),

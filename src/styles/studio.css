@@ -1947,3 +1947,22 @@
 .storyStickerSizeRow>.ds-button{flex:none;min-width:34px;padding:4px 9px}
 .storyStickerSizeRow>.studioLink{flex:none;font-size:12px}
 @media(max-width:460px){.storyStickerSizeRow{flex-wrap:wrap}.storyStickerSizeRow>.studioLink{width:100%;text-align:left}}
+
+/* Leitura da IA das campanhas no ar (Mídia On) */
+.mediaLiveRead{display:grid;gap:14px}
+.mediaLiveRead .ds-sectionHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.mediaLiveRead h2{display:flex;align-items:center;gap:8px}
+.mediaLiveReadSummary{margin:0;padding:14px 16px;border-radius:14px;background:var(--mugo-ivory,#f9f5ef);border-left:3px solid var(--mugo-deep-blue,#0c4160);font-size:15px;line-height:1.5}
+.mediaLiveReadGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.mediaLiveReadCard{display:grid;gap:8px;padding:14px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:16px;background:#fff}
+.mediaLiveReadCard header{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.mediaLiveReadCard header small{color:var(--text-secondary,#5c6670);width:100%}
+.mediaLiveReadCard dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:0}
+.mediaLiveReadCard dt{font-size:11px;color:var(--text-secondary,#5c6670)}
+.mediaLiveReadCard dd{margin:0;font-weight:600}
+.mediaLiveReadCard p{margin:0;line-height:1.45}
+.mediaLiveReadSignals{margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary,#5c6670)}
+@media (max-width:640px){.mediaLiveReadCard dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mediaVerdict{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--mugo-soft-gray,#e7eceb);color:var(--mugo-deep-blue,#0c4160)}
+.mediaVerdict.is-positive{background:#e3f2e8;color:#1f6b3a}.mediaVerdict.is-warning{background:#f8ecd2;color:#8a5a00}
+.mediaVerdict.is-negative{background:#f6dcdf;color:var(--mugo-red,#b22234)}

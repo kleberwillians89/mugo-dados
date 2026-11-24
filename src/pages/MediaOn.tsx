@@ -16,6 +16,7 @@ import KpiFigure from "../components/data/KpiFigure";
 import Delta from "../components/data/Delta";
 import SegmentedControl from "../components/data/SegmentedControl";
 import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsPanel";
+import MediaLiveRead from "../components/studio/MediaLiveRead";
 import GoogleAdsPanel, { type GooglePrepareRequest } from "../components/studio/GoogleAdsPanel";
 import MediaCampaignHub from "../components/studio/MediaCampaignHub";
 import MediaLiveCampaigns from "../components/studio/MediaLiveCampaigns";
@@ -262,6 +263,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
     </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
     {!canManage ? <MediaLiveCampaigns /> : null}
+    {canManage ? <MediaLiveRead /> : null}
     {canManage ? <MediaClientCampaigns /> : null}
     {canManageCampaigns ? <MediaCampaignHub
       briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
