@@ -177,6 +177,20 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
         {!hasPlan ? <div className="libEmpty"><p>Ainda sem plano.</p>
           <button type="button" className="ds-button is-primary" disabled={busy !== null} onClick={() => void generate()}>{busy === "gen" ? "Gerando…" : COPY[kind].generate}</button></div>
           : kind === "planejamento" ? <StrategyView project={project} /> : <ProductionView project={project} busy={busy} run={run} onChange={onChange} />}
+        {project.plan?.research ? <section className="projSection" aria-label="Pesquisa de mercado">
+          <h3>Pesquisa de mercado</h3>
+          {project.plan.research.status === "not_configured" ? <p>Busca externa ainda não configurada.</p> : null}
+          {project.plan.research.status === "unavailable" ? <p>Busca externa indisponível nesta geração.</p> : null}
+          {project.plan.research.status === "partial" ? <p>Uma parte da busca externa ficou indisponível.</p> : null}
+          {project.plan.research.status === "ok" && !project.plan.research.items.length ? <p>Nenhuma referência verificável encontrada.</p> : null}
+          {project.plan.research.items.length ? <ul>{project.plan.research.items.map((item) => (
+            <li key={item.url}>
+              <a href={item.url.startsWith("https://") ? item.url : undefined} target="_blank" rel="noreferrer">{item.title}</a>
+              <small> · Consulta em {fmtDate(item.researched_at)}</small>
+              {item.summary ? <p>{item.summary}</p> : null}
+            </li>
+          ))}</ul> : null}
+        </section> : null}
         {hasPlan ? <div className="postBriefingActions">
           <input className="briefRedo" value={redo} onChange={(e) => setRedo(e.target.value)} placeholder="Refazer pedindo… (opcional)" aria-label="Pedido para refazer" />
           <button type="button" className="ds-button" disabled={busy !== null} onClick={() => void generate()}>{busy === "gen" ? "Refazendo…" : "Refazer com IA"}</button>

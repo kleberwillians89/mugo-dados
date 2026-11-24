@@ -9,7 +9,13 @@ export const PROJECT_COLUMNS: { key: ProjectStatus; label: string }[] = [
   { key: "aprovacao_interna", label: "Aprovação interna" }, { key: "finalizado", label: "Finalizado" },
 ];
 export type ProjectInputs = { objective?: string; audience?: string; idea?: string; budget?: string; location?: string; notes?: string };
+export type ProjectResearch = {
+  status: "ok" | "partial" | "unavailable" | "not_configured";
+  items: { title: string; summary: string; url: string; researched_at: string }[];
+};
+
 export type StrategyPlan = {
+  research?: ProjectResearch;
   context?: string; challenge?: string; insight?: string; strategy?: string; big_idea?: string; messages?: string[];
   channels?: { channel: string; role: string }[]; phases?: { phase: string; when: string; what: string }[];
   kpis?: { kpi: string; target: string }[]; risks?: string[];

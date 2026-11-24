@@ -67,16 +67,26 @@ class ProjectTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_generate_moves_from_queue_and_uses_chat(self):
         chat = [{"role": "equipe", "content": "corta o buffet"}]
+        reference = {
+            "source_url": "https://example.com/case",
+            "reason_relevant": "Case público de ativação",
+            "public_signal": "Formato da ativação",
+            "researched_at": "2026-11-23T00:00:00Z",
+        }
         with patch.object(pj, "get_project", AsyncMock(return_value={**PROJECT, "chat": chat})), \
              patch("services.studio_engines.throttle"), \
              patch.object(pj, "load_profile", AsyncMock(return_value={"profile": {}})), \
              patch("services.studio_intelligence.build_content_intelligence", AsyncMock(return_value={})), \
              patch("services.studio_intelligence.to_prompt", return_value="{}"), \
+             patch("services.external_research.find_market_signals", AsyncMock(return_value={"status": "ok", "items": [reference]})), \
+             patch("services.external_research.find_content_references", AsyncMock(return_value={"status": "ok", "items": [reference, {**reference, "source_url": "javascript:alert(1)"}]})), \
              patch("services.studio_llm.llm_json", AsyncMock(return_value=EVENT_AI)) as llm, \
              patch.object(pj, "sb_update", AsyncMock(side_effect=lambda t, filters, patch: [{**PROJECT, **patch}])):
             out = await pj.generate_plan("ruah", "p1", use_chat=True)
         self.assertEqual(out["status"], "em_andamento")
         self.assertIn("corta o buffet", llm.await_args.kwargs["prompt"])
+        self.assertIn(reference["source_url"], llm.await_args.kwargs["prompt"])
+        self.assertEqual([item["url"] for item in out["plan"]["research"]["items"]], [reference["source_url"]])
 
     async def test_brief_needs_a_plan(self):
         with patch.object(pj, "get_project", AsyncMock(return_value=PROJECT)):
