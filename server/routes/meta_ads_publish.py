@@ -256,12 +256,13 @@ async def update_draft(client_id: str, draft_id: UUID, body: DraftInput, authori
 
 @router.post("/{draft_id}/duplicate", status_code=201)
 async def duplicate_ad_draft(client_id: str, draft_id: UUID, into: Optional[str] = None,
+                             adset_id: Optional[str] = Query(default=None, pattern=r"^\d{5,30}$"),
                              authorization: Optional[str] = Header(default=None)):
     """into=campaign: novo anúncio dentro da mesma campanha (mesma verba). Sem 'into': campanha nova."""
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
     uid = await require_user_id(authorization)
     try:
-        return {"draft": await pub.duplicate_draft(cid, str(draft_id), uid, into_campaign=into == "campaign")}
+        return {"draft": await pub.duplicate_draft(cid, str(draft_id), uid, into_campaign=into == "campaign", adset_id=adset_id)}
     except StudioError as exc:
         raise _http(exc) from None
 

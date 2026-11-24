@@ -375,20 +375,35 @@ async def save_draft(client_id: str, draft_id: str, data: Dict[str, Any]) -> Dic
     return _view(rows[0] if rows else {**row, "payload": payload})
 
 
-async def duplicate_draft(client_id: str, draft_id: str, user_id: str, *, into_campaign: bool = False) -> Dict[str, Any]:
+async def duplicate_draft(client_id: str, draft_id: str, user_id: str, *, into_campaign: bool = False,
+                          adset_id: Optional[str] = None) -> Dict[str, Any]:
     """Cópia para testar.
     - padrão: campanha NOVA (verba própria). IDs da Meta, status e erros não passam para a cópia.
-    - into_campaign: só um anúncio novo dentro do MESMO conjunto da campanha já criada — mesma verba, mesmo público."""
+    - into_campaign: inicia criativos novos em um conjunto da campanha existente."""
     original = await _draft(client_id, draft_id)
     new_payload = clean_payload(original.get("payload") or {})
     meta_ids: Dict[str, Any] = {}
     if into_campaign:
         ids = original.get("meta_ids") or {}
-        if original.get("status") != "publicada" or not ids.get("adset_id"):
+        target = str(adset_id or ids.get("adset_id") or "")
+        if original.get("status") != "publicada" or not ids.get("campaign_id") or not target:
             raise StudioError("AD_NOT_PUBLISHED_YET",
                               "Crie a campanha no Meta antes. Enquanto é rascunho, use o formato Vários anúncios.")
-        meta_ids = {"ad_account_id": ids.get("ad_account_id"), "campaign_id": ids["campaign_id"], "adset_id": ids["adset_id"],
+        account_id = ids.get("ad_account_id")
+        if adset_id:
+            if not re.fullmatch(r"\d{5,30}", target):
+                raise StudioError("AD_NOT_READY", "Conjunto Meta inválido.")
+            _, account, _ = await _campaign_editor_context(client_id, draft_id)
+            remote = await _graph("GET", f"/{target}", token=account["token"], params={"fields": "id,campaign_id,account_id"})
+            if (str(remote.get("id") or "") != target
+                    or str(remote.get("campaign_id") or "") != str(ids["campaign_id"])
+                    or str(remote.get("account_id") or "").removeprefix("act_") != account["act"].removeprefix("act_")):
+                raise StudioError("AD_ACCOUNT_CHANGED", "Esse conjunto não pertence à campanha selecionada.")
+            account_id = account["act"]
+        meta_ids = {"ad_account_id": account_id, "campaign_id": ids["campaign_id"], "adset_id": target,
                     "joined": True, "joined_from": str(original["id"])}
+        new_payload["ad"].update(format="single", media_type="image", image_url="", video_url="",
+                                 video_id=None, instagram_post_id=None, calendar_item_id=None, cards=[], extra_ads=[])
         name = _text(new_payload["name"] + " · novo anúncio", LIMITS["name"])
     else:
         name = _text(new_payload["name"] + " · cópia", LIMITS["name"])

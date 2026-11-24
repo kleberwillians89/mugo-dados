@@ -9,12 +9,12 @@ import type { CalendarItem } from "../../app/studio";
 import Drawer from "../Drawer";
 import MetaCreativeStudio from "./MetaCreativeStudio";
 
-type Props = { draft: AdDraft; month: string; calendar: CalendarItem[]; onUpdated: (draft: AdDraft) => void };
+type Props = { draft: AdDraft; month: string; calendar: CalendarItem[]; onUpdated: (draft: AdDraft) => void; onAddCreatives: (adsetId?: string) => Promise<void>; addingCreatives: boolean };
 
 const currency = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const message = (cause: unknown) => cause instanceof Error ? cause.message : "Não foi possível salvar na Meta.";
 
-export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Props) {
+export default function MetaLiveEditor({ draft, month, calendar, onUpdated, onAddCreatives, addingCreatives }: Props) {
   const clientId = getActiveClientId();
   const [open, setOpen] = useState(false);
   const [budget, setBudget] = useState(draft.payload.daily_budget);
@@ -49,7 +49,7 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
       const result = await readLiveMetaStructure(draft.id);
       if (getActiveClientId() === clientId) setStructure(result);
     } catch (cause) {
-      if (getActiveClientId() === clientId) { setStructure(null); setError(message(cause)); }
+      if (getActiveClientId() === clientId) setError(message(cause));
     } finally { setStructureBusy(false); }
   }
 
@@ -155,8 +155,19 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
     finally { setBusy(null); }
   }
 
+  async function addCreatives(adsetId?: string) {
+    if (addingCreatives) return;
+    setError("");
+    try {
+      await onAddCreatives(adsetId);
+      if (getActiveClientId() === clientId) setOpen(false);
+    } catch (cause) {
+      if (getActiveClientId() === clientId) setError(message(cause));
+    }
+  }
+
   return <>
-    <button className="ds-button" type="button" onClick={() => { setOpen(true); setCodes([]); setCodesMessage(""); void loadStructure(); }}>
+    <button className="ds-button" type="button" onClick={() => { setOpen(true); setCodes([]); setCodesMessage(""); setError(""); }}>
       Editar no Mugô Verso
     </button>
     <Drawer open={open} width="lg" title={`Editar na Meta · ${draft.payload.name}`}
@@ -165,6 +176,12 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
       <div className="metaAdsForm">
         {error ? <p role="alert" className="studioError">{error}</p> : null}
         {notice ? <p role="status" className="ds-noticeText">{notice}</p> : null}
+
+        <h3>Adicionar criativos à campanha</h3>
+        <p className="ds-caption">Carregue vários vídeos ou imagens para montar novos anúncios pausados no mesmo conjunto.</p>
+        {ids.adset_id ? <button type="button" className="ds-button is-primary" disabled={addingCreatives}
+          onClick={() => void addCreatives()}>{addingCreatives ? "Abrindo criativos…" : "Adicionar criativos ao conjunto vinculado"}</button>
+          : <p className="ds-caption">Consulte a estrutura da Meta e escolha o conjunto que vai receber os criativos.</p>}
 
         <h3>Conjuntos de anúncios e anúncios</h3>
         <p className="ds-caption">Estrutura consultada na Meta desta empresa. Você pode ativar ou pausar cada item individualmente; ativar um item não altera automaticamente o status dos demais níveis.</p>
@@ -176,6 +193,8 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
           <h4>Conjuntos ({structure.adsets.length})</h4>
           {structure.adsets.map((item) => <div key={item.id} className="ds-noticeText" style={{ padding: 10, borderBottom: "1px solid #e3e6eb" }}>
             <strong>{item.name || item.id}</strong> · {item.effective_status || item.status}
+            <button type="button" className="ds-button" disabled={addingCreatives || structureBusy}
+              onClick={() => void addCreatives(item.id)}>Adicionar criativos neste conjunto</button>
             {item.daily_budget ? ` · Verba R$ ${(Number(item.daily_budget) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/dia` : ""}
             {item.daily_budget && Number(item.daily_budget) > 0 ? <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", marginTop: 8 }}>
               <label className="ds-field">Verba diária deste conjunto (R$)
