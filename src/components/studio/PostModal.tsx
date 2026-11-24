@@ -2,7 +2,7 @@ import { CalendarDays, ShoppingBag, TrendingUp, TriangleAlert, Zap } from "lucid
 import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
 import PostReview from "./PostReview";
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent } from "react";
 import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, cleanDirection, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
 import { PLATFORM_FORMATS } from "../../app/contentOps";
 import type { PostDraft } from "../../app/studioCalendar";
@@ -99,6 +99,12 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
   const storyQuestion = storyLines[0] || (reelsOpts.story_sticker === "poll" ? "Sua pergunta aqui" : "Interação do Story");
   const storyOptions = storyLines.slice(1, 5);
   const stickerPosition = reelsOpts.story_sticker_position || { x: 50, y: 50 };
+  const stickerScale = Math.max(60, Math.min(140, reelsOpts.story_sticker_scale ?? 100));
+  const stickerScaleFactor = stickerScale / 100;
+  const setStickerScale = (scale: number) => setDraft((current) => ({
+    ...current,
+    reels_options: { ...(current.reels_options || {}), story_sticker_scale: Math.max(60, Math.min(140, Math.round(scale))) },
+  }));
   const placeSticker = (x: number, y: number) => {
     setDraft((current) => ({
       ...current,
@@ -115,8 +121,9 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
     if (!frame) return;
     const rect = frame.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
-    const halfWidth = card.offsetWidth / 2;
-    const halfHeight = card.offsetHeight / 2;
+    const scale = Math.max(0.6, Math.min(1.4, Number(card.dataset.scale || 1)));
+    const halfWidth = card.offsetWidth * scale / 2;
+    const halfHeight = card.offsetHeight * scale / 2;
     const x = Math.min(rect.width - halfWidth, Math.max(halfWidth, e.clientX - rect.left));
     const y = Math.min(rect.height - halfHeight, Math.max(halfHeight, e.clientY - rect.top));
     placeSticker((x / rect.width) * 100, (y / rect.height) * 100);
@@ -202,7 +209,8 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           {interactiveStory ? <div className="storyStickerPreview" aria-label="Posição da prévia do sticker">
             <div className="storyStickerCard" role="button" tabIndex={canManage && !clientMode && !busy ? 0 : -1}
               aria-label="Mover sticker da prévia; arraste ou use as setas do teclado"
-              style={{ left: `${stickerPosition.x}%`, top: `${stickerPosition.y}%` }}
+              data-scale={stickerScaleFactor}
+              style={{ left: `${stickerPosition.x}%`, top: `${stickerPosition.y}%`, "--story-sticker-scale": stickerScaleFactor } as CSSProperties}
               onPointerDown={(e) => {
                 if (!canManage || clientMode || busy) return;
                 stickerPointer.current = e.pointerId;
@@ -302,6 +310,20 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
               <small>Arraste a caixa sobre a arte para posicionar. Também é possível usar as setas do teclado.</small>
               <button type="button" className="studioLink" disabled={!canManage || clientMode || busy}
                 onClick={() => placeSticker(50, 50)}>Centralizar caixa</button>
+            </div>
+            <div className="storyStickerSize" role="group" aria-label="Tamanho da caixa do Story">
+              <label htmlFor="story-sticker-size">Tamanho da caixa <b>{stickerScale}%</b></label>
+              <div className="storyStickerSizeRow">
+                <button type="button" className="ds-button" aria-label="Diminuir caixa" disabled={!canManage || clientMode || busy || stickerScale <= 60}
+                  onClick={() => setStickerScale(stickerScale - 10)}>−</button>
+                <input id="story-sticker-size" type="range" min={60} max={140} step={5} value={stickerScale}
+                  disabled={!canManage || clientMode || busy} onChange={(e) => setStickerScale(Number(e.target.value))}
+                  aria-valuetext={`${stickerScale}%`} />
+                <button type="button" className="ds-button" aria-label="Aumentar caixa" disabled={!canManage || clientMode || busy || stickerScale >= 140}
+                  onClick={() => setStickerScale(stickerScale + 10)}>+</button>
+                <button type="button" className="studioLink" disabled={!canManage || clientMode || busy || stickerScale === 100}
+                  onClick={() => setStickerScale(100)}>Tamanho original</button>
+              </div>
             </div>
             <p className="postArtWarn" role="status">Este Story precisa ser finalizado no aplicativo do Instagram. O Mugô Verso guarda a arte, o horário e as instruções, mas <b>não publicará automaticamente sem o sticker</b>. Na data agendada ficará pendente de publicação manual.</p>
           </> : <small className="postArtHint">A imagem ou vídeo será publicado automaticamente, sem stickers interativos.</small>}
