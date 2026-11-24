@@ -7,6 +7,8 @@ import { BUDGET_LABELS, PROJECT_COLUMNS, brl, chatProject, createProject, delete
   researchProject, updateProject, type ResearchCategory, type BudgetCategory, type ProductionPlan, type Project, type ProjectInputs, type ProjectKind, type ProjectStatus } from "../app/projects";
 import { takeGoalsSectionRequest, takeNewProjectRequest } from "../app/newProjectRequest";
 import GoalsPanel from "../components/goals/GoalsPanel";
+import EditableStrategy from "../components/projects/EditableStrategy";
+import ProjectVersions from "../components/projects/ProjectVersions";
 import Shell from "../components/Shell";
 import EventRadar from "../components/projects/EventRadar";
 import { EventSuppliers, SupplierBook } from "../components/projects/Suppliers";
@@ -134,14 +136,31 @@ export default function ProjectsPage({ kind, goals = null, tools = [], onOpen }:
 
 function NewProject({ kind, formats, busy, run, onCancel, onCreated }: { kind: ProjectKind; formats: string[]; busy: string | null; run: Run;
   onCancel: () => void; onCreated: (p: Project) => void }) {
-  const [title, setTitle] = useState("");
-  const [format, setFormat] = useState("");
-  const [date, setDate] = useState("");
-  const [inputs, setInputs] = useState<ProjectInputs>({});
+  // Rascunho do formulário guardado neste navegador enquanto não é criado (sair da tela não perde o que foi digitado).
+  const draftKey = `mugo:project-draft:${getActiveClientId() || ""}:${kind}`;
+  const [initial] = useState(() => { try { return JSON.parse(window.localStorage.getItem(draftKey) || "null") as
+    { title?: string; format?: string; date?: string; inputs?: ProjectInputs } | null; } catch { return null; } });
+  const [title, setTitle] = useState(initial?.title || "");
+  const [format, setFormat] = useState(initial?.format || "");
+  const [date, setDate] = useState(initial?.date || "");
+  const [inputs, setInputs] = useState<ProjectInputs>(initial?.inputs || {});
+  const [draftSaved, setDraftSaved] = useState(Boolean(initial));
+  useEffect(() => {
+    const empty = !title.trim() && !format && !date && !Object.values(inputs).some((v) => String(v || "").trim());
+    const timer = window.setTimeout(() => {
+      try {
+        if (empty) window.localStorage.removeItem(draftKey);
+        else window.localStorage.setItem(draftKey, JSON.stringify({ title, format, date, inputs }));
+        setDraftSaved(!empty);
+      } catch { /* sem storage: segue sem rascunho */ }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [draftKey, title, format, date, inputs]);
   const set = (k: keyof ProjectInputs) => (e: { target: { value: string } }) => setInputs({ ...inputs, [k]: e.target.value });
   async function submit(generate: boolean) {
     const r = await run("create", () => createProject(kind, { title: title.trim(), format: format || undefined, target_date: date || undefined, inputs }), "Não foi possível criar.");
     if (!r) return;
+    try { window.localStorage.removeItem(draftKey); } catch { /* sem storage */ }
     if (!generate) { onCreated(r.project); return; }
     const g = await run("gen", () => generateProject(kind, r.project.id), "Criado, mas a IA não conseguiu gerar o plano agora.");
     onCreated(g ? g.project : r.project);
@@ -166,6 +185,7 @@ function NewProject({ kind, formats, busy, run, onCancel, onCreated }: { kind: P
         {busy === "create" || busy === "gen" ? "Gerando com IA…" : COPY[kind].generate}</button>
       <button type="button" className="ds-button" disabled={busy !== null || !title.trim()} onClick={() => void submit(false)}>Só criar o card</button>
       <button type="button" className="ds-button" onClick={onCancel}>Cancelar</button>
+      {draftSaved ? <small className="projSaveState is-saved" role="status">Rascunho salvo neste navegador</small> : null}
     </div>
   </section>;
 }
@@ -179,6 +199,9 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
   const i = project.inputs || {};
 
   async function generate(useChat = false) {
+    // Plano aprovado (ou em aprovação) não é substituído em silêncio: a versão atual fica guardada e a IA cria a próxima.
+    if (hasPlan && (project.status === "finalizado" || project.status === "aprovacao_interna")
+      && !window.confirm("Este plano já foi aprovado ou está em aprovação. Refazer com IA cria uma versão nova; a atual fica guardada no histórico. Continuar?")) return;
     const r = await run("gen", () => generateProject(kind, project.id, { use_chat: useChat, instruction: redo.trim() || undefined }), "A IA não conseguiu gerar agora. Tente de novo.");
     if (r) { onChange(r.project); setRedo(""); }
   }
@@ -196,6 +219,9 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
         <select value={project.status} aria-label="Etapa" disabled={busy !== null}
           onChange={async (e) => { const r = await run("status", () => updateProject(kind, project.id, { status: e.target.value as ProjectStatus }), "Não foi possível mover."); if (r) onChange(r.project); }}>
           {PROJECT_COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
+        {hasPlan ? <ProjectVersions kind={kind} project={project} onRestored={onChange} disabled={busy !== null}
+          renderPlan={(plan) => kind === "planejamento" ? <StrategyView project={{ ...project, plan }} />
+            : <ProductionView project={{ ...project, plan }} busy="versão" run={run} onChange={() => undefined} />} /> : null}
         {hasPlan ? <button type="button" className="ds-button" onClick={() => window.print()}>Imprimir</button> : null}
         <button type="button" className="ds-button" onClick={onClose}>Fechar</button>
       </div>
@@ -217,7 +243,7 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
       <div className="projPlan">
         {!hasPlan ? <div className="libEmpty"><p>Ainda sem plano.</p>
           <button type="button" className="ds-button is-primary" disabled={busy !== null} onClick={() => void generate()}>{busy === "gen" ? "Gerando…" : COPY[kind].generate}</button></div>
-          : kind === "planejamento" ? <StrategyView project={project} /> : <ProductionView project={project} busy={busy} run={run} onChange={onChange} />}
+          : kind === "planejamento" ? <EditableStrategy project={project} onSaved={onChange} disabled={busy === "gen"} /> : <ProductionView project={project} busy={busy} run={run} onChange={onChange} />}
         {hasPlan ? <div className="postBriefingActions">
           <input className="briefRedo" value={redo} onChange={(e) => setRedo(e.target.value)} placeholder="Refazer pedindo… (opcional)" aria-label="Pedido para refazer" />
           <button type="button" className="ds-button" disabled={busy !== null} onClick={() => void generate()}>{busy === "gen" ? "Refazendo…" : "Refazer com IA"}</button>

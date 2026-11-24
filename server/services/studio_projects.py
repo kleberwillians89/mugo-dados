@@ -216,13 +216,18 @@ async def create_project(client_id: str, kind: str, data: Dict[str, Any], *, use
     return created
 
 
-async def update_project(client_id: str, project_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+async def update_project(client_id: str, project_id: str, data: Dict[str, Any], *, user_id: Optional[str] = None,
+                         user_name: Optional[str] = None) -> Dict[str, Any]:
     _forget(client_id)  # o pacote da IA relê na próxima geração
     current = await get_project(client_id, project_id)
     patch = _clean_fields(data, current["kind"])
     patch["updated_at"] = _now()
     rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{project_id}"}, patch=patch)
-    return rows[0] if rows else {**current, **patch}
+    updated = rows[0] if rows else {**current, **patch}
+    # Aprovado (Finalizado): grava a versão aprovada, que nenhuma regeneração apaga.
+    if patch.get("status") == "finalizado" and current.get("status") != "finalizado":
+        await _record(client_id, updated, origin="aprovada", user_id=user_id, user_name=user_name, force=True)
+    return updated
 
 
 async def delete_project(client_id: str, project_id: str) -> None:
@@ -321,7 +326,49 @@ async def update_research(client_id: str, project_id: str, kind: str, *,
     return rows[0]
 
 
-async def generate_plan(client_id: str, project_id: str, *, use_chat: bool = False, instruction: Optional[str] = None) -> Dict[str, Any]:
+async def _keep_current(client_id: str, project: Dict[str, Any], *, user_id: Optional[str], user_name: Optional[str]) -> None:
+    """Guarda o plano atual como versão antes de qualquer substituição. Sem conseguir guardar, não deixa substituir."""
+    from .studio_project_versions import VersionsUnavailable, has_plan, latest, snapshot
+    if not has_plan(project):
+        return
+    try:
+        origin = "edicao" if await latest(str(project["id"])) else "ia"  # plano anterior ao histórico: veio da IA
+        await snapshot(client_id, project, origin=origin, user_id=user_id, user_name=user_name)
+    except VersionsUnavailable:
+        raise StudioError("PROJECT_VERSIONS_UNAVAILABLE",
+                          "Não foi possível guardar a versão atual do plano, por isso ele não foi substituído. Tente de novo em instantes.") from None
+
+
+async def _record(client_id: str, project: Dict[str, Any], *, origin: str, user_id: Optional[str], user_name: Optional[str],
+                  note: Optional[str] = None, force: bool = False) -> None:
+    from .studio_project_versions import VersionsUnavailable, snapshot
+    try:
+        await snapshot(client_id, project, origin=origin, user_id=user_id, user_name=user_name, note=note, force=force)
+    except VersionsUnavailable:
+        print(f"[studio][projects] version_failed client_id={client_id} origin={origin}")
+
+
+async def restore_version(client_id: str, project_id: str, version: int, *, user_id: Optional[str], user_name: Optional[str]) -> Dict[str, Any]:
+    """Volta o conteúdo de uma versão antiga como versão nova (a atual fica guardada antes)."""
+    from .studio_project_versions import VersionsUnavailable, get_version
+    project = await get_project(client_id, project_id)
+    try:
+        old = await get_version(client_id, project_id, version)
+    except VersionsUnavailable:
+        raise StudioError("PROJECT_VERSIONS_UNAVAILABLE", "O histórico de versões não está disponível agora.") from None
+    if not old:
+        raise StudioError("PROJECT_VERSION_NOT_FOUND", "Versão não encontrada.")
+    await _keep_current(client_id, project, user_id=user_id, user_name=user_name)
+    _forget(client_id)
+    patch = {"plan": old["plan"], "inputs": old["inputs"] or project.get("inputs") or {}, "updated_at": _now()}
+    rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{project_id}"}, patch=patch)
+    updated = rows[0] if rows else {**project, **patch}
+    await _record(client_id, updated, origin="restaurada", user_id=user_id, user_name=user_name, note=f"Conteúdo da versão {version}", force=True)
+    return updated
+
+
+async def generate_plan(client_id: str, project_id: str, *, use_chat: bool = False, instruction: Optional[str] = None,
+                        user_id: Optional[str] = None, user_name: Optional[str] = None) -> Dict[str, Any]:
     _forget(client_id)  # o pacote da IA relê na próxima geração
     from .studio_engines import throttle
     from .studio_intelligence import build_content_intelligence, to_prompt
@@ -333,6 +380,8 @@ async def generate_plan(client_id: str, project_id: str, *, use_chat: bool = Fal
     if kind == "evento" and not (i.get("idea") or project.get("title")):
         raise StudioError("PROJECT_INPUT_REQUIRED", "Descreva a produção ou o evento.")
     throttle(client_id)
+    # Refazer nunca apaga: o plano atual (gerado ou editado à mão) vira versão antes da IA começar.
+    await _keep_current(client_id, project, user_id=user_id, user_name=user_name)
     profile = (await load_profile(client_id))["profile"]
     intel = await build_content_intelligence(client_id)
     today = datetime.now(SAO_PAULO).date().isoformat()
@@ -398,7 +447,10 @@ async def generate_plan(client_id: str, project_id: str, *, use_chat: bool = Fal
     if project["status"] == "fila":
         patch["status"] = "em_andamento"
     rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{project_id}"}, patch=patch)
-    return rows[0] if rows else {**project, **patch}
+    updated = rows[0] if rows else {**project, **patch}
+    await _record(client_id, updated, origin="ia", user_id=user_id, user_name=user_name,
+                  note=(instruction or "").strip()[:600] or ("Com o que foi combinado no copiloto" if use_chat else None), force=True)
+    return updated
 
 
 async def chat(client_id: str, project_id: str, message: str, *, author: str) -> Dict[str, Any]:

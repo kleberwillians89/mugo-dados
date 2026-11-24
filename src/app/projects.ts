@@ -114,3 +114,18 @@ export function unlinkEventSupplier(projectId: string, linkId: string) {
 export function eventSuppliersToBudget(projectId: string) {
   return http<{ project: Project }>(one("evento", projectId, "/suppliers/budget"), { method: "POST" });
 }
+
+/** Versões do plano: refazer com IA, aprovar e restaurar criam versão nova; a anterior fica inteira. */
+export type VersionOrigin = "ia" | "edicao" | "aprovada" | "restaurada";
+export type ProjectVersionSummary = { version: number; origin: VersionOrigin; origin_label: string; title: string | null; status: ProjectStatus | null;
+  note: string | null; author: string; created_at: string };
+export type ProjectVersion = ProjectVersionSummary & { inputs: ProjectInputs; plan: Project["plan"] };
+export function listProjectVersions(kind: ProjectKind, id: string) {
+  return http<{ versions: ProjectVersionSummary[]; available: boolean }>(`${one(kind, id)}/versions`);
+}
+export function getProjectVersion(kind: ProjectKind, id: string, version: number) {
+  return http<{ version: ProjectVersion }>(`${one(kind, id)}/versions/${version}`);
+}
+export function restoreProjectVersion(kind: ProjectKind, id: string, version: number) {
+  return http<{ project: Project }>(`${one(kind, id)}/versions/${version}/restore`, { method: "POST" });
+}
