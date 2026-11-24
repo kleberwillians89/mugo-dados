@@ -2310,6 +2310,8 @@ ERRORS.update({
     "PROJECT_INPUT_REQUIRED": (422, "Preencha o pedido antes de gerar."),
     "PROJECT_TOO_LARGE": (413, "O plano ficou grande demais."),
     "PROJECT_SAVE_FAILED": (503, "Não foi possível salvar."),
+    "PROJECT_VERSIONS_UNAVAILABLE": (503, "Não foi possível guardar a versão atual do plano, por isso ele não foi substituído."),
+    "PROJECT_VERSION_NOT_FOUND": (404, "Versão não encontrada."),
 })
 
 
@@ -2481,8 +2483,10 @@ async def edit_project(client_id: str, kind: ProjectKind, project_id: UUID, body
     from services.studio_projects import update_project
     cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
     await _brief_team_only(authorization, cid)
+    uid = await require_user_id(authorization)
     try:
-        return {"project": await update_project(cid, str(project_id), body.model_dump(mode="json", exclude_unset=True))}
+        return {"project": await update_project(cid, str(project_id), body.model_dump(mode="json", exclude_unset=True),
+                                                user_id=uid, user_name=_chat_author(authorization, uid) or None)}
     except StudioError as exc:
         raise _known(exc) from None
 
@@ -2506,9 +2510,54 @@ async def generate_project(client_id: str, kind: ProjectKind, project_id: UUID, 
     from services.studio_projects import generate_plan
     cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
     await _brief_team_only(authorization, cid)
+    uid = await require_user_id(authorization)
     try:
         return {"project": await generate_plan(cid, str(project_id), use_chat=bool(body and body.use_chat),
-                                               instruction=body.instruction if body else None)}
+                                               instruction=body.instruction if body else None,
+                                               user_id=uid, user_name=_chat_author(authorization, uid) or None)}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.get("/projects/{kind}/{project_id}/versions")
+async def project_versions(client_id: str, kind: ProjectKind, project_id: UUID, authorization: str | None = Header(default=None)):
+    """Histórico de versões do plano (número, data, autor e origem)."""
+    from services.studio_project_versions import VersionsUnavailable, list_versions
+    from services.studio_projects import get_project
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        await get_project(cid, str(project_id))
+        return {"versions": await list_versions(cid, str(project_id)), "available": True}
+    except VersionsUnavailable:
+        return {"versions": [], "available": False}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.get("/projects/{kind}/{project_id}/versions/{version}")
+async def project_version(client_id: str, kind: ProjectKind, project_id: UUID, version: int, authorization: str | None = Header(default=None)):
+    from services.studio_project_versions import VersionsUnavailable, get_version
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        found = await get_version(cid, str(project_id), version)
+    except VersionsUnavailable:
+        raise HTTPException(503, "O histórico de versões não está disponível agora.") from None
+    if not found:
+        raise HTTPException(404, "Versão não encontrada.")
+    return {"version": found}
+
+
+@router.post("/projects/{kind}/{project_id}/versions/{version}/restore")
+async def project_version_restore(client_id: str, kind: ProjectKind, project_id: UUID, version: int, authorization: str | None = Header(default=None)):
+    """Volta o conteúdo de uma versão como versão nova; a atual fica guardada."""
+    from services.studio_projects import restore_version
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    uid = await require_user_id(authorization)
+    try:
+        return {"project": await restore_version(cid, str(project_id), version, user_id=uid, user_name=_chat_author(authorization, uid) or None)}
     except StudioError as exc:
         raise _known(exc) from None
 
