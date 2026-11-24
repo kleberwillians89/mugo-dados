@@ -178,8 +178,8 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
         const empty = !ad.video_url && !ad.image_url;
         if (empty) {
           const [first, ...extra] = created;
-          onChoose({ format: "single", media_type: first.media_type, image_url: first.image_url,
-            video_url: first.video_url, cards: [], instagram_post_id: null, calendar_item_id: null });
+          onChoose({ media_type: first.media_type, image_url: first.image_url,
+            video_url: first.video_url, instagram_post_id: null, calendar_item_id: null });
           if (extra.length) onAddCreatives?.(extra);
         } else {
           onAddCreatives?.(created);
