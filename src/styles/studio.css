@@ -1904,3 +1904,32 @@
 .storyStickerCard strong{overflow-wrap:anywhere;font-size:14px}
 .storyStickerOption{background:#ededf0;border-radius:9px;padding:7px 9px;overflow-wrap:anywhere;color:#202020;font-size:12px}
 .storyStickerPreview>small{max-width:95%;padding:4px 9px;border-radius:8px;background:#0009;color:#fff;font-size:10px}
+
+.projResearchNav{margin:16px 0 20px}
+.projResearch{display:grid;gap:16px;min-width:0}
+.projResearchIntro{display:flex;align-items:center;gap:14px;padding:22px;border-radius:16px;background:#eaf2f4;color:#153d4d}
+.projResearchIntro h3,.projResearchIntro p{margin:0}
+.projResearchIntro p{margin-top:4px;font-size:14px}
+.projResearchForm{display:grid;gap:12px;border:1px solid var(--border,#dedbd4);border-radius:14px;padding:16px}
+.projResearchFields{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:10px;align-items:end}
+.projResearch .projInline input{max-width:none;width:100%;min-width:0}
+.projResearchOptions,.projResearchFilters,.projResearchCategories,.projResearchStatus,.projResearchSource{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.projResearchOptions{justify-content:space-between}
+.projResearchQueries{display:grid;gap:10px}
+.projResearchFilters{align-items:end}
+.projResearchFilters .ds-button[aria-pressed=true]{background:#18475a;border-color:#18475a;color:white}
+.projResearchStatus{font-size:13px}
+.projResearchStatus small{background:#f1f4f5;border-radius:6px;padding:5px 8px}
+.projResearchCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px}
+.projResearchCard{display:flex;flex-direction:column;gap:10px;min-width:0;padding:16px;border:1px solid var(--border,#dedbd4);border-radius:14px;background:white;overflow-wrap:anywhere}
+.projResearchCard[data-selected=true]{border-color:#317387}
+.projResearchCard header{display:flex;align-items:center;gap:9px;font-weight:650}
+.projResearchIcon{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;background:#e9f1f5;color:#18475a}
+.projResearchCard[data-category=suppliers] .projResearchIcon{background:#faf0d9;color:#6b4812}
+.projResearchCard[data-category=market] .projResearchIcon{background:#edf1e6;color:#425226}
+.projResearchCard h4,.projResearchCard p{margin:0}
+.projResearchCard p,.projResearchSource{font-size:13px}
+.projResearchSource{margin-top:auto;padding-top:6px}
+.projResearchSource a{display:inline-flex;align-items:center;gap:4px;text-decoration:underline}
+.projResearchEmpty{border:1px dashed var(--border,#dedbd4);border-radius:12px;padding:24px;text-align:center}
+@media(max-width:620px){.projResearchFields{grid-template-columns:1fr}.projResearchFields>.ds-button{justify-self:start}}

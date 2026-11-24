@@ -1,3 +1,4 @@
+import { ArrowUpRight, BookmarkCheck, Building2, Compass, Search, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { getPathForRoute } from "../app/routes";
@@ -138,6 +139,7 @@ function NewProject({ kind, formats, busy, run, onCancel, onCreated }: { kind: P
 
 function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted, onClose }: { kind: ProjectKind; project: Project; formats: string[];
   busy: string | null; run: Run; onChange: (p: Project) => void; onDeleted: () => void; onClose: () => void }) {
+  const [section, setSection] = useState<"plan" | "research">("plan");
   const [redo, setRedo] = useState("");
   const [briefId, setBriefId] = useState<string | null>(project.brief_id || null);
   const hasPlan = Boolean(project.plan && Object.keys(project.plan).length);
@@ -165,6 +167,12 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
         <button type="button" className="ds-button" onClick={onClose}>Fechar</button>
       </div>
     </header>
+    <div className="studioTabs projResearchNav" role="group" aria-label="Seções do projeto">
+      <button type="button" aria-pressed={section === "plan"} className={section === "plan" ? "is-active" : ""} onClick={() => setSection("plan")}>Plano</button>
+      <button type="button" aria-pressed={section === "research"} className={section === "research" ? "is-active" : ""} onClick={() => setSection("research")}>Pesquisa</button>
+    </div>
+    <div hidden={section !== "research"}><ResearchPanel project={project} busy={busy} run={run} onChange={onChange} /></div>
+    <div hidden={section !== "plan"}>
     {kind === "evento" && !project.format ? <label className="projInline">Formato<select value="" onChange={async (e) => { const r = await run("fmt", () => updateProject(kind, project.id, { format: e.target.value }), "Não foi possível salvar."); if (r) onChange(r.project); }}>
       <option value="">Escolha…</option>{formats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label> : null}
 
@@ -172,7 +180,6 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
       onBlur={async (e) => { const location = e.target.value.trim(); if (location === (i.location || "")) return;
         const r = await run("loc", () => updateProject(kind, project.id, { inputs: { ...i, location } }), "Não foi possível salvar o local."); if (r) onChange(r.project); }} /></label> : null}
     {kind === "evento" ? <EventRadar project={project} busy={busy} run={run} onChange={onChange} /> : null}
-    <ResearchPanel project={project} busy={busy} run={run} onChange={onChange} />
     <div className="projDetailGrid">
       <div className="projPlan">
         {!hasPlan ? <div className="libEmpty"><p>Ainda sem plano.</p>
@@ -191,6 +198,7 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
       </div>
       <Copilot kind={kind} project={project} busy={busy} run={run} onChange={onChange} onApply={() => void generate(true)} />
     </div>
+    </div>
     <button type="button" className="ds-link briefArchive" disabled={busy !== null} onClick={async () => {
       if (!window.confirm(`Apagar "${project.title}"?`)) return;
       const r = await run("del", () => deleteProject(kind, project.id), "Não foi possível apagar."); if (r) onDeleted();
@@ -201,6 +209,9 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
 const RESEARCH_LABELS: Record<ResearchCategory, string> = {
   references: "Cases e referências", suppliers: "Locais e fornecedores", market: "Sinais de mercado",
 };
+const RESEARCH_CATEGORIES = Object.keys(RESEARCH_LABELS) as ResearchCategory[];
+const RESEARCH_ICONS = { references: Compass, suppliers: Building2, market: TrendingUp };
+const RESEARCH_TERMS = { references: "cases e ativações", suppliers: "locais e fornecedores", market: "tendências de mercado" };
 const PRICE_LABELS = { published: "Preço publicado", estimate: "Estimativa", quoted: "Cotação confirmada" } as const;
 const SOURCE_LABELS: Record<string, string> = {
   ok: "Consulta concluída", empty: "Sem resultados", partial: "Consulta parcial", unavailable: "Consulta indisponível", not_configured: "Busca externa ainda não configurada",
@@ -209,32 +220,95 @@ const SOURCE_LABELS: Record<string, string> = {
 function ResearchPanel({ project, busy, run, onChange }: { project: Project; busy: string | null; run: Run; onChange: (p: Project) => void }) {
   const research = project.research || project.plan?.research;
   const [queries, setQueries] = useState(project.research?.queries || {});
+  const [topic, setTopic] = useState("");
+  const [city, setCity] = useState("");
+  const [advanced, setAdvanced] = useState(false);
+  const [category, setCategory] = useState<ResearchCategory | "all">("all");
+  const [days, setDays] = useState(0);
+  const [onlySelected, setOnlySelected] = useState(false);
   const [price, setPrice] = useState<{ url: string; value: string; kind: keyof typeof PRICE_LABELS; date: string } | null>(null);
   const selected = project.research?.selected || [];
-  const categories = Object.keys(RESEARCH_LABELS) as ResearchCategory[];
-  return <section className="projSection" aria-label="Pesquisa de mercado">
-    <h3>Pesquisar para este projeto</h3>
-    <p>Escreva as consultas públicas que serão enviadas ao buscador. Use tema, cidade e tipo de serviço. Mantenha orçamento e dados internos no projeto.</p>
-    <form onSubmit={async (e) => {
+  const items = research?.items || [];
+  const since = days ? Date.now() - days * 86_400_000 : 0;
+  const visible = items.filter((item) =>
+    (category === "all" || category === (item.category || "references")) &&
+    (!onlySelected || selected.includes(item.url)) &&
+    (!since || Date.parse(item.researched_at) >= since));
+  const categories = category === "all" ? RESEARCH_CATEGORIES : [category];
+  const searchDraft = Object.fromEntries(categories.map((key) => [key,
+    [topic.trim(), city.trim(), RESEARCH_TERMS[key]].filter(Boolean).join(" ").slice(0, 180)]));
+  return <section className="projResearch" aria-label="Pesquisa de mercado">
+    <header className="projResearchIntro">
+      <Compass size={24} aria-hidden="true" />
+      <div><h3>Pesquisa de mercado</h3><p>Encontre cases, fornecedores e sinais para este projeto.</p></div>
+    </header>
+    <form className="projResearchForm" onSubmit={async (e) => {
       e.preventDefault();
-      const result = await run("research", () => researchProject(project.kind, project.id, queries), "Não foi possível pesquisar.");
-      if (result) onChange(result.project);
+      const submitted = advanced ? queries : searchDraft;
+      const result = await run("research", () => researchProject(project.kind, project.id, submitted), "Não foi possível pesquisar.");
+      if (result) { setQueries(submitted); setOnlySelected(false); setDays(0); onChange(result.project); }
     }}>
-      {categories.map((category) => <label key={category} className="projInline">{RESEARCH_LABELS[category]}
-        <input value={queries[category] || ""} maxLength={180}
-          onChange={(e) => setQueries({ ...queries, [category]: e.target.value })} />
-      </label>)}
-      <button className="ds-button" disabled={busy !== null || !Object.values(queries).some((value) => value.trim())}>
-        {busy === "research" ? "Pesquisando…" : "Pesquisar"}
-      </button>
+      <div className="projResearchFields">
+        <label className="projInline">Tema ou serviço<input value={topic} maxLength={110}
+          placeholder="Ex.: ativação de beach tennis" onChange={(e) => {
+            setTopic(e.target.value);
+            setAdvanced(false);
+          }} /></label>
+        <label className="projInline">Cidade<input value={city} maxLength={40}
+          placeholder="Ex.: São Paulo" onChange={(e) => { setCity(e.target.value); setAdvanced(false); }} /></label>
+        <button className="ds-button is-primary" disabled={busy !== null ||
+          !(advanced ? Object.values(queries).some((value) => value.trim()) : topic.trim())}>
+          <Search size={16} aria-hidden="true" /> {busy === "research" ? "Pesquisando…" : "Pesquisar"}
+        </button>
+      </div>
+      <div className="projResearchOptions">
+        <small>Envie ao buscador apenas termos públicos.</small>
+        <button type="button" className="ds-link" aria-expanded={advanced} onClick={() => {
+          if (!advanced && topic.trim()) setQueries(searchDraft);
+          setAdvanced(!advanced);
+        }}>{advanced ? "Ocultar consultas" : "Editar consultas"}</button>
+      </div>
+      {advanced ? <div className="projResearchQueries">{RESEARCH_CATEGORIES.map((key) =>
+        <label key={key} className="projInline">{RESEARCH_LABELS[key]}
+          <input value={queries[key] || ""} maxLength={180} onChange={(e) => setQueries({ ...queries, [key]: e.target.value })} />
+        </label>)}</div> : null}
     </form>
-    {research ? <p role="status">{SOURCE_LABELS[research.status]}{!research.items.length && research.status === "ok" ? " · Nenhuma referência encontrada." : ""}</p> : null}
-    {research?.sources ? <ul>{categories.filter((key) => research.sources?.[key]).map((key) =>
-      <li key={key}>{RESEARCH_LABELS[key]}: {SOURCE_LABELS[research.sources?.[key] || ""]}</li>)}</ul> : null}
-    {research?.items.length ? <ul>{research.items.map((item) => <li key={item.url}>
-      <a href={item.url.startsWith("https://") ? item.url : undefined} target="_blank" rel="noreferrer">{item.title}</a>
-      <small> · {RESEARCH_LABELS[item.category || "references"]} · Consultado em {fmtDate(item.researched_at)}</small>
+    <div className="projResearchFilters">
+      <div className="projResearchCategories" role="group" aria-label="Categoria de pesquisa">
+        {(["all", ...RESEARCH_CATEGORIES] as const).map((key) =>
+          <button type="button" className="ds-button" key={key} aria-pressed={category === key} onClick={() => setCategory(key)}>
+            {key === "all" ? "Todos" : RESEARCH_LABELS[key]}
+          </button>)}
+      </div>
+      <label className="projInline">Data da consulta<select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+        <option value={0}>Qualquer data</option><option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option>
+      </select></label>
+      <button type="button" className="ds-button" aria-pressed={onlySelected} onClick={() => setOnlySelected(!onlySelected)}>
+        <BookmarkCheck size={16} aria-hidden="true" /> Selecionados ({selected.length})
+      </button>
+    </div>
+    {research ? <div className="projResearchStatus" role="status">
+      <strong>{SOURCE_LABELS[research.status]} · {visible.length} {visible.length === 1 ? "resultado" : "resultados"}</strong>
+      {RESEARCH_CATEGORIES.filter((key) => research.sources?.[key]).map((key) =>
+        <small key={key}>{RESEARCH_LABELS[key]} · {SOURCE_LABELS[research.sources?.[key] || ""]}</small>)}
+    </div> : null}
+    {!visible.length && busy !== "research" ? <div className="projResearchEmpty">
+      {items.length ? "Nenhum resultado corresponde aos filtros." : research ? "Nenhuma fonte disponível nesta consulta." : "Pesquise um tema para começar a reunir referências."}
+    </div> : null}
+    <div className="projResearchCards">{visible.map((item) => {
+      const key = item.category || "references";
+      const Icon = RESEARCH_ICONS[key];
+      let source = "";
+      try { source = new URL(item.url).hostname; } catch { /* fonte sem domínio */ }
+      const saved = selected.includes(item.url);
+      return <article key={item.url} className="projResearchCard" data-category={key} data-selected={saved}>
+      <header><span className="projResearchIcon"><Icon size={19} aria-hidden="true" /></span><small>{RESEARCH_LABELS[key]}</small></header>
+      <h4>{item.title}</h4>
       {item.summary ? <p>{item.summary}</p> : null}
+      <div className="projResearchSource">
+        {item.url.startsWith("https://") ? <a href={item.url} target="_blank" rel="noreferrer">{source || "Abrir fonte"} <ArrowUpRight size={14} aria-hidden="true" /></a> : null}
+        {item.researched_at ? <small>Consultado em {fmtDate(item.researched_at)}</small> : null}
+      </div>
       {project.research ? <label><input type="checkbox" checked={selected.includes(item.url)}
         disabled={busy !== null || (selected.length >= 10 && !selected.includes(item.url))}
         onChange={async (e) => {
@@ -248,7 +322,7 @@ function ResearchPanel({ project, busy, run, onChange }: { project: Project; bus
           onClick={() => {
             const existing = project.plan.budget?.find((line) => line.source_url === item.url);
             setPrice({ url: item.url, value: existing ? String(existing.value) : "", kind: existing?.price_kind || "published", date: existing?.price_date || "" });
-          }}>Adicionar ao orçamento</button>
+          }}>{project.plan?.budget?.some((line) => line.source_url === item.url) ? "Editar valor" : "Adicionar ao orçamento"}</button>
         {price?.url === item.url ? <form onSubmit={async (e) => {
           e.preventDefault();
           const value = Number(price.value);
@@ -268,7 +342,7 @@ function ResearchPanel({ project, busy, run, onChange }: { project: Project; bus
           <button className="ds-button" disabled={busy !== null}>Salvar valor</button>
         </form> : null}
       </div> : null}
-    </li>)}</ul> : null}
+    </article>; })}</div>
   </section>;
 }
 

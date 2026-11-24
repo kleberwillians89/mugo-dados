@@ -24,7 +24,7 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
-const btn = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.startsWith(label)) as HTMLButtonElement;
+const btn = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(label)) as HTMLButtonElement;
 const show = async (kind: "planejamento" | "evento") => { await act(async () => { root.render(<ProjectsPage kind={kind} />); }); await act(async () => {}); };
 const type = async (el: HTMLInputElement | HTMLTextAreaElement, value: string) => act(async () => {
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")!.set!.call(el, value);
@@ -42,11 +42,20 @@ describe("Evento", () => {
       .mockResolvedValueOnce({ project: { ...BASE, research: { ...research, selected: [url] } } });
     await show("evento");
     await act(async () => { (host.querySelector(".projCard") as HTMLButtonElement).click(); });
+    await act(async () => { btn("Pesquisa").click(); });
     const panel = host.querySelector('[aria-label="Pesquisa de mercado"]')!;
-    await type(panel.querySelector("input")!, "ativações em São Paulo");
+    await type(panel.querySelectorAll("input")[0], "beach tennis");
+    await type(panel.querySelectorAll("input")[1], "São Paulo");
     await act(async () => { btn("Pesquisar").click(); });
-    expect(api.researchProject).toHaveBeenCalledWith("evento", "p1", { references: "ativações em São Paulo" });
+    expect(api.researchProject).toHaveBeenCalledWith("evento", "p1", {
+      references: "beach tennis São Paulo cases e ativações",
+      suppliers: "beach tennis São Paulo locais e fornecedores",
+      market: "beach tennis São Paulo tendências de mercado",
+    });
     expect(panel.querySelector("a")?.href).toBe(url);
+    await act(async () => { btn("Locais e fornecedores").click(); });
+    expect(panel.querySelector("a")).toBeNull();
+    await act(async () => { btn("Todos").click(); });
     await act(async () => { panel.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
     expect(api.researchProject).toHaveBeenLastCalledWith("evento", "p1", { selected: [url] });
     expect(panel.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
