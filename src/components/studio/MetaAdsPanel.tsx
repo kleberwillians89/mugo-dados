@@ -124,21 +124,39 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
     const p = editing.payload;
     const missing = metaStepIssues(p, 3);
     if (missing.length) { setStepIssue(missing.join(" ")); return; }
-    if (!window.confirm(`Criar "${p.name}" no Meta Ads?\n\nVai PAUSADA, com orçamento de ${brl(p.daily_budget)}/dia de ${p.start_date.split("-").reverse().join("/")} a ${p.end_date.split("-").reverse().join("/")}. Nada é gasto até alguém ativar no Gerenciador de Anúncios.`)) return;
+    const inExistingCampaign = Boolean(editing.draft.joined || editing.draft.meta_ids?.joined);
+    const confirmation = inExistingCampaign
+      ? `Criar os novos anúncios de "${p.name}" no conjunto selecionado? Eles serão criados pausados.`
+      : `Criar "${p.name}" no Meta Ads?\n\nVai PAUSADA, com orçamento de ${brl(p.daily_budget)}/dia de ${p.start_date.split("-").reverse().join("/")} a ${p.end_date.split("-").reverse().join("/")}. Nada é gasto até alguém ativar no Gerenciador de Anúncios.`;
+    if (!window.confirm(confirmation)) return;
     const saved = await save();
     if (!saved) return;
     const r = await run("publish", () => publishAdDraft(editing.draft.id), "Não foi possível criar no Meta Ads.");
     await load();
-    if (r) { setEditing(null); setNotice(`"${r.draft.payload.name}" foi criada no Meta Ads, pausada. Confira e ative no Gerenciador de Anúncios.`); }
+    if (r) {
+      setEditing(null);
+      setNotice(inExistingCampaign ? "Os novos anúncios foram criados pausados no conjunto selecionado."
+        : `"${r.draft.payload.name}" foi criada no Meta Ads, pausada. Confira e ative no Gerenciador de Anúncios.`);
+    }
   }
 
-  async function duplicate(d: AdDraft, into?: "campaign") {
-    const r = await run(`duplicate${into ? "-ad" : ""}:${d.id}`, () => duplicateAdDraft(d.id, into),
-      into ? "Não foi possível criar o anúncio nesta campanha." : "Não foi possível duplicar esta campanha.");
+  async function openCampaignCreatives(d: AdDraft, adsetId?: string) {
+    setBusy(`duplicate-ad:${d.id}`);
+    setError(null); setNotice(null);
+    try {
+      const { draft } = await duplicateAdDraft(d.id, "campaign", adsetId);
+      if (getActiveClientId() !== clientId) throw new Error("A empresa ativa mudou.");
+      upsert(draft);
+      setNotice(`Adicione os criativos de “${d.payload.name}”. Os anúncios novos serão criados pausados.`);
+      open(draft);
+    } finally { setBusy(null); }
+  }
+
+  async function duplicate(d: AdDraft) {
+    const r = await run(`duplicate:${d.id}`, () => duplicateAdDraft(d.id), "Não foi possível duplicar esta campanha.");
     if (r) {
       upsert(r.draft);
-      setNotice(into ? `Novo anúncio dentro de "${d.payload.name}": mesma verba e mesmo público. Troque o criativo e crie pausado.`
-        : `Cópia de "${d.payload.name}" criada como campanha nova, com verba própria. Nada foi publicado nem ativado.`);
+      setNotice(`Cópia de "${d.payload.name}" criada como campanha nova, com verba própria. Nada foi publicado nem ativado.`);
       open(r.draft);
     }
   }
@@ -263,7 +281,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           {d.status === "publicada" && d.meta_ids?.campaign_id ? <MetaLiveCampaign draft={d}
             adsCount={d.payload.ad.format === "multi" ? (d.payload.ad.cards || []).length : 1 + (d.payload.ad.extra_ads || []).length} /> : null}
 
-          {d.status === "publicada" && d.meta_ids?.campaign_id ? <MetaLiveEditor key={clientId + ":" + d.id} draft={d} month={month} calendar={arts} onUpdated={upsert} /> : null}
+          {d.status === "publicada" && d.meta_ids?.campaign_id ? <MetaLiveEditor key={clientId + ":" + d.id} draft={d} month={month} calendar={arts} onUpdated={upsert}
+            onAddCreatives={(adsetId) => openCampaignCreatives(d, adsetId)} addingCreatives={Boolean(busy)} /> : null}
 
           <div className="metaAdsActions">
             <button type="button" className="ds-button is-primary" onClick={() => open(d)}>
@@ -274,8 +293,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
               <button type="button" className="ds-button" onClick={() => { open(d); setStep(3); }}>Revisar publicação</button>
             </> : null}
             {d.status === "publicada" && d.meta_ids?.adset_id ? <button type="button" className="ds-button" disabled={Boolean(busy)}
-              title="Cria só um anúncio novo dentro desta campanha: mesma verba, mesmo público"
-              onClick={() => void duplicate(d, "campaign")}>{busy === `duplicate-ad:${d.id}` ? "Criando…" : "Novo anúncio nesta campanha"}</button> : null}
+              title="Abre o Estúdio de Criativos com a verba e o público do conjunto vinculado"
+              onClick={() => void openCampaignCreatives(d).catch((cause) => setError(message(cause, "Não foi possível abrir os criativos.")))}>{busy === `duplicate-ad:${d.id}` ? "Abrindo…" : "Adicionar criativos nesta campanha"}</button> : null}
             <button type="button" className="ds-button" disabled={Boolean(busy)}
               title="Cria outra campanha, com verba própria"
               onClick={() => void duplicate(d)}>{busy === `duplicate:${d.id}` ? "Duplicando…" : "Duplicar campanha"}</button>
@@ -299,7 +318,7 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
           </button>)}
         </nav>
         <p className="ds-caption metaAdsStepHint">{step === 0 ? "Etapa 1 de 4 — Defina objetivo, verba e datas." : step === 1 ? "Etapa 2 de 4 — Escolha e confirme a segmentação do anúncio." : step === 2 ? "Etapa 3 de 4 — Escolha imagem ou vídeo e revise a mensagem." : "Etapa 4 de 4 — Confira tudo antes de criar uma campanha pausada."}</p>
-        {joined && !locked ? <div className="ds-notice" role="note"><p className="ds-noticeTitle">Anúncio novo dentro de uma campanha já criada</p>
+        {joined && !locked ? <div className="ds-notice" role="note"><p className="ds-noticeTitle">Novos anúncios numa campanha existente</p>
           <p>Verba, datas e público são os da campanha original e dividem o mesmo orçamento. Aqui você só escolhe o criativo e o texto.</p></div> : null}
         {halfway ? <div className="ds-notice" role="note"><p className="ds-noticeTitle">Campanha já começou a ser criada na Meta</p>
           <p>A campanha, o conjunto e os anúncios que deram certo já estão lá, pausados. Troque ou remova o anúncio que deu erro e clique em Criar de novo: o MUGOVERSO cria só o que falta. Verba e público ficam como já estão na Meta.</p></div> : null}

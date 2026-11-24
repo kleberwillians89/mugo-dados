@@ -202,6 +202,24 @@ class SameCampaignTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((ids["campaign_id"], ids["adset_id"], ids.get("ad_id"), ids.get("creative_id")), ("c9", "s9", None, None))
         self.assertTrue(view["joined"])
         self.assertIn("novo anúncio", view["payload"]["name"])
+        ad = view["payload"]["ad"]
+        self.assertEqual((ad["image_url"], ad["video_url"], ad["cards"], ad["extra_ads"]), ("", "", [], []))
+
+    async def test_explicit_adset_requires_campaign_and_account_match(self):
+        context = (self.PUBLISHED, {"act": "act_123", "token": "test"}, {})
+        remote = {"id": "12345", "campaign_id": "other", "account_id": "123"}
+        insert = AsyncMock(side_effect=lambda table, row: {**row, "id": "d3"})
+        graph = AsyncMock(return_value=remote)
+        with patch.object(pub, "_draft", AsyncMock(return_value=self.PUBLISHED)), \
+             patch.object(pub, "_campaign_editor_context", AsyncMock(return_value=context)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "sb_insert", insert):
+            with self.assertRaises(StudioError):
+                await pub.duplicate_draft("roove", "d1", "u1", into_campaign=True, adset_id="12345")
+            insert.assert_not_awaited()
+            remote["campaign_id"] = "c9"
+            next_draft = await pub.duplicate_draft("roove", "d1", "u1", into_campaign=True, adset_id="12345")
+        self.assertEqual(next_draft["meta_ids"]["adset_id"], "12345")
+
 
     async def test_new_ad_needs_a_published_campaign(self):
         with patch.object(pub, "_draft", AsyncMock(return_value={**self.PUBLISHED, "status": "rascunho", "meta_ids": {}})):

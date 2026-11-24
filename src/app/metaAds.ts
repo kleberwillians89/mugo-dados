@@ -159,8 +159,12 @@ export const listInstagramCreativePosts = () =>
   http<{ posts: InstagramCreativePost[]; source: string; count: number }>(base("/instagram-posts"), { timeoutMs: 45_000 });
 
 /** Independent copy for experimentation. Never duplicates Meta provider resources or starts delivery. */
-export const duplicateAdDraft = (id: string, into?: "campaign") =>
-  http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/duplicate${into ? "?into=campaign" : ""}`), { method: "POST" });
+export const duplicateAdDraft = (id: string, into?: "campaign", adsetId?: string) => {
+  const params = new URLSearchParams();
+  if (into) params.set("into", into);
+  if (adsetId) params.set("adset_id", adsetId);
+  return http<{ draft: AdDraft }>(base(`/${encodeURIComponent(id)}/duplicate${params.size ? `?${params}` : ""}`), { method: "POST" });
+};
 
 export type MetaLiveDeliveryStatus = {
   draft_id: string; client_id: string; checked_at: string; source: "meta_graph"; read_only: true;
