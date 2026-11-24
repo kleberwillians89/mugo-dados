@@ -109,4 +109,36 @@ async def search_audio(client_id: str, query: str = "", audio_type: str = "music
         return normalized[:30]
     ranked = sorted(((score, n, a) for n, a in enumerate(normalized)
                      if (score := _relevance(a, query)) > 0), key=lambda row: (-row[0], row[1]))
+    if ranked:
+        return [a for _, _, a in ranked[:30]]
+
+    # A biblioteca da Meta pode não interpretar a combinação "artista + música".
+    # Só se não houve correspondência, consulta até dois fragmentos e cruza com
+    # a pesquisa COMPLETA. Não cria títulos/IDs ou apresenta faixa diferente.
+    terms = (query or "").strip().split()
+    if len(terms) < 2:
+        return []
+    candidates = ([" ".join(terms[:2]), " ".join(terms[-2:])] if len(terms) >= 4
+                  else [terms[0], terms[-1]])
+    seen = {a["audio_id"] for a in normalized}
+    async with httpx.AsyncClient(timeout=20) as client:
+        for candidate in dict.fromkeys(candidates):
+            if candidate.casefold() == query.strip().casefold():
+                continue
+            try:
+                alt = await client.get(f"{META_GRAPH_BASE_URL}/ig_audio",
+                                       params={**params, "search_query": candidate})
+                if alt.status_code >= 400:
+                    continue
+                payload = alt.json() if alt.content else {}
+                matches = payload.get("audio") or payload.get("data") or []
+                for raw in matches:
+                    audio = normalize(raw) if isinstance(raw, dict) else None
+                    if audio and audio["audio_id"] not in seen:
+                        seen.add(audio["audio_id"])
+                        normalized.append(audio)
+            except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+                continue
+    ranked = sorted(((score, n, a) for n, a in enumerate(normalized)
+                     if (score := _relevance(a, query)) > 0), key=lambda row: (-row[0], row[1]))
     return [a for _, _, a in ranked[:30]]
