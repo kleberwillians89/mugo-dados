@@ -8,7 +8,7 @@ const studio = vi.hoisted(() => ({
   getPipeline: vi.fn(), decideCalendarItem: vi.fn(), updateCalendarItem: vi.fn(), sendForApproval: vi.fn(), getItemHistory: vi.fn(),
   deleteApprovalContent: vi.fn(),
 }));
-const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn() }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studio }));
 vi.mock("../app/crm", async (original) => ({ ...(await original<typeof import("../app/crm")>()), ...crm }));
 vi.mock("../app/activeClient", () => ({ getActiveClientId: () => "tenant-a", getActiveClientName: () => "Marca A" }));
@@ -41,11 +41,12 @@ describe("ApprovalWorkspace", () => {
     studio.deleteApprovalContent.mockResolvedValue({ ok: true });
     crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
     crm.taskApproval.mockResolvedValue({ task: task("t1", "Job"), events: [] }); crm.taskHistory.mockResolvedValue({ events: [] });
+    crm.updateTask.mockResolvedValue({ task: { ...task("t1", "Job"), status: "cancelled" } });
   });
   afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 
-  async function render(mode: "internal" | "final", isAgency = mode === "internal", canDeleteContent = false) {
-    await act(async () => root.render(<ApprovalWorkspace mode={mode} isAgency={isAgency} canDeleteContent={canDeleteContent} onOpenCalendar={vi.fn()} />));
+  async function render(mode: "internal" | "final", isAgency = mode === "internal", canDeleteCalendarContent = false, canDeleteTaskContent = false) {
+    await act(async () => root.render(<ApprovalWorkspace mode={mode} isAgency={isAgency} canDeleteCalendarContent={canDeleteCalendarContent} canDeleteTaskContent={canDeleteTaskContent} onOpenCalendar={vi.fn()} />));
     await act(async () => { await Promise.resolve(); });
   }
 
@@ -129,7 +130,7 @@ describe("ApprovalWorkspace", () => {
 
   it("alterna visualização e abre o Calendário existente", async () => {
     const open = vi.fn();
-    await act(async () => root.render(<ApprovalWorkspace mode="final" isAgency={false} canDeleteContent={false} onOpenCalendar={open} />));
+    await act(async () => root.render(<ApprovalWorkspace mode="final" isAgency={false} canDeleteCalendarContent={false} canDeleteTaskContent={false} onOpenCalendar={open} />));
     await act(async () => { await Promise.resolve(); });
     const mobile = [...host.querySelectorAll("button")].find((node) => node.textContent?.includes("Mobile"))!;
     await act(async () => mobile.click());
@@ -152,10 +153,37 @@ describe("ApprovalWorkspace", () => {
     expect(host.textContent).not.toContain("Aprovar agora");
   });
 
-  it("não oferece exclusão a quem apenas aprova", async () => {
-    await render("internal", true, false);
+  it("não oferece exclusão de job a quem apenas aprova", async () => {
+    studio.getPipeline.mockResolvedValue({ items: [] });
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [task("t1", "Job protegido")] });
+    await render("internal", true, false, false);
     expect(host.textContent).toContain("Aprovar agora");
+    expect(host.textContent).toContain("Job protegido");
     expect(host.textContent).not.toContain("Excluir conteúdo");
     expect(studio.deleteApprovalContent).not.toHaveBeenCalled();
+    expect(crm.updateTask).not.toHaveBeenCalled();
+  });
+
+  it("cancela o job preservando o histórico sem exigir permissão do Calendário", async () => {
+    studio.getPipeline.mockResolvedValue({ items: [] });
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [task("t1", "Job de teste")] });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await render("internal", true, false, true);
+    const remove = [...host.querySelectorAll("button")].find((node) => node.textContent === "Excluir conteúdo")!;
+    await act(async () => { remove.click(); await Promise.resolve(); });
+    expect(confirm).toHaveBeenCalledWith("Excluir o conteúdo “Job de teste” da fila de aprovação? O histórico será preservado.");
+    expect(crm.updateTask).toHaveBeenCalledWith("t1", { status: "cancelled" });
+    expect(studio.deleteApprovalContent).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("O job foi cancelado e seu histórico foi preservado");
+    expect(host.querySelector(".approvalQueue strong")).toBeNull();
+  });
+
+  it("não permite excluir job somente com permissão do Calendário", async () => {
+    studio.getPipeline.mockResolvedValue({ items: [] });
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [task("t1", "Job protegido")] });
+    await render("internal", true, true, false);
+    expect(host.textContent).toContain("Aprovar agora");
+    expect(host.textContent).not.toContain("Excluir conteúdo");
+    expect(crm.updateTask).not.toHaveBeenCalled();
   });
 });

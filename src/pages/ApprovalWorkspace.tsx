@@ -8,6 +8,7 @@ import {
   listCrmTasks,
   taskApproval,
   taskHistory,
+  updateTask,
   type CrmTask,
 } from "../app/crm";
 import {
@@ -52,11 +53,12 @@ const message = (cause: unknown, fallback: string) => cause instanceof Error && 
 type Props = {
   mode: ApprovalMode;
   isAgency: boolean;
-  canDeleteContent: boolean;
+  canDeleteCalendarContent: boolean;
+  canDeleteTaskContent: boolean;
   onOpenCalendar: () => void;
 };
 
-export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, onOpenCalendar }: Props) {
+export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarContent, canDeleteTaskContent, onOpenCalendar }: Props) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(monthKey);
@@ -160,15 +162,23 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
   }
 
   async function remove() {
-    if (!selected || selected.kind !== "calendar" || busy || !canDeleteContent) return;
-    if (!window.confirm(`Excluir o conteúdo “${selected.item.title}” da fila de aprovação? O histórico será preservado.`)) return;
-    const removedId = selected.item.id;
+    if (!selected || busy) return;
+    const allowed = selected.kind === "calendar" ? canDeleteCalendarContent : canDeleteTaskContent;
+    if (!allowed) return;
+    const title = selected.kind === "calendar" ? selected.item.title : selected.task.title;
+    if (!window.confirm(`Excluir o conteúdo “${title}” da fila de aprovação? O histórico será preservado.`)) return;
     setBusy(true); setError(null); setNotice(null); setApprovalLink(null);
     try {
-      await deleteApprovalContent(removedId);
-      setItems((current) => current.filter((item) => item.id !== removedId));
+      if (selected.kind === "calendar") {
+        await deleteApprovalContent(selected.item.id);
+        setItems((current) => current.filter((item) => item.id !== selected.item.id));
+        setNotice("Conteúdo excluído. O histórico da peça foi preservado.");
+      } else {
+        await updateTask(selected.task.id, { status: "cancelled" });
+        setTasks((current) => current.filter((task) => task.id !== selected.task.id));
+        setNotice("Conteúdo excluído da fila. O job foi cancelado e seu histórico foi preservado.");
+      }
       setSelectedId(null); setNote(""); setHistory([]);
-      setNotice("Conteúdo excluído. O histórico da peça foi preservado.");
     } catch (cause) { setError(message(cause, "Não foi possível excluir o conteúdo.")); }
     finally { setBusy(false); }
   }
@@ -222,7 +232,8 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
       </aside>
     </div>
     {selected ? <footer className="approvalDecisionBar">
-      {canDeleteContent && selected.kind === "calendar" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void remove()}>Excluir conteúdo</button> : null}
+      {(selected.kind === "calendar" ? canDeleteCalendarContent : canDeleteTaskContent)
+        ? <button type="button" className="ds-button" disabled={busy} onClick={() => void remove()}>Excluir conteúdo</button> : null}
       <button type="button" className="ds-button" disabled={busy} onClick={() => void requestChanges()}>Solicitar ajuste</button>
       <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void approve()}>{busy ? "Salvando…" : "Aprovar agora"}</button>
     </footer> : null}
