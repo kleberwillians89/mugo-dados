@@ -47,10 +47,15 @@ function TasksSummary() {
 }
 
 /** Tarefas da empresa ativa, em quadro, guardadas no Mugoverso. Quem gerencia cria, edita e move. */
-export default function Tasks({ canManage = true, isAgency = true }: { canManage?: boolean; isAgency?: boolean }) {
+export default function Tasks({ canManage = true, isAgency = true, onOpenWhatsApp }: { canManage?: boolean; isAgency?: boolean;
+  /** Atendimento no WhatsApp (mesma ferramenta de Analisar resultados): atalho operacional, separado das tarefas. */
+  onOpenWhatsApp?: () => void }) {
   const refresh = useRef<() => void>(() => undefined);
   return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage">
-    <PageHeader company={getActiveClientName() || "empresa"} title="Tarefas" controls={<button type="button" className="ds-button" onClick={() => refresh.current()}>Atualizar</button>} />
+    <PageHeader company={getActiveClientName() || "empresa"} title="Tarefas" controls={<>
+      {onOpenWhatsApp ? <button type="button" className="ds-button" onClick={onOpenWhatsApp}>Atendimento WhatsApp</button> : null}
+      <button type="button" className="ds-button" onClick={() => refresh.current()}>Atualizar</button>
+    </>} />
     <TasksSummary />
     <TaskBoard canManage={canManage} isAgency={isAgency} onRefreshRef={(fn) => { refresh.current = fn; }} />
   </div></Shell>;
