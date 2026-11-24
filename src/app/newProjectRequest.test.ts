@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { requestNewProject, takeNewProjectRequest } from "./newProjectRequest";
+import { requestGoalsSection, requestNewProject, takeGoalsSectionRequest, takeNewProjectRequest } from "./newProjectRequest";
 
 afterEach(() => { window.sessionStorage.clear(); window.history.replaceState(null, "", "/"); });
 
@@ -21,5 +21,13 @@ describe("Criar planejamento abre o formulário direto", () => {
   it("sem pedido, abre a lista normal", () => {
     window.history.replaceState(null, "", "/planejamento");
     expect(takeNewProjectRequest("planejamento")).toBe(false);
+  });
+
+  it("Definir metas abre o Planejamento na seção Metas (clique ou #metas), uma vez só", () => {
+    requestGoalsSection();
+    expect(takeGoalsSectionRequest()).toBe(true);
+    expect(takeGoalsSectionRequest()).toBe(false);
+    window.history.replaceState(null, "", "/planejamento#metas");
+    expect(takeGoalsSectionRequest()).toBe(true);
   });
 });

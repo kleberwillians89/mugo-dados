@@ -9,6 +9,8 @@ vi.mock("../app/projects", async (original) => ({ ...(await original<typeof impo
 vi.mock("../app/activeClient", () => ({ getActiveClientId: () => "ruah", getActiveClientName: () => "Ruah" }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("../components/data/PageHeader", () => ({ default: ({ controls }: { controls?: React.ReactNode }) => <div>{controls}</div> }));
+vi.mock("../components/goals/GoalsPanel", () => ({ default: ({ canManage, header }: { canManage: boolean; header: (b: React.ReactNode) => React.ReactNode }) =>
+  <div data-testid="goals">{header(canManage ? <button type="button">+ Nova meta</button> : null)}metas da empresa</div> }));
 
 import ProjectsPage from "./ProjectsPage";
 
@@ -104,5 +106,30 @@ describe("Planejamento", () => {
     await act(async () => { btn("Aplicar a conversa no plano").click(); });
     expect(api.generateProject).toHaveBeenCalledWith("planejamento", "p1", { use_chat: true, instruction: undefined });
     expect(host.querySelector(".projBigIdea")?.textContent).toContain("Frete grátis no presente");
+  });
+});
+
+describe("Planejamento com Metas", () => {
+  it("mostra a seção Metas (mesmo painel de /metas) só no Planejamento e só para quem vê Metas", async () => {
+    api.listProjects.mockResolvedValue({ projects: [], formats: [] });
+    await act(async () => { root.render(<ProjectsPage kind="planejamento" goals={{ canManage: true }} />); }); await act(async () => {});
+    const section = host.querySelector("section#metas")!;
+    expect(section.textContent).toContain("Metas");
+    expect(section.querySelector("[data-testid=goals]")).not.toBeNull();
+    expect(btn("+ Nova meta")).toBeTruthy();
+    await act(async () => { root.render(<ProjectsPage kind="planejamento" goals={null} />); }); await act(async () => {});
+    expect(host.querySelector("section#metas")).toBeNull();
+    await act(async () => { root.render(<ProjectsPage kind="evento" goals={{ canManage: true }} />); }); await act(async () => {});
+    expect(host.querySelector("section#metas")).toBeNull();
+  });
+
+  it("'Definir metas' abre direto na seção (rola até ela)", async () => {
+    api.listProjects.mockResolvedValue({ projects: [], formats: [] });
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    window.sessionStorage.setItem("mugo:planning:goals", "1");
+    await act(async () => { root.render(<ProjectsPage kind="planejamento" goals={{ canManage: false }} />); }); await act(async () => {});
+    expect(scroll).toHaveBeenCalled();
+    expect(window.sessionStorage.getItem("mugo:planning:goals")).toBeNull();
   });
 });

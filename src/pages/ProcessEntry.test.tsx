@@ -80,6 +80,14 @@ describe("nova entrada e processos", () => {
     expect(window.sessionStorage.getItem("mugo:projects:new")).toBe("planejamento");
     window.sessionStorage.clear();
 
+    // Definir metas abre o Planejamento na seção Metas (mesmos registros de /metas).
+    const goalsStart = [...host.querySelectorAll("a.planningStartCard")].find((item) => item.textContent?.includes("Definir metas"))!;
+    expect(goalsStart.getAttribute("href")).toBe("/planejamento#metas");
+    await act(async () => (goalsStart as HTMLAnchorElement).click());
+    expect(open).toHaveBeenLastCalledWith("planning");
+    expect(window.sessionStorage.getItem("mugo:planning:goals")).toBe("1");
+    window.sessionStorage.clear();
+
     const continuePlanning = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Continuar planejamento"))!;
     expect(continuePlanning.getAttribute("href")).toBe("/planejamento");
     await act(async () => continuePlanning.click());
@@ -91,6 +99,8 @@ describe("nova entrada e processos", () => {
     expect(host.textContent).not.toContain("Meu planejamento");
     expect(host.textContent).not.toContain("Criar planejamento");
     expect(host.textContent).toContain("Definir metas");
+    // Sem acesso ao Planejamento, Definir metas continua indo para a página Metas.
+    expect([...host.querySelectorAll("a.planningStartCard")].find((item) => item.textContent?.includes("Definir metas"))!.getAttribute("href")).toBe("/metas");
     expect(host.textContent).toContain("Metas");
     expect(host.textContent).toContain("Calendário");
     expect(host.textContent).not.toContain("Matriz Tática de Conteúdo");

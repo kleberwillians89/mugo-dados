@@ -18,3 +18,17 @@ export function takeNewProjectRequest(kind: ProjectKind): boolean {
   } catch { /* navegador sem storage: segue sem abrir */ }
   return asked;
 }
+
+/** "Definir metas" (Planejar) abre o Planejamento já na seção Metas (#metas ou pedido de sessão). Lido uma vez. */
+export const GOALS_SECTION_FLAG = "mugo:planning:goals";
+export function requestGoalsSection() {
+  try { window.sessionStorage.setItem(GOALS_SECTION_FLAG, "1"); } catch { /* sem sessionStorage: abre no topo */ }
+}
+export function takeGoalsSectionRequest(): boolean {
+  let asked = false;
+  try {
+    if (window.location.hash === "#metas") asked = true;
+    if (window.sessionStorage.getItem(GOALS_SECTION_FLAG) === "1") { asked = true; window.sessionStorage.removeItem(GOALS_SECTION_FLAG); }
+  } catch { /* navegador sem storage */ }
+  return asked;
+}
