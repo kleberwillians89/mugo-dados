@@ -52,14 +52,31 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_save_upserts_one_row_per_client_and_creator(self):
         upsert = AsyncMock(return_value={"ok": True})
-        with patch.object(kits, "sb_upsert", upsert):
+        with patch.object(kits, "sb_upsert", upsert), patch.object(kits, "sb_select", AsyncMock(return_value=[])):
             row = await kits.save_kit("ruah", CREATOR, {"prices": [{"deliverable": "Reels", "amount": 2000}], "contact": " @agencia ",
                                                      "email": "ana@x.com", "phone": "11 99999-0000", "deals": [{"closed_at": "2026-11-24", "what": "Reels", "amount": 2000}]}, user_id="u")
         self.assertEqual(upsert.await_args.kwargs["on_conflict"], "client_id,creator_id")
         self.assertEqual(row["client_id"], "ruah")
         self.assertEqual(row["contact"], "@agencia")
         self.assertEqual((row["email"], row["phone"], row["deals"][0]["what"]), ("ana@x.com", "11 99999-0000", "Reels"))
+        self.assertEqual(row["status"], "fechado")  # com fechamento e sem status escolhido: fechado
         self.assertEqual(row["prices"], [{"deliverable": "Reels", "amount": 2000.0, "notes": None}])
+
+    async def test_status_date_only_changes_when_status_changes(self):
+        same = AsyncMock(return_value=[{"status": "contatado", "status_at": "2026-11-20T10:00:00+00:00"}])
+        with patch.object(kits, "sb_upsert", AsyncMock()), patch.object(kits, "sb_select", same):
+            row = await kits.save_kit("ruah", CREATOR, {"status": "contatado", "notes": "x"}, user_id="u")
+        self.assertEqual(row["status_at"], "2026-11-20T10:00:00+00:00")
+        with patch.object(kits, "sb_upsert", AsyncMock()), patch.object(kits, "sb_select", same):
+            row = await kits.save_kit("ruah", CREATOR, {"status": "nao_fechou", "status_note": "Fora do orçamento"}, user_id="u")
+        self.assertNotEqual(row["status_at"], "2026-11-20T10:00:00+00:00")
+        self.assertEqual((row["status"], row["status_note"]), ("nao_fechou", "Fora do orçamento"))
+        self.assertEqual(same.await_args.kwargs["filters"], {"client_id": "eq.ruah", "creator_id": f"eq.{CREATOR}"})
+
+    def test_invalid_status(self):
+        with self.assertRaises(kits.StudioError):
+            kits.clean_status("ganhou", [])
+        self.assertEqual(kits.clean_status(None, []), "novo")
 
     async def test_upload_rejects_other_types(self):
         with self.assertRaises(kits.StudioError):
