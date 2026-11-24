@@ -8,7 +8,9 @@ const studio = vi.hoisted(() => ({
   getPipeline: vi.fn(), decideCalendarItem: vi.fn(), updateCalendarItem: vi.fn(), sendForApproval: vi.fn(), getItemHistory: vi.fn(),
   deleteApprovalContent: vi.fn(),
 }));
+const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn() }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studio }));
+vi.mock("../app/crm", async (original) => ({ ...(await original<typeof import("../app/crm")>()), ...crm }));
 vi.mock("../app/activeClient", () => ({ getActiveClientId: () => "tenant-a", getActiveClientName: () => "Marca A" }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("../components/data/PageHeader", () => ({ default: ({ title, controls }: { title: string; controls?: React.ReactNode }) => <header><h1>{title}</h1>{controls}</header> }));
@@ -22,6 +24,12 @@ const item = (id: string, stage: "revisao_interna" | "com_cliente", title: strin
   status: "em_revisao" as const, review_note: null, origin: "manual" as const, art_url: "https://cdn.test/arte.jpg", reviewed_by: null,
   reviewed_at: null, stage, request: null, client_feedback: null,
 });
+const task = (id: string, title: string, calendarItemId: string | null = null) => ({
+  id, title, status: "internal_review" as const, priority: "high", due_date: "2026-11-25", due_time: null,
+  starts_at: null, category: "Redação", task_type: null, tags: [], notes: "Orientações do job", updated_at: "2026-11-20T12:00:00Z",
+  assignee: { name: "Ana", color: null }, assignees: [], visible_to_client: false, deliverable_url: "https://example.test/material",
+  needs_client_approval: false, approval_round: 1, approved_at: null, calendar_item_id: calendarItemId,
+});
 
 describe("ApprovalWorkspace", () => {
   let host: HTMLDivElement; let root: ReturnType<typeof createRoot>;
@@ -31,6 +39,8 @@ describe("ApprovalWorkspace", () => {
     studio.getItemHistory.mockResolvedValue({ events: [] }); studio.updateCalendarItem.mockResolvedValue({ item: {} });
     studio.decideCalendarItem.mockResolvedValue({ item: {} }); studio.sendForApproval.mockResolvedValue({ link: "https://example.test/aprovar/token" });
     studio.deleteApprovalContent.mockResolvedValue({ ok: true });
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [] });
+    crm.taskApproval.mockResolvedValue({ task: task("t1", "Job"), events: [] }); crm.taskHistory.mockResolvedValue({ events: [] });
   });
   afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 
@@ -55,6 +65,55 @@ describe("ApprovalWorkspace", () => {
     expect(host.textContent).toContain("Peça aprovada internamente"); expect(host.querySelector(".approvalQueue strong")?.textContent).not.toBe("Interna");
   });
 
+  it("inclui jobs em revisão interna sem limitar pelo mês e evita duplicar os vinculados ao Calendário", async () => {
+    studio.getPipeline.mockResolvedValue({ items: [item("i1", "revisao_interna", "Peça do Calendário")] });
+    crm.listCrmTasks.mockResolvedValue({ available: true, tasks: [task("t1", "Job independente"), task("t2", "Job vinculado", "i1")] });
+    await render("internal");
+    expect(crm.listCrmTasks).toHaveBeenCalledWith("internal_review");
+    const titles = [...host.querySelectorAll(".approvalQueue strong")].map((node) => node.textContent);
+    expect(titles).toEqual(["Peça do Calendário", "Job independente"]);
+  });
+
+  it("aprova um job pelo serviço de tarefas e atualiza a fila", async () => {
+    studio.getPipeline.mockResolvedValue({ items: [] });
+    crm.listCrmTasks.mockResolvedValueOnce({ available: true, tasks: [task("t1", "Job para aprovar")] })
+      .mockResolvedValueOnce({ available: true, tasks: [] });
+    await render("internal");
+    const approve = [...host.querySelectorAll("button")].find((node) => node.textContent?.includes("Aprovar agora"))!;
+    await act(async () => { approve.click(); await Promise.resolve(); });
+    expect(crm.taskApproval).toHaveBeenCalledWith("t1", "internal_approve");
+    expect(studio.sendForApproval).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Job aprovado internamente e concluído");
+    expect(host.querySelector(".approvalQueue strong")).toBeNull();
+  });
+
+  it("devolve um job para ajustes pelo fluxo de tarefas", async () => {
+    studio.getPipeline.mockResolvedValue({ items: [] });
+    crm.listCrmTasks.mockResolvedValueOnce({ available: true, tasks: [task("t1", "Job para ajustar")] })
+      .mockResolvedValueOnce({ available: true, tasks: [] });
+    await render("internal");
+    const textarea = host.querySelector<HTMLTextAreaElement>(".approvalNotes>label textarea")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(textarea, "Revisar a redação");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const adjust = [...host.querySelectorAll("button")].find((node) => node.textContent?.includes("Solicitar ajuste"))!;
+    await act(async () => { adjust.click(); await Promise.resolve(); });
+    expect(crm.taskApproval).toHaveBeenCalledWith("t1", "internal_changes", "Revisar a redação");
+    expect(studio.updateCalendarItem).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("O job saiu desta fila");
+  });
+
+  it("mantém peças de mês anterior acessíveis pelo seletor mensal", async () => {
+    studio.getPipeline.mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce({ items: [item("old", "revisao_interna", "Peça anterior")] });
+    await render("internal");
+    const previous = [...host.querySelectorAll("button")].find((node) => node.getAttribute("aria-label") === "Mês anterior")!;
+    await act(async () => { previous.click(); await Promise.resolve(); });
+    expect(studio.getPipeline).toHaveBeenCalledTimes(2);
+    expect(studio.getPipeline.mock.calls[1][0]).not.toBe(studio.getPipeline.mock.calls[0][0]);
+    expect(host.textContent).toContain("Peça anterior");
+  });
+
   it("aprova na etapa final e solicita ajuste com comentário obrigatório", async () => {
     await render("final", false);
     const textarea = host.querySelector<HTMLTextAreaElement>(".approvalNotes>label textarea")!;
@@ -65,6 +124,7 @@ describe("ApprovalWorkspace", () => {
     const adjust = [...host.querySelectorAll("button")].find((node) => node.textContent?.includes("Solicitar ajuste"))!;
     await act(async () => { adjust.click(); await Promise.resolve(); });
     expect(studio.decideCalendarItem).toHaveBeenCalledWith("f1", "rejeitado", "Trocar a imagem");
+    expect(crm.listCrmTasks).not.toHaveBeenCalled();
   });
 
   it("alterna visualização e abre o Calendário existente", async () => {

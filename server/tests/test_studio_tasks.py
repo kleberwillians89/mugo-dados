@@ -29,6 +29,13 @@ class ViewTests(unittest.TestCase):
 
 
 class ScopeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_internal_review_list_is_scoped_by_tenant_and_status(self):
+        select = AsyncMock(return_value=[{**ROW, "status": "internal_review"}])
+        with patch.object(st, "sb_select", select):
+            out = await st.list_tasks("roove", status="internal_review")
+        self.assertEqual(select.await_args.kwargs["filters"], {"client_id": "eq.roove", "status": "eq.internal_review"})
+        self.assertEqual(out["tasks"][0]["status"], "internal_review")
+
     async def test_client_list_filters_visible_and_hides_internal_fields(self):
         select = AsyncMock(return_value=[ROW])
         with patch.object(st, "sb_select", select):
