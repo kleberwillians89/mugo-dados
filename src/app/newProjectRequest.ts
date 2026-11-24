@@ -32,3 +32,17 @@ export function takeGoalsSectionRequest(): boolean {
   } catch { /* navegador sem storage */ }
   return asked;
 }
+
+/** Atalho de Lançar campanha para uma área do WhatsApp (Disparos em massa ou Modelos), lido uma vez ao abrir a tela. */
+const WHATSAPP_AREA_KEY = "mugo:whatsapp:area";
+export type WhatsAppArea = "bulk" | "models";
+export function requestWhatsAppArea(area: WhatsAppArea) {
+  try { window.sessionStorage.setItem(WHATSAPP_AREA_KEY, area); } catch { /* sem storage: abre em Conversas */ }
+}
+export function takeWhatsAppArea(): WhatsAppArea | null {
+  const fromUrl = new URLSearchParams(window.location.search).get("area");
+  let stored: string | null = null;
+  try { stored = window.sessionStorage.getItem(WHATSAPP_AREA_KEY); window.sessionStorage.removeItem(WHATSAPP_AREA_KEY); } catch { stored = null; }
+  const area = fromUrl || stored;
+  return area === "bulk" || area === "models" ? area : null;
+}

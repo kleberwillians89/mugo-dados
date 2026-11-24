@@ -61,11 +61,11 @@ describe("nova entrada e processos", () => {
     expect(open).toHaveBeenCalledWith("calendar");
   });
 
-  it("organiza Planejar em continuidade, ações de início e seis ferramentas existentes", async () => {
+  it("Planejar (sem o bloco antigo Meu planejamento): ações de início e seis ferramentas existentes", async () => {
     const open = vi.fn();
     await act(async () => root.render(<ProcessEntry kind="planning" canView={() => true} canUse={() => true} onOpen={open} />));
-    expect(host.textContent).toContain("Meu planejamento");
-    expect(host.textContent).toContain("Continuar planejamento");
+    expect(host.textContent).not.toContain("Meu planejamento");
+    expect(host.textContent).not.toContain("Continuar planejamento");
     expect(host.textContent).toContain("Começar um trabalho");
     for (const action of ["Criar planejamento", "Criar Matriz Tática", "Definir metas"]) expect(host.textContent).toContain(action);
     expect(host.querySelectorAll(".planningToolCard")).toHaveLength(6);
@@ -87,11 +87,6 @@ describe("nova entrada e processos", () => {
     expect(open).toHaveBeenLastCalledWith("planning");
     expect(window.sessionStorage.getItem("mugo:planning:goals")).toBe("1");
     window.sessionStorage.clear();
-
-    const continuePlanning = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Continuar planejamento"))!;
-    expect(continuePlanning.getAttribute("href")).toBe("/planejamento");
-    await act(async () => continuePlanning.click());
-    expect(open).toHaveBeenCalledWith("planning");
   });
 
   it("mantém as ações de Planejar condicionadas às permissões atuais", async () => {
@@ -126,8 +121,8 @@ describe("nova entrada e processos", () => {
   it("as quatro páginas usam somente links para ferramentas reais", async () => {
     const expected: Record<ProcessKind, AppRoute[]> = {
       planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
-      content: ["campaigns", "redacao", "production", "briefing", "creators", "email_marketing", "capture"],
-      campaign: ["media"],
+      content: ["briefing", "campaigns", "redacao", "creators", "production"],
+      campaign: ["media", "email_marketing", "capture"],
       analysis: ["brand_health", "meta", "google", "channels", "origins", "ecommerce", "customers", "clipping", "social_report", "whatsapp", "engagement"],
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
@@ -138,26 +133,30 @@ describe("nova entrada e processos", () => {
     }
   });
 
-  it("Lançar campanha mostra só a Mídia On (sem cards repetidos, aprovações nem acompanhamento)", async () => {
+  it("Lançar campanha: Mídia On, E-mail Marketing e Captação, com atalhos do WhatsApp", async () => {
     const open = vi.fn();
     await act(async () => root.render(<ProcessEntry kind="campaign" canView={() => true} canUse={() => true} onOpen={open} />));
-    const cards = [...host.querySelectorAll<HTMLAnchorElement>(".processToolCard")];
-    expect(cards.map((c) => c.querySelector("strong")?.textContent)).toEqual(["Mídia On"]);
+    const grid = host.querySelector(".processToolGrid")!;
+    expect([...grid.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Mídia On", "E-mail Marketing", "Captação"]);
     for (const gone of ["Aprovação Interna", "Aprovação Final", "Acompanhamento"]) expect(host.textContent).not.toContain(gone);
-    await act(async () => cards[0].click());
-    expect(open).toHaveBeenCalledWith("media");
+    const bulk = [...host.querySelectorAll<HTMLAnchorElement>("a")].find((a) => a.textContent?.includes("Disparos em massa"))!;
+    expect(bulk.getAttribute("href")).toBe("/whatsapp?area=bulk");
+    await act(async () => bulk.click());
+    expect(open).toHaveBeenCalledWith("whatsapp");
+    expect(window.sessionStorage.getItem("mugo:whatsapp:area")).toBe("bulk");
+    window.sessionStorage.clear();
+    await act(async () => root.render(<ProcessEntry kind="campaign" canView={(route) => route === "media"} canUse={() => true} onOpen={open} />));
+    expect(host.textContent).not.toContain("Disparos em massa");  // sem WhatsApp, sem atalho
   });
 
-  it("Criar conteúdo ganha E-mail Marketing e Captação, abrindo direto a ferramenta", async () => {
+  it("Criar conteúdo: só Briefing, Social Media, Redação, Criadores e Eventos, nesta ordem", async () => {
     const open = vi.fn();
     await act(async () => root.render(<ProcessEntry kind="content" canView={() => true} canUse={() => true} onOpen={open} />));
-    for (const tool of ["Social Media", "Redação", "Eventos", "Briefing", "Criadores", "E-mail Marketing", "Captação"]) expect(host.textContent).toContain(tool);
-    const email = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("E-mail Marketing"))!;
-    await act(async () => email.click());
-    expect(open).toHaveBeenCalledWith("email_marketing");
-    await act(async () => root.render(<ProcessEntry kind="content" canView={(route) => route === "capture"} canUse={() => true} onOpen={open} />));
-    expect(host.textContent).toContain("Captação");
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Briefing", "Social Media", "Redação", "Criadores", "Eventos"]);
     expect(host.textContent).not.toContain("E-mail Marketing");
+    const creators = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Criadores"))!;
+    await act(async () => creators.click());
+    expect(open).toHaveBeenCalledWith("creators");
   });
 
   it("agrupa Relacionamento em Analisar resultados sem duplicar o Dashboard e respeita permissões", async () => {
@@ -167,7 +166,7 @@ describe("nova entrada e processos", () => {
     expect(host.textContent).toContain("Relacionamento");
     expect(host.textContent).toContain("WhatsApp");
     expect(host.textContent).toContain("Comentários");
-    // E-mail Marketing e Captação têm o acesso principal em Criar conteúdo.
+    // E-mail Marketing e Captação têm o acesso operacional em Lançar campanha.
     expect(host.textContent).not.toContain("Captação");
     expect(host.textContent).not.toContain("E-mail Marketing");
     expect(host.textContent).not.toContain("Dashboard");
