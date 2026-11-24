@@ -38,18 +38,17 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
       { label: "Eventos", description: "Planeje produções e eventos da marca.", route: "production", icon: CalendarDays },
       { label: "Briefing", description: "Organize a demanda antes da produção.", route: "briefing", icon: FileText },
       { label: "Criadores", description: "Consulte e organize criadores para as ações.", route: "creators", icon: Users },
+      { label: "E-mail Marketing", description: "Crie e envie campanhas de e-mail para a base.", route: "email_marketing", icon: Mail },
+      { label: "Captação", description: "Capte e organize os contatos da operação.", route: "capture", icon: UserPlus },
     ],
   },
   campaign: {
     title: "Lançar campanha",
-    lead: "Prepare, aprove e acompanhe campanhas usando os recursos operacionais já existentes.",
+    lead: "Campanhas, criativos, briefings, Meta Ads, Google Ads, Resumo Executivo e Análise Técnica ficam todos na Mídia On.",
+    // Lançar campanha abre a Mídia On direto (App.tsx). Esta lista só aparece para quem não pode abrir a Mídia On.
+    // Aprovação Interna/Final seguem na Home ("Precisa da sua atenção") e no menu; o acompanhamento, em Meu trabalho.
     tools: [
-      { label: "Campanhas", description: "Abra a central de campanhas e seus planos.", route: "media", icon: Megaphone },
-      { label: "Mídia On", description: "Defina estratégia, verba e cenários de mídia.", route: "media", icon: Target },
-      { label: "Criativos", description: "Use os recursos de criativos disponíveis na central de campanhas.", route: "media", icon: Sparkles },
-      { label: "Aprovação Interna", description: "Revise as peças que aguardam a decisão da equipe.", route: "internal_approval", icon: FileText },
-      { label: "Aprovação Final", description: "Acompanhe as peças enviadas para a decisão final.", route: "final_approval", icon: FileText },
-      { label: "Acompanhamento", description: "Acompanhe a execução nas tarefas da empresa.", route: "tasks", icon: BarChart3 },
+      { label: "Mídia On", description: "Campanhas, criativos, verba e resultados de mídia.", route: "media", icon: Target },
     ],
   },
   analysis: {
@@ -69,10 +68,10 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
   },
 };
 
+// E-mail Marketing e Captação têm o acesso principal em Criar conteúdo; os resultados deles seguem nas próprias telas.
+// O WhatsApp aparece aqui pelos resultados e em Meu trabalho pela operação (a mesma ferramenta).
 const RELATIONSHIP_TOOLS: Tool[] = [
-  { label: "WhatsApp", description: "Acompanhe conversas e relacionamento pelo WhatsApp.", route: "whatsapp", icon: MessageCircle },
-  { label: "E-mail Marketing", description: "Acesse campanhas e resultados de e-mail.", route: "email_marketing", icon: Mail },
-  { label: "Captação", description: "Consulte os contatos captados pela operação.", route: "capture", icon: UserPlus },
+  { label: "WhatsApp", description: "Resultados das conversas, atendimentos e disparos.", route: "whatsapp", icon: MessageCircle },
   { label: "Comentários", description: "Acompanhe comentários e interações disponíveis.", route: "engagement", icon: MessageSquare },
 ];
 

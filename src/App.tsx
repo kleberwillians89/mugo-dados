@@ -887,6 +887,15 @@ function PrivateApp() {
     return canViewAppRoute(target, can);
   };
   const canEdit = (module: string) => can(`${module}.edit`);
+
+  // Lançar campanha abre a Mídia On direto (sem tela intermediária). Substitui a entrada do histórico para o
+  // "voltar" do navegador não cair de novo em /lancar-campanha. Sem acesso à Mídia On, mostra a entrada normal.
+  const campaignGoesToMedia = route === "process_campaign" && canView("media");
+  useEffect(() => {
+    if (!campaignGoesToMedia) return;
+    navigateToAppRoute("media", { replace: true });
+    setRoute("media");
+  }, [campaignGoesToMedia]);
   const firstAllowed = (["home", "central", "meta", "ecommerce", "campaigns", "redacao", "calendar", "briefing", "tasks", "creators", "library", "engagement", "clipping", "social_report", "brand_ai", "mugo_ia", "media", "customers", "origins", "google"] as AppRoute[])
     .find((target) => canView(target));
 
@@ -1038,7 +1047,8 @@ function PrivateApp() {
         <ProjectsPage key={`production:${activeClientId}`} kind="evento" />
       ) : route === "tasks" ? (
         teamHere || canEdit("tasks")
-          ? <Tasks key={`tasks:${activeClientId}`} canManage={teamHere || canEdit("tasks")} isAgency={teamHere} />
+          ? <Tasks key={`tasks:${activeClientId}`} canManage={teamHere || canEdit("tasks")} isAgency={teamHere}
+              onOpenWhatsApp={canView("whatsapp") ? () => openRoute("whatsapp") : undefined} />
           : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "benchmark" ? (
         <Benchmark key={`benchmark:${activeClientId}`} />
