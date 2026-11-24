@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import CreatorFinder from "../components/creators/CreatorFinder";
+import MediaKits from "../components/creators/MediaKits";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorCompact, creatorNumber, deleteCreator,
@@ -19,6 +20,7 @@ const MISSING_LABEL: Record<string, string> = {
 const NETWORK_OPTIONS = Object.entries(CREATOR_NETWORKS).map(([id, label]) => ({ id, label }));
 // TikTok e descoberta usam créditos Apify da Mugô: só a agência.
 const CLIENT_NETWORK_OPTIONS = NETWORK_OPTIONS.filter((o) => o.id !== "tiktok");
+const TAB_OPTIONS = [{ id: "criadores", label: "Criadores" }, { id: "kits", label: "Mídia kit e valores" }];
 const CAMPAIGN_OPTIONS = [{ id: "influencer", label: "Influência" }, { id: "ugc", label: "UGC" }];
 type Busy = null | "lookup" | "search" | "suggest" | "other";
 type SuggestResult = { suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean };
@@ -62,6 +64,7 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
   const [creators, setCreators] = useState<Creator[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
   const [bankView, setBankView] = useState<"cards" | "tabela">("cards");
+  const [tab, setTab] = useState<"criadores" | "kits">("criadores");
   const [selected, setSelected] = useState<string[]>([]);
   const [comparison, setComparison] = useState<Creator[] | null>(null);
   const [shortlists, setShortlists] = useState<Shortlist[]>([]);
@@ -160,6 +163,8 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
       </ul> : null}
     </div>
 
+    <SegmentedControl ariaLabel="Seção" options={TAB_OPTIONS} value={tab} onSelect={(id) => setTab(id as "criadores" | "kits")} />
+    {tab === "kits" ? <div className="creatorWork"><MediaKits key={clientId || ""} creators={creators} canAct={canAct} /></div> :
     <div className="creatorWork">
       {canAct ? <div className="creatorPanels">
         <section className="creatorCard" aria-labelledby="creator-find">
@@ -306,6 +311,6 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
             </tr>)}</tbody>
           </table></div>}
       </section>
-    </div>
+    </div>}
   </div></Shell>;
 }

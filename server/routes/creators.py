@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
+from services import creator_media_kits as kits
 from services import creators
 from services.ig_supabase import sb_delete, sb_get_one_by, sb_insert, sb_update
 from services.studio_calendar import StudioError
@@ -59,6 +60,42 @@ class ShortlistItemInput(Strict):
 class ShortlistItemPatch(Strict):
     status: Optional[ItemStatus] = None
     notes: Optional[str] = Field(default=None, max_length=2000)
+
+
+class PriceInput(Strict):
+    deliverable: str = Field(min_length=1, max_length=120)
+    amount: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+    notes: Optional[str] = Field(default=None, max_length=300)
+
+
+class KitFileInput(Strict):
+    url: str = Field(min_length=9, max_length=1000, pattern=r"^https://")
+    name: Optional[str] = Field(default=None, max_length=160)
+    kind: Optional[str] = Field(default=None, max_length=40)
+    uploaded_at: Optional[str] = Field(default=None, max_length=40)
+
+
+class DealInput(Strict):
+    id: Optional[str] = Field(default=None, max_length=40)
+    closed_at: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    what: str = Field(min_length=1, max_length=300)
+    amount: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+    notes: Optional[str] = Field(default=None, max_length=500)
+    closed_by: Optional[str] = Field(default=None, max_length=80)
+
+
+class MediaKitInput(Strict):
+    files: list[KitFileInput] = Field(default_factory=list, max_length=kits.MAX_FILES)
+    prices: list[PriceInput] = Field(default_factory=list, max_length=kits.MAX_PRICES)
+    email: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    contact: Optional[str] = Field(default=None, max_length=300)
+    deals: list[DealInput] = Field(default_factory=list, max_length=kits.MAX_DEALS)
+    notes: Optional[str] = Field(default=None, max_length=4000)
+
+
+class KitUploadInput(Strict):
+    content_type: str = Field(min_length=3, max_length=80)
 
 
 async def agency(client_id: str, authorization: Optional[str]) -> str:
@@ -251,6 +288,36 @@ async def delete_shortlist_item(client_id: str, shortlist_id: UUID, item_id: UUI
     deleted = await sb_delete("creator_shortlist_items", filters={"id": f"eq.{item_id}", "shortlist_id": f"eq.{shortlist_id}", "client_id": f"eq.{cid}"})
     if not deleted:
         raise HTTPException(404, "Item não encontrado.")
+
+
+# Mídia kit e valores (migração 000144): por empresa. Quem lê a empresa vê; agência e client_admin editam.
+@router.get("/media-kits")
+async def list_media_kits(client_id: str, authorization: Optional[str] = Header(default=None)):
+    cid, only = await reader(client_id, authorization)
+    return {"kits": await kits.list_kits(cid, only)}
+
+
+@router.post("/media-kits/upload")
+async def media_kit_upload(client_id: str, body: KitUploadInput, authorization: Optional[str] = Header(default=None)):
+    cid, _ = await actor(client_id, authorization)
+    try:
+        return await kits.upload_target(cid, body.content_type)
+    except StudioError as exc:
+        raise HTTPException(422 if exc.code == "MEDIA_KIT_TYPE_INVALID" else 503, str(exc)) from None
+
+
+@router.put("/{creator_id}/media-kit")
+async def save_media_kit(client_id: str, creator_id: UUID, body: MediaKitInput, authorization: Optional[str] = Header(default=None)):
+    cid, only = await actor(client_id, authorization)
+    if not await creators.get_creator(str(creator_id), only_ids=only):
+        raise HTTPException(404, "Criador não encontrado.")
+    uid = await require_user_id(authorization)
+    try:
+        kit = await kits.save_kit(cid, str(creator_id), body.model_dump(mode="json"), user_id=uid)
+    except StudioError as exc:
+        raise HTTPException(422, str(exc)) from None
+    await creators.link_creators(cid, [str(creator_id)])  # o criador passa a ser da marca
+    return kit
 
 
 # Rotas com parâmetro por último: /usage e /shortlists não podem cair aqui.
