@@ -3,6 +3,7 @@ import { CalendarDays, Monitor, Smartphone } from "lucide-react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   STUDIO_FORMATS,
+  deleteApprovalContent,
   decideCalendarItem,
   getItemHistory,
   getPipeline,
@@ -38,10 +39,11 @@ const message = (cause: unknown, fallback: string) => cause instanceof Error && 
 type Props = {
   mode: ApprovalMode;
   isAgency: boolean;
+  canDeleteContent: boolean;
   onOpenCalendar: () => void;
 };
 
-export default function ApprovalWorkspace({ mode, isAgency, onOpenCalendar }: Props) {
+export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, onOpenCalendar }: Props) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(monthKey);
@@ -119,6 +121,20 @@ export default function ApprovalWorkspace({ mode, isAgency, onOpenCalendar }: Pr
     finally { setBusy(false); }
   }
 
+  async function remove() {
+    if (!selected || busy || !canDeleteContent) return;
+    if (!window.confirm(`Excluir o conteúdo “${selected.title}” da fila de aprovação? O histórico será preservado.`)) return;
+    const removedId = selected.id;
+    setBusy(true); setError(null); setNotice(null); setApprovalLink(null);
+    try {
+      await deleteApprovalContent(removedId);
+      setItems((current) => current.filter((item) => item.id !== removedId));
+      setSelectedId(null); setNote(""); setHistory([]);
+      setNotice("Conteúdo excluído. O histórico da peça foi preservado.");
+    } catch (cause) { setError(message(cause, "Não foi possível excluir o conteúdo.")); }
+    finally { setBusy(false); }
+  }
+
   const controls = <div className="approvalWorkspaceTopActions">
     <button type="button" className="ds-button" onClick={onOpenCalendar}><CalendarDays size={16} aria-hidden="true" /> Calendário</button>
   </div>;
@@ -166,6 +182,7 @@ export default function ApprovalWorkspace({ mode, isAgency, onOpenCalendar }: Pr
       </aside>
     </div>
     {selected ? <footer className="approvalDecisionBar">
+      {canDeleteContent ? <button type="button" className="ds-button" disabled={busy} onClick={() => void remove()}>Excluir conteúdo</button> : null}
       <button type="button" className="ds-button" disabled={busy} onClick={() => void requestChanges()}>Solicitar ajuste</button>
       <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void approve()}>{busy ? "Salvando…" : "Aprovar agora"}</button>
     </footer> : null}

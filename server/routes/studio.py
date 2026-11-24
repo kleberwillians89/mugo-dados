@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from services.ig_supabase import sb_delete, sb_insert, sb_update
 
 from services.studio_calendar import (
-    StudioError, create_item, delete_item, generate_month, list_items, load_profile,
+    StudioError, create_item, delete_approval_item, delete_item, generate_month, list_items, load_profile,
     parse_month, save_profile, update_item,
 )
 from services.studio_approvals import (
@@ -59,6 +59,7 @@ ERRORS = {
     "AI_PROVIDER_ERROR": (502, "A IA não respondeu agora. Tente novamente."),
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu pautas válidas. Tente novamente."),
     "ITEM_NOT_FOUND": (404, "Pauta não encontrada nesta empresa."),
+    "ITEM_NOT_PENDING": (409, "Esta peça já saiu da fila e não pode mais ser excluída por aqui."),
     "STATUS_INVALID": (422, "Status inválido."),
     "FORMAT_INVALID": (422, "Formato inválido."),
     "CHANNEL_INVALID": (422, "Plataforma inválida."),
@@ -889,6 +890,19 @@ async def remove_item(client_id: str, item_id: UUID, authorization: str | None =
     await _agency_only(authorization)
     try:
         await delete_item(cid, str(item_id))
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True}
+
+
+@router.delete("/calendar/items/{item_id}/approval-content")
+async def remove_approval_content(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    """Exclusão lógica da fila: exige calendar.edit e equipe Mugô; aprovar sozinho não autoriza."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        await delete_approval_item(cid, str(item_id), user_id=uid, actor_name=_chat_author(authorization, uid))
     except StudioError as exc:
         raise _http(exc) from None
     return {"ok": True}

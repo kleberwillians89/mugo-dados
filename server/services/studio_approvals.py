@@ -85,7 +85,7 @@ async def create_request(
     if not wanted:
         raise StudioError("NO_ITEMS", "Selecione ao menos uma pauta.")
     rows = await sb_select(ITEMS_TABLE, select="id,status,month",
-                           filters={"client_id": f"eq.{client_id}", "id": f"in.({','.join(wanted)})"}, limit=len(wanted))
+                           filters={"client_id": f"eq.{client_id}", "id": f"in.({','.join(wanted)})", "deleted_at": "is.null"}, limit=len(wanted))
     found = {str(r["id"]) for r in rows if r.get("status") != "rejeitado"}
     if found != set(wanted):
         raise StudioError("ITEMS_INVALID", "Alguma pauta não existe nesta empresa ou está rejeitada.")
@@ -171,7 +171,7 @@ async def public_view(token: str) -> Dict[str, Any]:
     request = await _open_request(token)
     ids = [str(i) for i in request.get("item_ids") or []]
     items = await sb_select(ITEMS_TABLE, select=PUBLIC_FIELDS,
-                            filters={"client_id": f"eq.{request['client_id']}", "id": f"in.({','.join(ids)})"},
+                            filters={"client_id": f"eq.{request['client_id']}", "id": f"in.({','.join(ids)})", "deleted_at": "is.null"},
                             order="scheduled_at.asc", limit=len(ids))
     events = await sb_select(EVENTS, select="item_id,action,comment,created_at",
                              filters={"request_id": f"eq.{request['id']}"}, order="created_at.desc", limit=500)
@@ -198,19 +198,27 @@ async def public_decide(token: str, item_id: str, *, action: str, comment: Optio
     ids = {str(i) for i in request.get("item_ids") or []}
     if str(item_id) not in ids:
         raise StudioError("LINK_UNAVAILABLE")
+    active = await sb_select(ITEMS_TABLE, select="id", limit=1,
+                             filters={"client_id": f"eq.{request['client_id']}", "id": f"eq.{item_id}", "deleted_at": "is.null"})
+    if not active:
+        raise StudioError("LINK_UNAVAILABLE")
     comment = (comment or "").strip()[:1000] or None
     if action == "ajuste_solicitado" and not comment:
         raise StudioError("COMMENT_REQUIRED", "Conte o que precisa mudar.")
     reviewer = (reviewer_name or request.get("contact_name") or "Cliente").strip()[:120]
-    await sb_insert(EVENTS, {"request_id": request["id"], "client_id": request["client_id"], "item_id": str(item_id),
-                             "action": action, "comment": comment, "reviewer_name": reviewer})
     patch = {"status": "aprovado" if action == "aprovado" else "rejeitado",
              "reviewed_by": f"cliente:{reviewer}", "reviewed_at": datetime.now(timezone.utc).isoformat(),
              "review_note": f"Cliente ({reviewer}): {comment}" if comment else None}
-    await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{request['client_id']}", "id": f"eq.{item_id}"}, patch=patch)
+    updated = await sb_update(ITEMS_TABLE,
+                              filters={"client_id": f"eq.{request['client_id']}", "id": f"eq.{item_id}", "deleted_at": "is.null"},
+                              patch=patch)
+    if not updated:
+        raise StudioError("LINK_UNAVAILABLE")
+    await sb_insert(EVENTS, {"request_id": request["id"], "client_id": request["client_id"], "item_id": str(item_id),
+                             "action": action, "comment": comment, "reviewer_name": reviewer})
     from .studio_team import notify_team
     item = (await sb_select(ITEMS_TABLE, select="id,title,scheduled_at", limit=1,
-                            filters={"client_id": f"eq.{request['client_id']}", "id": f"eq.{item_id}"}) or [{"id": item_id}])[0]
+                            filters={"client_id": f"eq.{request['client_id']}", "id": f"eq.{item_id}", "deleted_at": "is.null"}) or [{"id": item_id}])[0]
     await notify_team(request["client_id"], item, action, actor_name=reviewer, comment=comment)
     from .studio_tasks import sync_calendar_item
     await sync_calendar_item(request["client_id"], {**item, "status": patch["status"]}, comment=comment, actor_name=reviewer, by_client=True)

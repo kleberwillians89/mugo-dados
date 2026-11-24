@@ -6,6 +6,7 @@ import ApprovalWorkspace from "./ApprovalWorkspace";
 
 const studio = vi.hoisted(() => ({
   getPipeline: vi.fn(), decideCalendarItem: vi.fn(), updateCalendarItem: vi.fn(), sendForApproval: vi.fn(), getItemHistory: vi.fn(),
+  deleteApprovalContent: vi.fn(),
 }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studio }));
 vi.mock("../app/activeClient", () => ({ getActiveClientId: () => "tenant-a", getActiveClientName: () => "Marca A" }));
@@ -29,11 +30,12 @@ describe("ApprovalWorkspace", () => {
     studio.getPipeline.mockResolvedValue({ items: [item("i1", "revisao_interna", "Interna"), item("f1", "com_cliente", "Final")] });
     studio.getItemHistory.mockResolvedValue({ events: [] }); studio.updateCalendarItem.mockResolvedValue({ item: {} });
     studio.decideCalendarItem.mockResolvedValue({ item: {} }); studio.sendForApproval.mockResolvedValue({ link: "https://example.test/aprovar/token" });
+    studio.deleteApprovalContent.mockResolvedValue({ ok: true });
   });
-  afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); });
+  afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 
-  async function render(mode: "internal" | "final", isAgency = mode === "internal") {
-    await act(async () => root.render(<ApprovalWorkspace mode={mode} isAgency={isAgency} onOpenCalendar={vi.fn()} />));
+  async function render(mode: "internal" | "final", isAgency = mode === "internal", canDeleteContent = false) {
+    await act(async () => root.render(<ApprovalWorkspace mode={mode} isAgency={isAgency} canDeleteContent={canDeleteContent} onOpenCalendar={vi.fn()} />));
     await act(async () => { await Promise.resolve(); });
   }
 
@@ -67,12 +69,33 @@ describe("ApprovalWorkspace", () => {
 
   it("alterna visualização e abre o Calendário existente", async () => {
     const open = vi.fn();
-    await act(async () => root.render(<ApprovalWorkspace mode="final" isAgency={false} onOpenCalendar={open} />));
+    await act(async () => root.render(<ApprovalWorkspace mode="final" isAgency={false} canDeleteContent={false} onOpenCalendar={open} />));
     await act(async () => { await Promise.resolve(); });
     const mobile = [...host.querySelectorAll("button")].find((node) => node.textContent?.includes("Mobile"))!;
     await act(async () => mobile.click());
     expect(mobile.getAttribute("aria-pressed")).toBe("true");
     const calendar = [...host.querySelectorAll("button")].find((node) => node.textContent?.includes("Calendário"))!;
     await act(async () => calendar.click()); expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["internal", "final"] as const)("exclui conteúdo da fila %s somente com permissão específica", async (mode) => {
+    const target = mode === "internal" ? "i1" : "f1";
+    const title = mode === "internal" ? "Interna" : "Final";
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await render(mode, true, true);
+    const remove = [...host.querySelectorAll("button")].find((node) => node.textContent === "Excluir conteúdo")!;
+    await act(async () => { remove.click(); await Promise.resolve(); });
+    expect(confirm).toHaveBeenCalledWith(`Excluir o conteúdo “${title}” da fila de aprovação? O histórico será preservado.`);
+    expect(studio.deleteApprovalContent).toHaveBeenCalledWith(target);
+    expect(host.textContent).toContain("O histórico da peça foi preservado");
+    expect([...host.querySelectorAll(".approvalQueue strong")].some((node) => node.textContent === title)).toBe(false);
+    expect(host.textContent).not.toContain("Aprovar agora");
+  });
+
+  it("não oferece exclusão a quem apenas aprova", async () => {
+    await render("internal", true, false);
+    expect(host.textContent).toContain("Aprovar agora");
+    expect(host.textContent).not.toContain("Excluir conteúdo");
+    expect(studio.deleteApprovalContent).not.toHaveBeenCalled();
   });
 });

@@ -241,6 +241,9 @@ export function createCalendarItem(item: Required<Pick<CalendarItem, "scheduled_
 export function deleteCalendarItem(id: string) {
   return http(base(`/calendar/items/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
+export function deleteApprovalContent(id: string) {
+  return http<{ ok: true }>(base(`/calendar/items/${encodeURIComponent(id)}/approval-content`), { method: "DELETE" });
+}
 
 const SP = "America/Sao_Paulo";
 export function localParts(iso: string) {

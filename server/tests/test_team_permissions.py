@@ -69,6 +69,10 @@ class RouteModuleTests(unittest.TestCase):
             ta.route_module("POST", "/api/clients/roove/studio/calendar"),
             ("calendar", "calendar.edit"),
         )
+        self.assertEqual(
+            ta.route_module("DELETE", "/api/clients/roove/studio/calendar/items/item-1/approval-content"),
+            ("calendar", "calendar.edit"),
+        )
 
 
 def access(codes, *, status="active", total=False, role="viewer"):

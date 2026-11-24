@@ -60,7 +60,8 @@ async def client_edit(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     extra = set(patch) - CLIENT_FIELDS
     if extra:
         raise StudioError("CLIENT_FIELD_NOT_ALLOWED")
-    rows = await sb_select(ITEMS_TABLE, select="*", filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}, limit=1)
+    rows = await sb_select(ITEMS_TABLE, select="*",
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"}, limit=1)
     if not rows or not client_can_see(rows[0], await open_request_item_ids(client_id)):
         raise StudioError("ITEM_NOT_FOUND")
     current = rows[0]

@@ -200,7 +200,7 @@ class UpdateItemTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(sc, "sb_update", AsyncMock(return_value=[{"id": "i"}])) as update:
             await sc.update_item("roove", "i", {"status": "aprovado", "client_id": "outra"}, user_id="julia")
         patch_body = update.await_args.kwargs["patch"]
-        self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.i"})
+        self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.i", "deleted_at": "is.null"})
         self.assertEqual(patch_body["reviewed_by"], "julia")
         self.assertNotIn("client_id", patch_body)
 
@@ -208,6 +208,33 @@ class UpdateItemTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(sc, "sb_update", AsyncMock(return_value=[{"id": "i"}])) as update:
             await sc.update_item("roove", "i", {"scheduled_at": "2026-12-01T01:00:00+00:00"}, user_id="u")
         self.assertEqual(update.await_args.kwargs["patch"]["month"], "2026-11-01")  # 22h do dia 30/11 em SP
+
+
+class ApprovalDeleteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_soft_delete_is_tenant_scoped_and_preserves_the_item(self):
+        selected = AsyncMock(return_value=[{"id": "i1", "status": "em_revisao", "deleted_at": None}])
+        updated = AsyncMock(return_value=[{"id": "i1", "status": "em_revisao"}])
+        with patch.object(sc, "sb_select", selected), patch.object(sc, "sb_update", updated), \
+             patch("services.studio_history.record", AsyncMock()) as record:
+            await sc.delete_approval_item("tenant-a", "i1", user_id="u1", actor_name="Ana")
+        self.assertEqual(selected.await_args.kwargs["filters"],
+                         {"client_id": "eq.tenant-a", "id": "eq.i1", "deleted_at": "is.null"})
+        self.assertEqual(updated.await_args.kwargs["filters"],
+                         {"client_id": "eq.tenant-a", "id": "eq.i1", "status": "eq.em_revisao", "deleted_at": "is.null"})
+        self.assertIn("deleted_at", updated.await_args.kwargs["patch"])
+        self.assertEqual(updated.await_args.kwargs["patch"]["deleted_by"], "u1")
+        record.assert_awaited_once_with("tenant-a", "i1", "excluiu o conteúdo da fila de aprovação",
+                                        actor_name="Ana", actor_id="u1", side="mugo")
+
+    async def test_approved_or_published_content_is_never_deleted_from_approval(self):
+        for status in ("aprovado", "publicado"):
+            update = AsyncMock()
+            with self.subTest(status=status), patch.object(sc, "sb_select", AsyncMock(return_value=[{"id": "i1", "status": status}])), \
+                 patch.object(sc, "sb_update", update):
+                with self.assertRaises(sc.StudioError) as raised:
+                    await sc.delete_approval_item("tenant-a", "i1", user_id="u1", actor_name="Ana")
+            self.assertEqual(raised.exception.code, "ITEM_NOT_PENDING")
+            update.assert_not_awaited()
 
 
 if __name__ == "__main__":
