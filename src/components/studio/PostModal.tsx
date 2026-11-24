@@ -76,10 +76,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
   const art = slides.length && slides[0] !== artFailed ? slides : null;
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
-  // "Editar peça" (no Briefing da peça, primeiro bloco) abre a edição do direcionamento; abre sozinho se houver edição não salva.
-  const [editingPiece, setEditingPiece] = useState(false);
   const directionPending = JSON.stringify(cleanDirection(draft.creative_direction)) !== JSON.stringify(cleanDirection(item?.creative_direction));
-  const pieceOpen = editingPiece || directionPending;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
@@ -284,9 +281,9 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           {channel !== "instagram" ? <span className={`studioChip is-platform is-${channel}`}>{channelLabel}</span> : null}
         </div>
         {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} pending={directionPending}
-          editing={pieceOpen} onEdit={() => setEditingPiece(!pieceOpen)} /> : null}
-        {canManage && !clientMode && (!item || pieceOpen) ? <CreativeDirection value={draft.creative_direction || {}} onChange={(creative_direction) => set({ creative_direction })}
-          itemId={item?.id || null} disabled={busy} fromMatrix={item?.origin === "matriz"} pending={Boolean(item) && directionPending} /> : null}
+          piece={draft.piece} onPiece={(piece) => set({ piece })} direction={draft.creative_direction || {}} onDirection={(creative_direction) => set({ creative_direction })} /> : null}
+        {canManage && !clientMode && !item ? <CreativeDirection value={draft.creative_direction || {}} onChange={(creative_direction) => set({ creative_direction })}
+          itemId={null} disabled={busy} /> : null}
         <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
             {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
         {channel === "instagram" && draft.format === "stories" ? <div className="postArt" role="group" aria-label="Interação do Story">
