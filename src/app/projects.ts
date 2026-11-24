@@ -9,7 +9,17 @@ export const PROJECT_COLUMNS: { key: ProjectStatus; label: string }[] = [
   { key: "aprovacao_interna", label: "Aprovação interna" }, { key: "finalizado", label: "Finalizado" },
 ];
 export type ProjectInputs = { objective?: string; audience?: string; idea?: string; budget?: string; location?: string; notes?: string };
+export type ResearchCategory = "references" | "suppliers" | "market";
+export type ProjectResearch = {
+  status: "ok" | "partial" | "unavailable" | "not_configured";
+  items: { title: string; summary: string; url: string; researched_at: string; category?: ResearchCategory }[];
+  selected?: string[];
+  queries?: Partial<Record<ResearchCategory, string>>;
+  sources?: Partial<Record<ResearchCategory, string>>;
+};
+
 export type StrategyPlan = {
+  research?: ProjectResearch;
   context?: string; challenge?: string; insight?: string; strategy?: string; big_idea?: string; messages?: string[];
   channels?: { channel: string; role: string }[]; phases?: { phase: string; when: string; what: string }[];
   kpis?: { kpi: string; target: string }[]; risks?: string[];
@@ -20,7 +30,7 @@ export const BUDGET_LABELS: Record<BudgetCategory, string> = {
 };
 export type ProductionPlan = {
   summary?: string; timeline?: { date: string; phase: string; task: string }[]; staff?: { role: string; qty: number; note: string }[];
-  budget?: { category: BudgetCategory; item: string; value: number; supplier_link_id?: string }[]; budget_total?: number;
+  budget?: { category: BudgetCategory; item: string; value: number; supplier_link_id?: string; price_kind?: "published" | "estimate" | "quoted"; source_url?: string; price_date?: string }[]; budget_total?: number;
   risks?: { risk: string; impact: "baixo" | "medio" | "alto"; mitigation: string }[]; checklist?: string[];
 };
 export type ChatMessage = { role: "equipe" | "copiloto"; content: string; author?: string; at: string };
@@ -37,6 +47,7 @@ export type EventRadar = { local?: { name?: string; region?: string; country?: s
 export type Project = {
   id: string; kind: ProjectKind; title: string; status: ProjectStatus; format?: string | null; target_date?: string | null;
   inputs: ProjectInputs; plan: Omit<StrategyPlan, "risks"> & Omit<ProductionPlan, "risks"> & { risks?: StrategyPlan["risks"] | ProductionPlan["risks"] }; chat: ChatMessage[]; brief_id?: string | null;
+  research?: ProjectResearch | null;
   radar?: EventRadar | null; created_at: string; updated_at: string;
 };
 
@@ -53,6 +64,9 @@ export function updateProject(kind: ProjectKind, id: string, patch: Partial<Pick
 export function deleteProject(kind: ProjectKind, id: string) { return http<{ ok: true }>(one(kind, id), { method: "DELETE" }); }
 export function generateProject(kind: ProjectKind, id: string, opts: { use_chat?: boolean; instruction?: string } = {}) {
   return http<{ project: Project }>(one(kind, id, "/generate"), { method: "POST", body: JSON.stringify(opts), timeoutMs: 150_000 });
+}
+export function researchProject(kind: ProjectKind, id: string, input: Partial<Record<ResearchCategory, string>> | { selected: string[] }) {
+  return http<{ project: Project }>(one(kind, id, "/research"), { method: "POST", body: JSON.stringify(input), timeoutMs: 30_000 });
 }
 export function chatProject(kind: ProjectKind, id: string, message: string) {
   return http<{ project: Project }>(one(kind, id, "/chat"), { method: "POST", body: JSON.stringify({ message }), timeoutMs: 90_000 });

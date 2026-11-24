@@ -1,7 +1,7 @@
 """Brave Search: pesquisa pública verificável para o snapshot de inteligência.
 
 Não envia briefings, documentos, métricas ou dados de compradores à Brave.
-Usa somente o nome público da empresa cadastrada e consultas genéricas.
+Usa o nome público da empresa ou consultas públicas aprovadas pela equipe.
 Descoberta de criadores continua nas APIs oficiais existentes; busca web não
 comprova identidade nem métricas de criadores.
 """
@@ -88,19 +88,22 @@ class BraveSearchProvider:
         }.get(kind)
         if not suffix:
             return []
-        async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
-            response = await client.get(
-                API_URL,
-                headers={"X-Subscription-Token": self.api_key, "Accept": "application/json"},
-                params={"q": f'"{brand}" {suffix}', "count": 6, "country": "BR", "search_lang": "pt"},
-            )
-            response.raise_for_status()
-            results = _results(response.json(), category=kind)
+        results = await self.search_public(f'"{brand}" {suffix}', kind)
         if len(_cache) >= MAX_CACHE:
             oldest = min(_cache, key=lambda k: _cache[k][0])
             _cache.pop(oldest, None)
         _cache[key] = (time.monotonic(), results)
         return [dict(row) for row in results]
+
+    async def search_public(self, query: str, category: str) -> List[Dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
+            response = await client.get(
+                API_URL,
+                headers={"X-Subscription-Token": self.api_key, "Accept": "application/json"},
+                params={"q": query, "count": 6, "country": "BR", "search_lang": "pt"},
+            )
+            response.raise_for_status()
+            return _results(response.json(), category=category)
 
     async def research_brand_context(self, *, client_id: str, query: Dict[str, Any]) -> List[Dict[str, Any]]:
         return await self._search(client_id, "market")
