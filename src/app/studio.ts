@@ -213,6 +213,8 @@ export type ReelsOptions = {
   /** Stories interativos: exigem finalização manual no Instagram; nunca vão automaticamente pela API. */
   story_sticker?: "poll" | "question" | "quiz" | "emoji_slider" | "link" | "countdown" | "music";
   story_instruction?: string;
+  /** Centro do sticker na prévia, em % da área 9:16 (0–100). */
+  story_sticker_position?: { x: number; y: number };
 };
 export type ReelsMusic = { audio_id: string; title?: string; artist?: string | null; cover?: string | null; audio_volume?: number; video_volume?: number };
 export type ReelsAudio = { audio_id: string; title: string; artist: string | null; duration_ms: number | null; cover: string | null;
