@@ -183,7 +183,7 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
       <span className="bhMuted">vs período anterior</span>
       <button type="button" className="ds-button" aria-haspopup="dialog" disabled={tooManyDays}
         onClick={() => setListeningOpen(true)}>
-        <MessageSquare size={16} aria-hidden="true" /> Escuta social
+        <MessageSquare size={16} aria-hidden="true" /> Classificação de sentimento
       </button>
       <div className="bhChips">{SOURCES.map((s) => <button key={s} type="button" aria-pressed={sources.includes(s)} className={sources.includes(s) ? "is-on" : ""} onClick={() => toggleSource(s)}>{SOURCE_CHIP[s]}</button>)}</div>
     </div>
@@ -198,7 +198,7 @@ export default function BrandHealth({ canManage, onOpenAlerts }: { canManage: bo
 
     {!tooManyDays ? <HealthIndexCard start={range.start} end={range.end} revision={nonce} /> : null}
     <div className="bhListeningModal">
-      <Modal open={listeningOpen} title="Escuta social" onClose={() => setListeningOpen(false)}>
+      <Modal open={listeningOpen} title="Classificação de sentimento" onClose={() => setListeningOpen(false)}>
         <MentionReview start={range.start} end={range.end} onChanged={() => setNonce((n) => n + 1)} />
       </Modal>
     </div>
