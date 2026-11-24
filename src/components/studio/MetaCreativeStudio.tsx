@@ -3,7 +3,7 @@ import { uploadArt } from "../../app/artUpload";
 import { videoCover } from "../../app/videoCover";
 import { getActiveClientId } from "../../app/activeClient";
 import { searchShopProducts, type CalendarItem, type ShopProduct } from "../../app/studio";
-import { MAX_AD_CARDS, type AdCard, type AdFormat, type AdPayload, type InstagramCreativePost } from "../../app/metaAds";
+import { MAX_AD_CARDS, type AdCard, type AdCreative, type AdFormat, type AdPayload, type InstagramCreativePost } from "../../app/metaAds";
 import { listInstagramCreativePosts } from "../../app/metaAds";
 import "./MetaCreativeStudio.css";
 
@@ -29,9 +29,12 @@ type Props = {
   ad: AdPayload["ad"];
   disabled?: boolean;
   onChoose: (patch: Partial<AdPayload["ad"]>) => void;
+  /** Slots disponíveis além do anúncio aberto; não permite ultrapassar o limite Meta. */
+  availableAds?: number;
+  onAddCreatives?: (creatives: AdCreative[]) => void;
 };
 
-export default function MetaCreativeStudio({ clientId, month, calendar, ad, disabled, onChoose }: Props) {
+export default function MetaCreativeStudio({ clientId, month, calendar, ad, disabled, onChoose, availableAds = 0, onAddCreatives }: Props) {
   // Arte enviada aqui fica só com o anúncio (não entra na Biblioteca, que é só material da marca).
   const [uploaded, setUploaded] = useState<Asset[]>([]);
   const [igPosts, setIgPosts] = useState<InstagramCreativePost[]>([]);
@@ -46,6 +49,7 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
   const [shopError, setShopError] = useState("");
   const [query, setQuery] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const mode: AdFormat = ad.format === "carousel" ? "carousel" : "single";
   const cards: AdCard[] = ad.cards || [];
@@ -125,40 +129,71 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
     return () => { active = false; };
   }, [clientId]);
 
-  async function upload(file: File | undefined) {
-    if (!file || uploading) return;
-    const isVideo = ["video/mp4", "video/quicktime"].includes(file.type);
-    if (!isVideo && !["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
-      setLibraryError("Escolha uma imagem JPG, PNG ou WebP, ou um vídeo MP4 ou MOV.");
-      return;
+  /** Envio em lote: cada vídeo vira um anúncio separado; imagens no carrossel viram slides. */
+  async function upload(files: File[]) {
+    if (!files.length || uploading || disabled) return;
+    const batch = files.slice(0, 10);
+    const valid = (file: File) => ["video/mp4", "video/quicktime", "image/png", "image/jpeg", "image/webp"].includes(file.type)
+      || /\\.(mov|mp4)$/i.test(file.name);
+    if (batch.some((file) => !valid(file))) {
+      setLibraryError("Escolha apenas imagens JPG/PNG/WebP ou vídeos MP4/MOV."); return;
     }
-    if (isVideo && many) {
-      setLibraryError("Carrossel aceita só imagens. Para vídeo, escolha \"Imagem ou vídeo único\".");
+    if (many && batch.some((file) => ["video/mp4", "video/quicktime"].includes(file.type) || /\\.(mov|mp4)$/i.test(file.name))) {
+      setLibraryError("Carrossel aceita apenas imagens. Para adicionar vários vídeos, escolha Imagem ou vídeo único."); return;
+    }
+    const capacity = many ? MAX_AD_CARDS - cards.length
+      : availableAds + (!ad.video_url && !ad.image_url ? 1 : 0);
+    if (batch.length > capacity) {
+      setLibraryError(many ? `Restam ${Math.max(0, capacity)} espaços neste carrossel (limite de 10 imagens).`
+        : `Restam ${Math.max(0, capacity)} espaços para anúncios neste conjunto (limite de 10). Remova algum anúncio ou crie outro conjunto.`);
       return;
     }
     setUploading(true); setLibraryError("");
+    const created: AdCreative[] = [];
+    const assets: Asset[] = [];
     try {
-      const url = await uploadArt(null, file);
-      if (getActiveClientId() !== clientId) return;
-      if (isVideo) {
-        const blob = await videoCover(file);
-        let cover = "";
-        if (blob) {
-          try { cover = await uploadArt(null, new File([blob], "capa.jpg", { type: "image/jpeg" })); } catch { cover = ""; }
+      for (const [index, file] of batch.entries()) {
+        setUploadProgress(`Enviando ${index + 1} de ${batch.length}…`);
+        const url = await uploadArt(null, file);
+        if (getActiveClientId() !== clientId) throw new Error("Empresa ativa mudou. Operação interrompida.");
+        const isVideo = ["video/mp4", "video/quicktime"].includes(file.type) || /\\.(mov|mp4)$/i.test(file.name);
+        if (isVideo) {
+          const blob = await videoCover(file);
+          let cover = "";
+          if (blob) {
+            try { cover = await uploadArt(null, new File([blob], "capa.jpg", { type: "image/jpeg" })); }
+            catch { cover = ""; }
+          }
+          assets.push({ id: "up:" + url, title: file.name, url: cover || url, source: "upload", kind: "VIDEO", videoUrl: url });
+          created.push({ format: "single", media_type: "video", video_url: url, image_url: cover, cards: [] });
+        } else {
+          assets.push({ id: "up:" + url, title: file.name, url, source: "upload" });
+          created.push({ format: "single", media_type: "image", video_url: "", image_url: url, cards: [] });
         }
-        if (getActiveClientId() !== clientId) return;
-        setUploaded((old) => [{ id: "up:" + url, title: file.name, url: cover || url, source: "upload", kind: "VIDEO", videoUrl: url }, ...old]);
-        onChoose({ media_type: "video", video_url: url, image_url: cover, instagram_post_id: null, calendar_item_id: null });
-      } else {
-        setUploaded((old) => [{ id: "up:" + url, title: file.name, url, source: "upload" }, ...old]);
-        if (many) { if (cards.length < MAX_AD_CARDS) setCards([...cards, { image_url: url }]); }
-        else onChoose({ image_url: url, media_type: "image", video_url: "", instagram_post_id: null, calendar_item_id: null });
+      }
+      setUploaded((old) => [...assets.reverse(), ...old]);
+      if (many) {
+        setCards([...cards, ...created.map((creative) => ({ image_url: creative.image_url }))]);
+      } else if (created.length) {
+        const empty = !ad.video_url && !ad.image_url;
+        if (empty) {
+          const [first, ...extra] = created;
+          onChoose({ media_type: first.media_type, image_url: first.image_url,
+            video_url: first.video_url, instagram_post_id: null, calendar_item_id: null });
+          if (extra.length) onAddCreatives?.(extra);
+        } else {
+          onAddCreatives?.(created);
+        }
       }
       setSource("all");
     } catch (cause) {
-      if (getActiveClientId() === clientId) setLibraryError(cause instanceof Error ? cause.message : "Não foi possível enviar o arquivo.");
+      if (getActiveClientId() === clientId) {
+        // Arquivos já enviados à storage podem ser selecionados pela galeria mesmo após falha parcial.
+        if (assets.length) setUploaded((old) => [...assets, ...old]);
+        setLibraryError(cause instanceof Error ? cause.message : "Não foi possível enviar todos os arquivos.");
+      }
     } finally {
-      setUploading(false);
+      setUploading(false); setUploadProgress("");
       if (fileRef.current) fileRef.current.value = "";
     }
   }
@@ -168,10 +203,13 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
     <div className="metaCreativeStudioTitle">
       <div><h3>Estúdio de criativos</h3><p>{many ? `Clique nas imagens na ordem em que devem aparecer (até ${MAX_AD_CARDS}).` : "Envie a imagem ou o vídeo do anúncio, ou use uma arte do Calendário ou um post do Instagram."}</p></div>
       <button type="button" className="ds-button" disabled={disabled || uploading}
-        onClick={() => fileRef.current?.click()}>{uploading ? "Enviando…" : "+ Enviar imagem ou vídeo"}</button>
-      <input ref={fileRef} type="file" hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,.mov,.mp4"
-        onChange={(event) => void upload(event.currentTarget.files?.[0])} />
+        onClick={() => fileRef.current?.click()}>{uploading ? uploadProgress : "+ Enviar imagens ou vídeos"}</button>
+      <input ref={fileRef} type="file" multiple hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,.mov,.mp4"
+        onChange={(event) => void upload(Array.from(event.currentTarget.files || []))} />
     </div>
+    <p className="ds-caption">{many
+      ? `Escolha várias imagens de uma vez: cada uma vira um cartão do carrossel (até ${MAX_AD_CARDS} por anúncio).`
+      : `Envie vários vídeos e imagens juntos: cada arquivo vira um anúncio separado, com a mesma verba e público. ${availableAds} anúncio(s) adicional(is) disponível(is) neste conjunto.`}</p>
     {libraryError ? <p className="studioError" role="alert">{libraryError}</p> : null}
     {igError && source === "instagram" ? <p className="studioError" role="alert">{igError}</p> : null}
     {source === "shop" ? <p className="ds-caption">Produtos do catálogo da loja da marca. Ao escolher, a foto entra no anúncio e o nome, o preço e o link do produto preenchem título, descrição e destino (dá para editar depois).</p> : null}

@@ -11,6 +11,7 @@ const shopApi = vi.hoisted(() => ({ searchShopProducts: vi.fn() }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...shopApi }));
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "roove" }));
 vi.mock("../../app/artUpload", () => ({ uploadArt: vi.fn() }));
+vi.mock("../../app/videoCover", () => ({ videoCover: vi.fn().mockResolvedValue(null) }));
 vi.mock("../../app/metaAds", async (original) => ({ ...(await original<typeof import("../../app/metaAds")>()),
   listInstagramCreativePosts: vi.fn().mockResolvedValue({ posts: [] }) }));
 
@@ -61,6 +62,63 @@ describe("Mídia On — Estúdio de criativos", () => {
     expect(host.textContent).toContain("Enviada agora");
     act(() => root.unmount());
   });
+  it("envia múltiplas imagens como anúncios separados sem substituir a imagem existente", async () => {
+    vi.mocked(uploadArt).mockResolvedValueOnce("https://cdn.example.org/one.jpg")
+      .mockResolvedValueOnce("https://cdn.example.org/two.jpg");
+    host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host), choose = vi.fn(), add = vi.fn();
+    await act(async () => root.render(<MetaCreativeStudio clientId="roove" month="2026-11"
+      calendar={[]} ad={{ ...ad(), image_url: "https://cdn.example.org/existing.jpg" }}
+      onChoose={choose} availableAds={9} onAddCreatives={add} />));
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    const files = [new File(["1"], "one.png", { type: "image/png" }),
+      new File(["2"], "two.png", { type: "image/png" })];
+    Object.defineProperty(input, "files", { configurable: true, value: files });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(choose).not.toHaveBeenCalled();
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(add).toHaveBeenCalledWith([
+      expect.objectContaining({ image_url: "https://cdn.example.org/one.jpg", media_type: "image" }),
+      expect.objectContaining({ image_url: "https://cdn.example.org/two.jpg", media_type: "image" }),
+    ]);
+    act(() => root.unmount());
+  });
+  it("anexa dois vídeos distintos como anúncios sem trocar o criativo principal", async () => {
+    vi.mocked(uploadArt).mockResolvedValueOnce("https://cdn.example.org/video-1.mp4")
+      .mockResolvedValueOnce("https://cdn.example.org/video-2.mp4");
+    host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host), choose = vi.fn(), add = vi.fn();
+    await act(async () => root.render(<MetaCreativeStudio clientId="roove" month="2026-11"
+      calendar={[]} ad={{ ...ad(), image_url: "https://cdn.example.org/existing.jpg" }}
+      onChoose={choose} availableAds={9} onAddCreatives={add} />));
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    const files = [new File(["video1"], "video1.mp4", { type: "video/mp4" }),
+      new File(["video2"], "video2.mp4", { type: "video/mp4" })];
+    Object.defineProperty(input, "files", { configurable: true, value: files });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(choose).not.toHaveBeenCalled();
+    expect(add).toHaveBeenCalledWith([
+      expect.objectContaining({ media_type: "video", video_url: "https://cdn.example.org/video-1.mp4" }),
+      expect.objectContaining({ media_type: "video", video_url: "https://cdn.example.org/video-2.mp4" }),
+    ]);
+    act(() => root.unmount());
+  });
+  it("rejeita lote acima da capacidade antes de enviar qualquer arquivo", async () => {
+    host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host), choose = vi.fn(), add = vi.fn();
+    await act(async () => root.render(<MetaCreativeStudio clientId="roove" month="2026-11"
+      calendar={[]} ad={{ ...ad(), image_url: "https://cdn.example.org/existing.jpg" }}
+      onChoose={choose} availableAds={1} onAddCreatives={add} />));
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true,
+      value: [new File(["1"], "one.png", { type: "image/png" }), new File(["2"], "two.png", { type: "image/png" })] });
+    await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(host.textContent).toContain("Restam 1 espaços");
+    expect(uploadArt).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
   it("carrossel: marca várias imagens em ordem, cada cartão com título, e mostra 1/2 na prévia", async () => {
     const seen: AdPayload["ad"][] = [];
     function Host() {
