@@ -70,6 +70,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
   // Reels: prévia como aparece na aba Reels ou na grade do perfil, com as áreas que o app cobre.
   const [reelsView, setReelsView] = useState<"reels" | "grade">("reels");
   const [showSafe, setShowSafe] = useState(false);
+  const stickerPointer = useRef<number | null>(null);
   const slides = artSlides(draft.art_url);
   const folderLink = artList(draft.art_url).some(isDriveFolder);
   const art = slides.length && slides[0] !== artFailed ? slides : null;
@@ -97,6 +98,29 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
   const storyLines = (reelsOpts.story_instruction || "").split("\n").map((line) => line.trim()).filter(Boolean);
   const storyQuestion = storyLines[0] || (reelsOpts.story_sticker === "poll" ? "Sua pergunta aqui" : "Interação do Story");
   const storyOptions = storyLines.slice(1, 5);
+  const stickerPosition = reelsOpts.story_sticker_position || { x: 50, y: 50 };
+  const placeSticker = (x: number, y: number) => {
+    setDraft((current) => ({
+      ...current,
+      reels_options: {
+        ...(current.reels_options || {}),
+        story_sticker_position: { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 },
+      },
+    }));
+  };
+  const moveSticker = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (stickerPointer.current !== e.pointerId) return;
+    const card = e.currentTarget;
+    const frame = card.parentElement;
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const halfWidth = card.offsetWidth / 2;
+    const halfHeight = card.offsetHeight / 2;
+    const x = Math.min(rect.width - halfWidth, Math.max(halfWidth, e.clientX - rect.left));
+    const y = Math.min(rect.height - halfHeight, Math.max(halfHeight, e.clientY - rect.top));
+    placeSticker((x / rect.width) * 100, (y / rect.height) * 100);
+  };
   const autoPublish = AUTO_PUBLISH_CHANNELS.includes(channel) && !interactiveStory;
   const formatsFor = PLATFORM_FORMATS[channel] || (Object.keys(STUDIO_FORMATS) as StudioFormat[]);
   const when = draft.date ? localParts(`${draft.date}T${draft.time || "12:00"}:00-03:00`) : null;
@@ -175,8 +199,34 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
           {draft.product_tags?.length && draft.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados"><ShoppingBag className="uiGlyph" size={13} aria-hidden="true" /> {draft.product_tags.length}</span> : null}
           {isReels && showSafe ? <div className="reelsSafe" aria-hidden="true"><span>área da grade</span></div> : null}
-          {interactiveStory ? <div className="storyStickerPreview" aria-label="Simulação do sticker do Story (não será enviado pela API)" role="img">
-            <div className="storyStickerCard">
+          {interactiveStory ? <div className="storyStickerPreview" aria-label="Posição da prévia do sticker">
+            <div className="storyStickerCard" role="button" tabIndex={canManage && !clientMode && !busy ? 0 : -1}
+              aria-label="Mover sticker da prévia; arraste ou use as setas do teclado"
+              style={{ left: `${stickerPosition.x}%`, top: `${stickerPosition.y}%` }}
+              onPointerDown={(e) => {
+                if (!canManage || clientMode || busy) return;
+                stickerPointer.current = e.pointerId;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                e.preventDefault();
+              }}
+              onPointerMove={moveSticker}
+              onPointerUp={(e) => {
+                if (stickerPointer.current !== e.pointerId) return;
+                moveSticker(e);
+                stickerPointer.current = null;
+                if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+              }}
+              onPointerCancel={() => { stickerPointer.current = null; }}
+              onKeyDown={(e) => {
+                if (!canManage || clientMode || busy) return;
+                const delta = e.shiftKey ? 5 : 1;
+                const dx = e.key === "ArrowRight" ? delta : e.key === "ArrowLeft" ? -delta : 0;
+                const dy = e.key === "ArrowDown" ? delta : e.key === "ArrowUp" ? -delta : 0;
+                if (!dx && !dy) return;
+                e.preventDefault();
+                placeSticker(Math.max(0, Math.min(100, stickerPosition.x + dx)),
+                  Math.max(0, Math.min(100, stickerPosition.y + dy)));
+              }}>
               {reelsOpts.story_sticker === "poll" ? <>
                 <strong>{storyQuestion}</strong>
                 {(storyOptions.length ? storyOptions.slice(0, 2) : ["Sim", "Não"]).map((option, index) => <span className="storyStickerOption" key={index}>{option}</span>)}
@@ -193,7 +243,6 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
                 <strong>{storyQuestion}</strong><span className="storyStickerOption">00 : 00 : 00</span>
               </> : <><strong>♫ Música no Instagram</strong><span className="storyStickerOption">{storyQuestion}</span></>}
             </div>
-            <small>Prévia visual · finalize o sticker no Instagram</small>
           </div> : null}
         </div>}
         <div className="igActions" aria-hidden="true">
@@ -249,6 +298,11 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
                 value={reelsOpts.story_instruction || ""}
                 onChange={(e) => set({ reels_options: { ...reelsOpts, story_instruction: e.target.value } })} />
             </label>
+            <div className="storyStickerControls">
+              <small>Arraste a caixa sobre a arte para posicionar. Também é possível usar as setas do teclado.</small>
+              <button type="button" className="studioLink" disabled={!canManage || clientMode || busy}
+                onClick={() => placeSticker(50, 50)}>Centralizar caixa</button>
+            </div>
             <p className="postArtWarn" role="status">Este Story precisa ser finalizado no aplicativo do Instagram. O Mugô Verso guarda a arte, o horário e as instruções, mas <b>não publicará automaticamente sem o sticker</b>. Na data agendada ficará pendente de publicação manual.</p>
           </> : <small className="postArtHint">A imagem ou vídeo será publicado automaticamente, sem stickers interativos.</small>}
         </div> : null}
