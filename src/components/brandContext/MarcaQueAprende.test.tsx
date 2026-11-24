@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const api = vi.hoisted(() => ({ getContextHealth: vi.fn(), suggestLearning: vi.fn(), confirmLearning: vi.fn() }));
+const api = vi.hoisted(() => ({ getContextHealth: vi.fn(), suggestLearning: vi.fn(), confirmLearning: vi.fn(), getPendingLearning: vi.fn(), discardPendingLearning: vi.fn() }));
 vi.mock("../../app/brandContext", () => api);
 
 import BrandLearning from "./BrandLearning";
@@ -21,6 +21,8 @@ const HEALTH = { ok: true, score: 55, learning: { since: null, last_learning_at:
 beforeEach(() => {
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
   api.getContextHealth.mockResolvedValue(HEALTH);
+  api.getPendingLearning.mockResolvedValue({ ok: true, pending: null });
+  api.discardPendingLearning.mockResolvedValue({ ok: true });
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
@@ -70,9 +72,25 @@ describe("Aprender com o uso", () => {
       text.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => { button("Guardar 1 na memória")!.click(); });
-    expect(api.confirmLearning).toHaveBeenCalledWith(["A marca nunca usa emojis."]);
+    expect(api.confirmLearning).toHaveBeenCalledWith(["A marca nunca usa emojis."], null);
     expect(host.textContent).toContain("entraram na memória da marca");
     expect(onLearned).toHaveBeenCalled();
+  });
+
+  it("a pendência da semana aparece pronta; guardar fecha a pendência e descartar a remove", async () => {
+    api.getPendingLearning.mockResolvedValue({ ok: true, pending: { id: "p1", week: "2026-W48", signals: 6, created_at: null, facts: SUGGESTION.facts } });
+    api.confirmLearning.mockResolvedValue({ ok: true, saved: 1, knowledge: "k", sources: 2 });
+    await show(<BrandLearning />);
+    expect(host.textContent).toContain("A IA separou os aprendizados desta semana sozinha.");
+    expect(api.suggestLearning).not.toHaveBeenCalled();
+    await act(async () => { button("Guardar 1 na memória")!.click(); });
+    expect(api.confirmLearning).toHaveBeenCalledWith(["A marca não usa emojis nas legendas."], "p1");
+
+    act(() => root.unmount()); root = createRoot(host);
+    await show(<BrandLearning />);
+    await act(async () => { button("Descartar")!.click(); });
+    expect(api.discardPendingLearning).toHaveBeenCalledWith("p1");
+    expect(host.textContent).not.toContain("A IA separou");
   });
 
   it("sem nada novo, explica e não grava", async () => {
