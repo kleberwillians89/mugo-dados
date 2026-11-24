@@ -1,7 +1,8 @@
-import { ArrowUpRight, BookmarkCheck, Building2, Compass, Search, TrendingUp } from "lucide-react";
+import { ArrowRight, ArrowUpRight, BookmarkCheck, Building2, Compass, Search, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
-import { getPathForRoute } from "../app/routes";
+import { getPathForRoute, type AppRoute } from "../app/routes";
+import { PLANNING_TOOL_INFO } from "../app/planningTools";
 import { BUDGET_LABELS, PROJECT_COLUMNS, brl, chatProject, createProject, deleteProject, generateProject, listProjects, projectToBrief,
   researchProject, updateProject, type ResearchCategory, type BudgetCategory, type ProductionPlan, type Project, type ProjectInputs, type ProjectKind, type ProjectStatus } from "../app/projects";
 import { takeGoalsSectionRequest, takeNewProjectRequest } from "../app/newProjectRequest";
@@ -11,6 +12,7 @@ import EventRadar from "../components/projects/EventRadar";
 import { EventSuppliers, SupplierBook } from "../components/projects/Suppliers";
 import PageHeader from "../components/data/PageHeader";
 import "../styles/studio.css";
+import "../styles/process-entry.css";
 
 const COPY: Record<ProjectKind, { title: string; lead: string; newLabel: string; copilot: string; generate: string; empty: string }> = {
   planejamento: {
@@ -28,9 +30,11 @@ type Run = <T>(key: string, fn: () => Promise<T>, fallback: string) => Promise<T
 
 
 /** Planejamento (CSO) e Evento (produção RTV e eventos), trazidos da iAgência no layout do MUGOVERSO. Só a equipe. */
-export default function ProjectsPage({ kind, goals = null }: { kind: ProjectKind;
+export default function ProjectsPage({ kind, goals = null, tools = [], onOpen }: { kind: ProjectKind;
   /** Planejamento: seção Metas (mesmos registros de /metas). null = a pessoa não vê Metas. */
-  goals?: { canManage: boolean } | null }) {
+  goals?: { canManage: boolean } | null;
+  /** Planejamento: "Explorar ferramentas" (só as que a pessoa pode abrir). */
+  tools?: AppRoute[]; onOpen?: (route: AppRoute) => void }) {
   const clientId = getActiveClientId();
   const copy = COPY[kind];
   const [projects, setProjects] = useState<Project[]>([]);
@@ -79,12 +83,6 @@ export default function ProjectsPage({ kind, goals = null }: { kind: ProjectKind
         aria-selected={pageTab === key} className={pageTab === key ? "is-active" : ""} onClick={() => setPageTab(key)}>{label}</button>)}
     </div> : null}
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
-    {kind === "planejamento" && goals ? <section id="metas" ref={goalsRef} className="projGoals" aria-labelledby="planning-goals-title" style={{ margin: "8px 0 24px" }}>
-      <GoalsPanel canManage={goals.canManage} intro={false} header={(newButton) => <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div><h2 id="planning-goals-title" style={{ margin: 0 }}>Metas</h2><p className="libHint" style={{ margin: "4px 0 0" }}>Indicadores medidos da empresa no período (os mesmos da página Metas).</p></div>
-        {newButton}
-      </div>} />
-    </section> : null}
     {kind === "evento" && pageTab === "fornecedores" ? <SupplierBook busy={busy} run={run} /> : <>
     {creating ? <NewProject kind={kind} formats={formats} busy={busy} run={run} onCancel={() => setCreating(false)}
       onCreated={(p) => { replace(p); setCreating(false); setOpenId(p.id); }} /> : null}
@@ -110,6 +108,27 @@ export default function ProjectsPage({ kind, goals = null }: { kind: ProjectKind
     {current ? <ProjectDetail key={current.id} kind={kind} project={current} formats={formats} busy={busy} run={run} onChange={replace}
       onDeleted={() => { setProjects((l) => l.filter((x) => x.id !== current.id)); setOpenId(null); }} onClose={() => setOpenId(null)} /> : null}
     </>}
+    {kind === "planejamento" && goals ? <section id="metas" ref={goalsRef} className="projGoals" aria-labelledby="planning-goals-title" style={{ margin: "8px 0 24px" }}>
+      <GoalsPanel canManage={goals.canManage} intro={false} header={(newButton) => <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div><h2 id="planning-goals-title" style={{ margin: 0 }}>Metas</h2><p className="libHint" style={{ margin: "4px 0 0" }}>Indicadores medidos da empresa no período (os mesmos da página Metas).</p></div>
+        {newButton}
+      </div>} />
+    </section> : null}
+    {kind === "planejamento" && tools.length ? <section className="planningExplore projTools" aria-labelledby="planning-explore-title">
+      <div className="planningSectionHeading">
+        <div><span>Ferramentas</span><h2 id="planning-explore-title">Explorar ferramentas</h2></div>
+      </div>
+      <div className="planningToolGrid" aria-label="Ferramentas do Planejamento">
+        {PLANNING_TOOL_INFO.filter((tool) => tools.includes(tool.route)).map((tool, index) => <a key={tool.route} className="planningToolCard" data-accent={index % 6}
+          href={getPathForRoute(tool.route)} onClick={(event) => {
+            if (!onOpen || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault(); onOpen(tool.route);
+          }}>
+          <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
+          <ArrowRight size={18} aria-hidden="true" className="planningToolArrow" />
+        </a>)}
+      </div>
+    </section> : null}
   </div></Shell>;
 }
 

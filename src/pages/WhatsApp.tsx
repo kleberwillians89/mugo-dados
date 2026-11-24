@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { takeWhatsAppArea } from "../app/newProjectRequest";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { usePeriod } from "../app/PeriodContext";
 import { formatCurrency, formatInteger, formatPercentNumber } from "../app/dataFormat";
@@ -57,7 +58,8 @@ export default function WhatsApp() {
   const [insights, setInsights] = useState<{ scope: string; data: WhatsAppInsights | null; error: boolean }>({ scope: "", data: null, error: false });
   const [inbox, setInbox] = useState<{ data: WhatsAppInbox | null; error: boolean }>({ data: null, error: false });
   const [filter, setFilter] = useState<Filter>("all");
-  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("conversations");
+  // Atalho de Lançar campanha: /whatsapp?area=bulk (Disparos em massa) ou ?area=models (Modelos).
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(() => takeWhatsAppArea() || "conversations");
   const [query, setQuery] = useState("");
   const [channel, setChannel] = useState<"whatsapp" | "instagram">("whatsapp");
   const [draft, setDraft] = useState("");

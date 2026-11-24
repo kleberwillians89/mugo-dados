@@ -1,4 +1,6 @@
 import { DataHealthProvider } from "./app/DataHealthContext";
+import { requestNewProject } from "./app/newProjectRequest";
+import { PLANNING_TOOLS } from "./app/planningTools";
 import { DataHealthSummary } from "./components/data/DataFreshness";
 import { markReadStage } from "./app/readPerformance";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -896,14 +898,16 @@ function PrivateApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [route, activeClientId, session?.user?.id, teamHere, accessForClient, activeClientRole, localMode]);
 
-  // Lançar campanha abre a Mídia On direto (sem tela intermediária). Substitui a entrada do histórico para o
-  // "voltar" do navegador não cair de novo em /lancar-campanha. Sem acesso à Mídia On, mostra a entrada normal.
-  const campaignGoesToMedia = route === "process_campaign" && canView("media");
+  // Planejar abre direto o "Criar planejamento" (formulário aberto), sem tela intermediária. Substitui a entrada do
+  // histórico para o "voltar" não cair de novo em /planejar. Sem acesso ao Planejamento, mostra a entrada normal.
+  // Lançar campanha voltou a ter entrada própria (Mídia On, E-mail Marketing, Captação e atalhos do WhatsApp).
+  const planningGoesToForm = route === "process_planning" && canView("planning");
   useEffect(() => {
-    if (!campaignGoesToMedia) return;
-    navigateToAppRoute("media", { replace: true });
-    setRoute("media");
-  }, [campaignGoesToMedia]);
+    if (!planningGoesToForm) return;
+    requestNewProject("planejamento");
+    navigateToAppRoute("planning", { replace: true });
+    setRoute("planning");
+  }, [planningGoesToForm]);
   const firstAllowed = (["home", "central", "meta", "ecommerce", "campaigns", "redacao", "calendar", "briefing", "tasks", "creators", "library", "engagement", "clipping", "social_report", "brand_ai", "mugo_ia", "media", "customers", "origins", "google"] as AppRoute[])
     .find((target) => canView(target));
 
@@ -1051,7 +1055,8 @@ function PrivateApp() {
       ) : route === "library" ? (
         <LibraryPage key={`library:${activeClientId}`} />
       ) : route === "planning" ? (
-        <ProjectsPage key={`planning:${activeClientId}`} kind="planejamento" goals={canView("goals") ? { canManage: canEdit("central") } : null} />
+        <ProjectsPage key={`planning:${activeClientId}`} kind="planejamento" goals={canView("goals") ? { canManage: canEdit("central") } : null}
+          tools={PLANNING_TOOLS.filter((route) => canView(route))} onOpen={openRoute} />
       ) : route === "production" ? (
         <ProjectsPage key={`production:${activeClientId}`} kind="evento" />
       ) : route === "tasks" ? (

@@ -4,7 +4,7 @@ import { getActiveClientName } from "../app/activeClient";
 import { getPathForRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
-import { requestGoalsSection, requestNewProject } from "../app/newProjectRequest";
+import { requestGoalsSection, requestNewProject, requestWhatsAppArea } from "../app/newProjectRequest";
 import "../styles/process-entry.css";
 
 export type ProcessKind = "planning" | "content" | "campaign" | "analysis";
@@ -34,22 +34,20 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
     title: "Criar conteúdo",
     lead: "Acesse diretamente as ferramentas de criação disponíveis para a empresa selecionada.",
     tools: [
+      { label: "Briefing", description: "Organize a demanda antes da produção.", route: "briefing", icon: FileText },
       { label: "Social Media", description: "Trabalhe a matriz e as postagens sociais.", route: "campaigns", icon: Megaphone, permission: "social_media.view" },
       { label: "Redação", description: "Produza e refine textos no editor profissional.", route: "redacao", icon: PenLine },
-      { label: "Eventos", description: "Planeje produções e eventos da marca.", route: "production", icon: CalendarDays },
-      { label: "Briefing", description: "Organize a demanda antes da produção.", route: "briefing", icon: FileText },
       { label: "Criadores", description: "Consulte e organize criadores para as ações.", route: "creators", icon: Users },
-      { label: "E-mail Marketing", description: "Crie e envie campanhas de e-mail para a base.", route: "email_marketing", icon: Mail },
-      { label: "Captação", description: "Capte e organize os contatos da operação.", route: "capture", icon: UserPlus },
+      { label: "Eventos", description: "Planeje produções e eventos da marca.", route: "production", icon: CalendarDays },
     ],
   },
   campaign: {
     title: "Lançar campanha",
-    lead: "Campanhas, criativos, briefings, Meta Ads, Google Ads, Resumo Executivo e Análise Técnica ficam todos na Mídia On.",
-    // Lançar campanha abre a Mídia On direto (App.tsx). Esta lista só aparece para quem não pode abrir a Mídia On.
-    // Aprovação Interna/Final seguem na Home ("Precisa da sua atenção") e no menu; o acompanhamento, em Meu trabalho.
+    lead: "Ative os canais da campanha. Os resultados detalhados de cada um ficam em Analisar resultados.",
     tools: [
-      { label: "Mídia On", description: "Campanhas, criativos, verba e resultados de mídia.", route: "media", icon: Target },
+      { label: "Mídia On", description: "Campanhas, criativos, verba e indicadores de mídia.", route: "media", icon: Target },
+      { label: "E-mail Marketing", description: "Crie e envie campanhas de e-mail para a base.", route: "email_marketing", icon: Mail },
+      { label: "Captação", description: "Capte e organize os contatos da operação.", route: "capture", icon: UserPlus },
     ],
   },
   analysis: {
@@ -69,12 +67,18 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
   },
 };
 
-// E-mail Marketing e Captação têm o acesso principal em Criar conteúdo; os resultados deles seguem nas próprias telas.
+// E-mail Marketing e Captação têm o acesso operacional em Lançar campanha; os resultados deles seguem nas próprias telas.
 // O WhatsApp aparece aqui pelos resultados e em Meu trabalho pela operação (a mesma ferramenta).
 const RELATIONSHIP_TOOLS: Tool[] = [
   { label: "WhatsApp", description: "Resultados das conversas, atendimentos e disparos.", route: "whatsapp", icon: MessageCircle },
   { label: "Comentários", description: "Acompanhe comentários e interações disponíveis.", route: "engagement", icon: MessageSquare },
 ];
+
+// Lançar campanha: atalhos para áreas do WhatsApp (a ferramenta continua uma só, em Meu trabalho).
+const WHATSAPP_SHORTCUTS = [
+  { label: "Disparos em massa", description: "Envie campanhas pelo WhatsApp para listas da base.", area: "bulk" },
+  { label: "Modelos de campanha", description: "Consulte e envie modelos de mensagem para aprovação.", area: "models" },
+] as const;
 
 type Props = {
   kind: ProcessKind;
@@ -95,25 +99,11 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
   }
 
   if (kind === "planning") {
-    const planningTool = tools.find((tool) => tool.route === "planning");
     const quickStarts = tools.filter((tool) => ["planning", "campaigns", "goals"].includes(tool.route));
 
     return <Shell title={process.title} variant="editorial"><div className="ds-page processEntryPage planningEntryPage">
       <PageHeader company={getActiveClientName() || "empresa"} title={process.title} />
       <p className="processEntryLead">{process.lead}</p>
-
-      {planningTool ? <section className="planningCurrent" aria-labelledby="planning-current-title">
-        <div className="planningSectionEyebrow">Seu espaço de estratégia</div>
-        <div className="planningCurrentContent">
-          <div>
-            <h2 id="planning-current-title">Meu planejamento</h2>
-            <p>Continue no ambiente de planejamento da empresa selecionada, com os registros e períodos já salvos.</p>
-          </div>
-          <a className="planningPrimaryAction" href={getPathForRoute(planningTool.route)} onClick={(event) => open(event, planningTool.route)}>
-            Continuar planejamento <ArrowRight size={18} aria-hidden="true" />
-          </a>
-        </div>
-      </section> : null}
 
       {quickStarts.length ? <section className="planningStart" aria-labelledby="planning-start-title">
         <div className="planningSectionHeading">
@@ -177,6 +167,20 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
         </a>;
       })}
     </div> : null}
+    {kind === "campaign" && canView("whatsapp") ? <section className="processToolSection" aria-labelledby="process-whatsapp-title">
+      <h2 id="process-whatsapp-title">WhatsApp</h2>
+      <div className="processToolGrid">
+        {WHATSAPP_SHORTCUTS.map((item, index) => <a key={item.area} className="processToolCard" data-accent={(index + 3) % 6}
+          href={`${getPathForRoute("whatsapp")}?area=${item.area}`} onClick={(event) => {
+            if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) requestWhatsAppArea(item.area);
+            open(event, "whatsapp");
+          }}>
+          <span className="processToolIcon"><MessageCircle size={20} aria-hidden="true" /></span>
+          <span><strong>{item.label}</strong><small>{item.description}</small></span>
+          <ArrowRight size={18} aria-hidden="true" className="processToolArrow" />
+        </a>)}
+      </div>
+    </section> : null}
     {relationshipTools.length ? <section className="processToolSection" aria-labelledby="process-relationship-title">
       <h2 id="process-relationship-title">Relacionamento</h2>
       <div className="processToolGrid">
