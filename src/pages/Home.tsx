@@ -36,7 +36,7 @@ export default function Home({ canView, onOpen }: Props) {
   }
 
   return <Shell title="Início" variant="editorial"><div className="ds-page processHomePage">
-    <PageHeader company={getActiveClientName() || "empresa"} title="O que vamos fazer hoje?" />
+    <PageHeader company={getActiveClientName() || "empresa"} title="O que vamos fazer hoje?" back={false} />
     <div className="processHomeGrid" aria-label="Processos do Mugoverso">
       {actions.map((action) => {
         const Icon = action.icon;

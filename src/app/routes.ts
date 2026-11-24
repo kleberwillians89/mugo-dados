@@ -198,10 +198,26 @@ export function getPathForRoute(route: AppRoute): string {
   return "/meta";
 }
 
+/** Quantas telas do Mugoverso existem antes desta no histórico (0 = chegou de fora, link direto ou primeira tela). */
+export function appHistoryDepth(): number {
+  const state = window.history.state as { mugoDepth?: unknown } | null;
+  return typeof state?.mugoDepth === "number" && state.mugoDepth > 0 ? state.mugoDepth : 0;
+}
+
 export function navigateToAppRoute(route: AppRoute, options?: { replace?: boolean }) {
   const path = getPathForRoute(route);
-  const method = options?.replace ? "replaceState" : "pushState";
-  window.history[method]({}, document.title, path);
+  if (options?.replace) window.history.replaceState({ mugoDepth: appHistoryDepth() }, document.title, path);
+  else window.history.pushState({ mugoDepth: appHistoryDepth() + 1 }, document.title, path);
+}
+
+/**
+ * Botão "Voltar" das páginas internas: volta à tela anterior do Mugoverso (o navegador restaura a URL, com filtros
+ * e período que estiverem nela). Sem histórico interno (link direto, nova aba), vai para um destino seguro: o Início.
+ */
+export function goBackInApp(fallback: AppRoute = "home") {
+  if (appHistoryDepth() > 0) { window.history.back(); return; }
+  navigateToAppRoute(fallback);
+  window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
 }
 
 /**
