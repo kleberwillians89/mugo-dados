@@ -94,6 +94,64 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
     onOpen(route);
   }
 
+  if (kind === "planning") {
+    const planningTool = tools.find((tool) => tool.route === "planning");
+    const quickStarts = tools.filter((tool) => ["planning", "campaigns", "goals"].includes(tool.route));
+
+    return <Shell title={process.title} variant="editorial"><div className="ds-page processEntryPage planningEntryPage">
+      <PageHeader company={getActiveClientName() || "empresa"} title={process.title} />
+      <p className="processEntryLead">{process.lead}</p>
+
+      {planningTool ? <section className="planningCurrent" aria-labelledby="planning-current-title">
+        <div className="planningSectionEyebrow">Seu espaço de estratégia</div>
+        <div className="planningCurrentContent">
+          <div>
+            <h2 id="planning-current-title">Meu planejamento</h2>
+            <p>Continue no ambiente de planejamento da empresa selecionada, com os registros e períodos já salvos.</p>
+          </div>
+          <a className="planningPrimaryAction" href={getPathForRoute(planningTool.route)} onClick={(event) => open(event, planningTool.route)}>
+            Continuar planejamento <ArrowRight size={18} aria-hidden="true" />
+          </a>
+        </div>
+      </section> : null}
+
+      {quickStarts.length ? <section className="planningStart" aria-labelledby="planning-start-title">
+        <div className="planningSectionHeading">
+          <div><span>Começar</span><h2 id="planning-start-title">Começar um trabalho</h2></div>
+          <p>Escolha o ponto de partida mais adequado. Não há uma ordem obrigatória.</p>
+        </div>
+        <div className="planningStartGrid">
+          {quickStarts.map((tool) => {
+            const Icon = tool.icon;
+            const action = tool.route === "planning" ? "Criar planejamento" : tool.route === "campaigns" ? "Criar Matriz Tática" : "Definir metas";
+            return <a key={`start:${tool.route}`} className="planningStartCard" href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
+              <span className="planningStartIcon"><Icon size={21} aria-hidden="true" /></span>
+              <span><strong>{action}</strong><small>{tool.description}</small></span>
+              <ArrowRight size={18} aria-hidden="true" />
+            </a>;
+          })}
+        </div>
+      </section> : null}
+
+      {tools.length ? <section className="planningExplore" aria-labelledby="planning-explore-title">
+        <div className="planningSectionHeading">
+          <div><span>Ferramentas</span><h2 id="planning-explore-title">Explorar ferramentas</h2></div>
+          <p>Acesse diretamente cada recurso disponível para o seu perfil.</p>
+        </div>
+        <div className="planningToolGrid" aria-label="Ferramentas de Planejar">
+          {tools.map((tool, index) => {
+            const Icon = tool.icon;
+            return <a key={`${tool.label}:${tool.route}`} className="planningToolCard" data-accent={index % 6} href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
+              <span className="planningToolIcon"><Icon size={21} aria-hidden="true" /></span>
+              <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
+              <ArrowRight size={18} aria-hidden="true" className="planningToolArrow" />
+            </a>;
+          })}
+        </div>
+      </section> : null}
+    </div></Shell>;
+  }
+
   return <Shell title={process.title} variant="editorial"><div className="ds-page processEntryPage">
     <PageHeader company={getActiveClientName() || "empresa"} title={process.title} />
     <p className="processEntryLead">{process.lead}</p>
