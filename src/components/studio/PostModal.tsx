@@ -210,7 +210,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
             <div className="storyStickerCard" role="button" tabIndex={canManage && !clientMode && !busy ? 0 : -1}
               aria-label="Mover sticker da prévia; arraste ou use as setas do teclado"
               data-scale={stickerScaleFactor}
-              style={{ left: `${stickerPosition.x}%`, top: `${stickerPosition.y}%`, "--story-sticker-scale": stickerScaleFactor } as CSSProperties}
+              style={{ left: `${stickerPosition.x}%`, top: `${stickerPosition.y}%`, "--story-sticker-scale": stickerScaleFactor, ...(stickerScale > 100 ? { width: `min(${95 / stickerScaleFactor}%, 270px)` } : {}) } as CSSProperties}
               onPointerDown={(e) => {
                 if (!canManage || clientMode || busy) return;
                 stickerPointer.current = e.pointerId;
