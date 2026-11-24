@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import CreatorFinder from "../components/creators/CreatorFinder";
-import MediaKits from "../components/creators/MediaKits";
+import MediaKits, { MediaKitDrawer } from "../components/creators/MediaKits";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorCompact, creatorNumber, deleteCreator,
   getCreatorUsage, getShortlist, listCreators, listShortlists, lookupCreator, refreshCreator, removeFromShortlist,
-  searchCreators, suggestCreators, updateShortlistItem,
-  type Creator, type CreatorNetwork, type CreatorSuggestion, type CreatorUsage, type ItemStatus, type Shortlist, type ShortlistItem,
+  kitSummary, listMediaKits, searchCreators, suggestCreators, updateShortlistItem,
+  type MediaKit, type Creator, type CreatorNetwork, type CreatorSuggestion, type CreatorUsage, type ItemStatus, type Shortlist, type ShortlistItem,
 } from "../app/creators";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -65,6 +65,18 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
   const [notes, setNotes] = useState<string[]>([]);
   const [bankView, setBankView] = useState<"cards" | "tabela">("cards");
   const [tab, setTab] = useState<"criadores" | "kits">("criadores");
+  // Mídia kit e valores (por marca): carregados uma vez, abertos numa gaveta a partir do card, da tabela ou da aba.
+  const [kits, setKits] = useState<Record<string, MediaKit>>({});
+  const [kitsLoading, setKitsLoading] = useState(true);
+  const [kitOpen, setKitOpen] = useState<Creator | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setKits({}); setKitsLoading(true); setKitOpen(null);
+    listMediaKits().then((r) => { if (alive) setKits(Object.fromEntries(r.kits.map((k) => [k.creator_id, k]))); })
+      .catch(() => { if (alive) setKits({}); })
+      .finally(() => { if (alive) setKitsLoading(false); });
+    return () => { alive = false; };
+  }, [clientId]);
   const [selected, setSelected] = useState<string[]>([]);
   const [comparison, setComparison] = useState<Creator[] | null>(null);
   const [shortlists, setShortlists] = useState<Shortlist[]>([]);
@@ -164,7 +176,9 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
     </div>
 
     <SegmentedControl ariaLabel="Seção" options={TAB_OPTIONS} value={tab} onSelect={(id) => setTab(id as "criadores" | "kits")} />
-    {tab === "kits" ? <div className="creatorWork"><MediaKits key={clientId || ""} creators={creators} canAct={canAct} /></div> :
+    {kitOpen ? <MediaKitDrawer key={kitOpen.id} creator={kitOpen} kit={kits[kitOpen.id]} canAct={canAct}
+      onSaved={(kit) => setKits((k) => ({ ...k, [kit.creator_id]: kit }))} onClose={() => setKitOpen(null)} /> : null}
+    {tab === "kits" ? <div className="creatorWork"><MediaKits creators={creators} kits={kits} loading={kitsLoading} onOpen={setKitOpen} /></div> :
     <div className="creatorWork">
       {canAct ? <div className="creatorPanels">
         <section className="creatorCard" aria-labelledby="creator-find">
@@ -282,6 +296,8 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
             </dl>
             <small className="creatorMuted">{CREATOR_SOURCES[creator.source] || creator.source} · {new Date(creator.collected_at).toLocaleDateString("pt-BR")} · {creator.sample_size} posts</small>
             {creator.missing_fields?.length ? <small className="creatorMissing">Sem {creator.missing_fields.map((f) => MISSING_LABEL[f] || f).join(", ")}</small> : null}
+            <small className="creatorMuted">{kitSummary(kits[creator.id])}</small>
+            <button type="button" className="ds-button" onClick={() => setKitOpen(creator)}>Abrir mídia kit</button>
             {canAct ? <div className="creatorActions creatorCardActions">
               <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} title={activeList ? undefined : "Escolha uma shortlist acima"}
                 onClick={() => activeList ? addTo(creator.id) : setError("Escolha ou crie uma shortlist acima para adicionar o criador.")}>+ Shortlist</button>
@@ -302,12 +318,15 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
                 <small>{CREATOR_SOURCES[creator.source] || creator.source} · {new Date(creator.collected_at).toLocaleDateString("pt-BR")} · {creator.sample_size} posts</small>
                 {creator.missing_fields?.length ? <small className="creatorMissing">Sem {creator.missing_fields.map((f) => MISSING_LABEL[f] || f).join(", ")}</small> : null}
               </td>
-              <td>{canAct ? <div className="creatorActions">
+              <td><div className="creatorActions">
+                <button type="button" className="ds-button" onClick={() => setKitOpen(creator)}>Abrir mídia kit</button>
+                {canAct ? <>
                 <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => run("other", async () => upsertLocal([await refreshCreator(creator.id)]), "Não foi possível atualizar o perfil.")}>Atualizar</button>
                 <button type="button" className="ds-button" disabled={Boolean(busy)} title={activeList ? undefined : "Escolha uma shortlist acima"}
                   onClick={() => activeList ? addTo(creator.id) : setError("Escolha ou crie uma shortlist acima para adicionar o criador.")}>+ Shortlist</button>
                 <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => remove([creator.id])}>Excluir</button>
-              </div> : null}</td>
+                </> : null}
+              </div></td>
             </tr>)}</tbody>
           </table></div>}
       </section>
