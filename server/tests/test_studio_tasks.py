@@ -64,6 +64,16 @@ class ScopeTests(unittest.IsolatedAsyncioTestCase):
             await st.update_task("roove", "t1", {"status": "in_progress"}, client_view=False)
         self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.t1"})
 
+    async def test_cancel_preserves_task_and_approval_history(self):
+        update = AsyncMock(return_value=[{**ROW, "status": "cancelled"}])
+        delete = AsyncMock()
+        with patch.object(st, "_owned", AsyncMock(return_value=ROW)), patch.object(st, "sb_update", update), \
+             patch.object(st, "sb_delete", delete):
+            out = await st.update_task("roove", "t1", {"status": "cancelled"}, client_view=False)
+        self.assertEqual(out["status"], "cancelled")
+        self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.t1"})
+        delete.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()
