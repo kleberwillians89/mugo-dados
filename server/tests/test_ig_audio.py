@@ -84,6 +84,22 @@ class StoryStickerPositionTests(unittest.TestCase):
         self.assertNotIn("story_sticker_position", without_sticker)
 
 
+class StoryManualMusicTests(unittest.TestCase):
+    def test_nome_digitado_sem_id_nao_vira_audio_de_api(self):
+        opts = clean_reels_options({"story_music_note": "Ben — Magnólia"})
+        self.assertEqual(opts["story_music_note"], "Ben — Magnólia")
+        self.assertNotIn("music", opts)
+
+    def test_story_com_musica_digitada_e_manual(self):
+        from services.ig_publish import media_for
+        item = {"format": "stories", "art_url": "https://cdn.x/story.png",
+                "reels_options": {"story_music_note": "Ben — Magnólia"}}
+        plan, manual = media_for(item)
+        self.assertIsNone(plan)
+        self.assertIn("Ben — Magnólia", manual)
+
+
+
 
 class MusicRelevanceTests(unittest.TestCase):
     def test_titulo_exato_vence_resultados_genericos(self):
