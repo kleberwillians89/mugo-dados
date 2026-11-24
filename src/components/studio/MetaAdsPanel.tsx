@@ -168,6 +168,17 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
       return { ...e, payload: { ...e.payload, ad: { ...e.payload.ad, extra_ads: extras } } };
     });
   };
+  /** Anexa criativos enviados em lote como anúncios separados, sem tocar em campanhas publicadas. */
+  const addCreatives = (creatives: AdCreative[]) => {
+    if (!creatives.length || locked) return;
+    setEditing((current) => {
+      if (!current || current.draft.status === "publicada" || current.draft.status === "publicando") return current;
+      const existing = current.payload.ad.extra_ads || [];
+      const available = Math.max(0, MAX_ADS - 1 - existing.length);
+      return { ...current, payload: { ...current.payload,
+        ad: { ...current.payload.ad, extra_ads: [...existing, ...creatives.slice(0, available)] } } };
+    });
+  };
   const addAd = () => {
     if (!editing) return;
     const extras = [...(editing.payload.ad.extra_ads || []), { format: "single" as const, image_url: "", media_type: "image" as const, cards: [] }];
@@ -372,7 +383,8 @@ export default function MetaAdsPanel({ month, objective, daysLeft, request }: { 
                 {!locked && current > 0 ? <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => removeAd(current)}>Remover anúncio {current + 1}</button> : null}
               </div>
               <MetaCreativeStudio key={clientId + ":" + editing.draft.id + ":" + current} clientId={clientId} month={month}
-                calendar={arts} ad={shown} disabled={locked || Boolean(busy)} onChoose={(patch) => setCreative(current, patch)} />
+                calendar={arts} ad={shown} disabled={locked || Boolean(busy)} onChoose={(patch) => setCreative(current, patch)}
+                availableAds={MAX_ADS - all.length} onAddCreatives={addCreatives} />
             </>;
           })()}
         </fieldset> : null}
