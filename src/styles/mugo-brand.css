@@ -1,0 +1,20 @@
+/*
+ * Identidade Mugô aplicada tela a tela (referência: Planejar). Vale só dentro de `.mugoBrand`, que as telas
+ * migradas colocam no contêiner da página: Tarefas, Briefing, Criadores, Metas, Planejamento e Evento.
+ * Só cor, cantos e foco: estrutura, textos, gráficos e cores de status/alerta não mudam.
+ */
+.mugoBrand .ds-button.is-primary{ border-color: var(--mugo-deep-blue); background: var(--mugo-deep-blue); color: #fff; }
+.mugoBrand .ds-button.is-primary:hover:not(:disabled){ border-color: color-mix(in srgb, var(--mugo-deep-blue) 82%, #000); background: color-mix(in srgb, var(--mugo-deep-blue) 82%, #000); }
+.mugoBrand .ds-button:not(.is-primary):hover:not(:disabled){ border-color: var(--mugo-deep-blue); color: var(--mugo-deep-blue); }
+.mugoBrand .ds-button:focus-visible, .mugoBrand .ds-segmented button:focus-visible, .mugoBrand .studioTabs button:focus-visible{ outline: 2px solid var(--mugo-deep-blue); outline-offset: 2px; }
+
+/* Abas: ativo em azul profundo, como no Planejar. */
+.mugoBrand .ds-segmented button[aria-pressed="true"]{ background: var(--mugo-deep-blue); color: #fff; }
+.mugoBrand .studioTabs button.is-active{ background: var(--mugo-deep-blue); border-color: var(--mugo-deep-blue); }
+
+/* Cards e seções: cantos e borda da linguagem do Planejar. */
+.mugoBrand .creatorCard{ border-color: var(--mugo-soft-gray); border-radius: 16px; }
+.mugoBrand .creatorCard h2, .mugoBrand .briefSection h3, .mugoBrand .projGoals h2{ color: var(--mugo-deep-blue); }
+
+/* Links de texto da página. */
+.mugoBrand .studioLink{ color: var(--mugo-deep-blue); }

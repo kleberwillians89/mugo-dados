@@ -51,7 +51,7 @@ export default function Tasks({ canManage = true, isAgency = true, onOpenWhatsAp
   /** Atendimento no WhatsApp (mesma ferramenta de Analisar resultados): atalho operacional, separado das tarefas. */
   onOpenWhatsApp?: () => void }) {
   const refresh = useRef<() => void>(() => undefined);
-  return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage">
+  return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage mugoBrand">
     <PageHeader company={getActiveClientName() || "empresa"} title="Tarefas" controls={<>
       {onOpenWhatsApp ? <button type="button" className="ds-button" onClick={onOpenWhatsApp}>Atendimento WhatsApp</button> : null}
       <button type="button" className="ds-button" onClick={() => refresh.current()}>Atualizar</button>
@@ -64,7 +64,7 @@ export default function Tasks({ canManage = true, isAgency = true, onOpenWhatsAp
 /** Tarefas para o cliente (só leitura): as que a Mugô marcou como visíveis ao cliente, sem nada interno. */
 export function ClientTasksPage() {
   const clientId = getActiveClientId();
-  return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage">
+  return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage mugoBrand">
     <PageHeader company={getActiveClientName() || "empresa"} title="Tarefas" />
     <p className="libHint">O que está em andamento com a Mugô para a sua empresa.</p>
     <TasksSummary />
