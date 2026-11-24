@@ -36,15 +36,22 @@ async function open(item: CalendarItem = ITEM, onSave = vi.fn(async () => true),
   await act(async () => { root.render(<PostModal item={item} initial={draftFrom(item)} handle="@ruah" pillars={[]} canManage busy={false} error={null}
     onClose={() => undefined} onSave={onSave} onStatus={noop} onDelete={noop} clientMode={clientMode} onSendForApproval={() => undefined} />); });
   await act(async () => {});
+  if (!clientMode) await act(async () => { btn("Editar peça")?.click(); });  // a edição da peça abre pelo botão no Briefing
   return onSave;
 }
 
 describe("Calendário: Direcionamento Criativo", () => {
-  it("é o primeiro bloco da edição e a janela não tem mais 'Gerar briefing com IA'", async () => {
-    await open();
+  it("o Briefing da peça é o primeiro bloco, com 'Editar peça' abrindo a edição logo abaixo", async () => {
+    await act(async () => { root.render(<PostModal item={ITEM} initial={draftFrom(ITEM)} handle="@ruah" pillars={[]} canManage busy={false} error={null}
+      onClose={() => undefined} onSave={vi.fn(async () => true)} onStatus={noop} onDelete={noop} onSendForApproval={() => undefined} />); });
     const panel = host.querySelector(".postPanel")!;
-    const firstBlock = [...panel.children].find((el) => !el.classList.contains("postPanelHead"))!;
-    expect(firstBlock.getAttribute("aria-label")).toBe("Direcionamento Criativo");
+    const blocks = () => [...panel.children].filter((el) => !el.classList.contains("postPanelHead"));
+    expect(blocks()[0].querySelector("summary")?.textContent).toBe("Briefing da peça");
+    expect(blocks()[0].textContent).toContain("Minha ideia");            // o direcionamento salvo aparece no briefing
+    expect(host.querySelector(".postDirection")).toBeNull();               // edição fechada até clicar
+    await act(async () => { btn("Editar peça")!.click(); });
+    expect(blocks()[1].getAttribute("aria-label")).toBe("Direcionamento Criativo");
+    expect(btn("Fechar edição")).toBeTruthy();
     expect(host.textContent).not.toContain("Gerar briefing com IA");
     expect(host.textContent).not.toContain("Refazer com IA");
     // O resto da janela continua: legenda, envio ao cliente, aprovar.
@@ -93,7 +100,6 @@ describe("Calendário: Direcionamento Criativo", () => {
   it("o direcionamento salvo permite enviar para quem cria e o cliente não vê o bloco", async () => {
     await open();
     expect(btn("Enviar para…")).toBeTruthy();
-    expect(host.textContent).toContain("O Direcionamento Criativo salvo (no topo) é o que vai para quem cria.");
     await open({ ...ITEM, status: "em_revisao" } as CalendarItem, vi.fn(async () => true), true);
     expect(host.querySelector(".postDirection")).toBeNull();
   });
