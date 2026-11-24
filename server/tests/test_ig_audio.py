@@ -63,6 +63,19 @@ class StoryStickerPositionTests(unittest.TestCase):
                                        "story_sticker_position": {"x": -10, "y": 110}})
         self.assertEqual(options["story_sticker_position"], {"x": 0.0, "y": 100.0})
 
+    def test_tamanho_do_sticker_persistido_e_limitado(self):
+        for size, expected in [(60, 60), (100, 100), (140, 140), (175, 140), (5, 60)]:
+            with self.subTest(size=size):
+                clean = clean_reels_options({"story_sticker": "poll", "story_sticker_scale": size})
+                self.assertEqual(clean["story_sticker_scale"], expected)
+
+    def test_tamanho_invalido_ignorado(self):
+        for size in (float("nan"), float("inf"), True, "grande"):
+            with self.subTest(size=size):
+                clean = clean_reels_options({"story_sticker": "question", "story_sticker_scale": size})
+                self.assertNotIn("story_sticker_scale", clean)
+        self.assertNotIn("story_sticker_scale", clean_reels_options({"story_sticker_scale": 120}))
+
     def test_posicao_invalida_ou_sem_sticker_nao_e_persistida(self):
         invalid = clean_reels_options({"story_sticker": "poll",
                                        "story_sticker_position": {"x": "NaN", "y": 15}})
