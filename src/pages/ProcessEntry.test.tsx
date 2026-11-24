@@ -61,6 +61,40 @@ describe("nova entrada e processos", () => {
     expect(open).toHaveBeenCalledWith("calendar");
   });
 
+  it("organiza Planejar em continuidade, ações de início e seis ferramentas existentes", async () => {
+    const open = vi.fn();
+    await act(async () => root.render(<ProcessEntry kind="planning" canView={() => true} canUse={() => true} onOpen={open} />));
+    expect(host.textContent).toContain("Meu planejamento");
+    expect(host.textContent).toContain("Continuar planejamento");
+    expect(host.textContent).toContain("Começar um trabalho");
+    for (const action of ["Criar planejamento", "Criar Matriz Tática", "Definir metas"]) expect(host.textContent).toContain(action);
+    expect(host.querySelectorAll(".planningToolCard")).toHaveLength(6);
+    for (const tool of ["Radar", "Benchmarking", "Planejamento", "Metas", "Matriz Tática de Conteúdo", "Calendário"]) expect(host.textContent).toContain(tool);
+    expect(host.textContent).not.toMatch(/\d+ (planejamentos?|projetos?|pendências?)/i);
+
+    const continuePlanning = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Continuar planejamento"))!;
+    expect(continuePlanning.getAttribute("href")).toBe("/planejamento");
+    await act(async () => continuePlanning.click());
+    expect(open).toHaveBeenCalledWith("planning");
+  });
+
+  it("mantém as ações de Planejar condicionadas às permissões atuais", async () => {
+    await act(async () => root.render(<ProcessEntry kind="planning" canView={(route) => route === "goals" || route === "calendar"} canUse={() => false} onOpen={vi.fn()} />));
+    expect(host.textContent).not.toContain("Meu planejamento");
+    expect(host.textContent).not.toContain("Criar planejamento");
+    expect(host.textContent).toContain("Definir metas");
+    expect(host.textContent).toContain("Metas");
+    expect(host.textContent).toContain("Calendário");
+    expect(host.textContent).not.toContain("Matriz Tática de Conteúdo");
+  });
+
+  it("preserva o markup existente dos outros processos", async () => {
+    await act(async () => root.render(<ProcessEntry kind="content" canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
+    expect(host.querySelector(".planningEntryPage")).toBeNull();
+    expect(host.querySelector(".processToolGrid")).not.toBeNull();
+    expect(host.textContent).toContain("Social Media");
+  });
+
   it("não confunde acesso somente ao Calendário com acesso à Matriz ou Social Media", async () => {
     const calendarOnlyCanView = (route: AppRoute) => route === "campaigns" || route === "calendar";
     const calendarOnlyCanUse = (permission: string) => permission === "calendar.view";
@@ -80,7 +114,7 @@ describe("nova entrada e processos", () => {
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
       await act(async () => root.render(<ProcessEntry kind={kind} canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
-      const hrefs = [...host.querySelectorAll<HTMLAnchorElement>(".processToolCard")].map((item) => item.getAttribute("href"));
+      const hrefs = [...host.querySelectorAll<HTMLAnchorElement>(".processToolCard, .planningToolCard")].map((item) => item.getAttribute("href"));
       expect(hrefs.length).toBeGreaterThanOrEqual(expected[kind].length);
       expect(hrefs.every((href) => Boolean(href) && href !== "/404")).toBe(true);
     }
