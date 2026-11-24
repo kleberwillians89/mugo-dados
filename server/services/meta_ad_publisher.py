@@ -472,7 +472,8 @@ async def _campaign_editor_context(client_id: str, draft_id: str) -> tuple[Dict[
     return row, account, camp
 
 
-async def _campaign_children(account: Dict[str, Any], campaign_id: str, level: str) -> List[Dict[str, Any]]:
+async def _campaign_children(account: Dict[str, Any], campaign_id: str, level: str, *,
+                             include_customer_goal: bool = False) -> List[Dict[str, Any]]:
     """Load all objects up to a hard cap. Fail closed rather than hide additional items."""
     if level not in ("adsets", "ads"):
         raise StudioError("AD_NOT_READY", "Nível Meta inválido.")
@@ -480,10 +481,20 @@ async def _campaign_children(account: Dict[str, Any], campaign_id: str, level: s
               if level == "adsets" else
               "id,name,campaign_id,adset_id,status,effective_status,creative{id,name,thumbnail_url}")
     params: Dict[str, Any] = {"fields": fields, "limit": 100}
+    if level == "adsets" and include_customer_goal:
+        params["fields"] += ",ad_set_goal{type}"
     seen: set[str] = set()
     rows: List[Dict[str, Any]] = []
     for _ in range(5):
-        body = await _graph("GET", f"/{campaign_id}/{level}", token=account["token"], params=params)
+        try:
+            body = await _graph("GET", f"/{campaign_id}/{level}", token=account["token"], params=params)
+        except MetaAdError as exc:
+            message = str(exc).lower()
+            if ("ad_set_goal{type}" not in params["fields"] or exc.code != "AD_META_REJECTED"
+                    or "ad_set_goal" not in message
+                    or not any(reason in message for reason in ("nonexisting field", "unknown field"))):
+                raise
+            return await _campaign_children(account, campaign_id, level)
         for item in body.get("data") or []:
             if str(item.get("campaign_id") or "") != str(campaign_id):
                 # Never display or change objects from another campaign/account.
@@ -505,15 +516,20 @@ async def live_campaign_structure(client_id: str, draft_id: str) -> Dict[str, An
     row, account, campaign = await _campaign_editor_context(client_id, draft_id)
     campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
     adsets, ads = await asyncio.gather(
-        _campaign_children(account, campaign_id, "adsets"),
+        _campaign_children(account, campaign_id, "adsets", include_customer_goal=True),
         _campaign_children(account, campaign_id, "ads"),
     )
     return {
         "source": "meta_graph", "checked_at": _now(), "read_only": True,
+        "ad_account_id": account["act"].removeprefix("act_"),
         "campaign": {k: campaign.get(k) for k in ("id", "name", "status", "effective_status")},
         "adsets": [
-            {k: a.get(k) for k in ("id", "name", "campaign_id", "status", "effective_status",
-                                   "daily_budget", "lifetime_budget", "start_time", "end_time")}
+            {
+                **{k: a.get(k) for k in ("id", "name", "campaign_id", "status", "effective_status",
+                                        "daily_budget", "lifetime_budget", "start_time", "end_time")},
+                "customer_acquisition_goal": (a["ad_set_goal"].get("type")
+                                              if isinstance(a.get("ad_set_goal"), dict) else None),
+            }
             for a in adsets
         ],
         "ads": [

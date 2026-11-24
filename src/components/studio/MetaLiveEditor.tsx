@@ -14,6 +14,12 @@ type Props = { draft: AdDraft; month: string; calendar: CalendarItem[]; onUpdate
 const currency = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const message = (cause: unknown) => cause instanceof Error ? cause.message : "Não foi possível salvar na Meta.";
 
+const customerGoalLabels: Record<number, string> = {
+  0: "Obter conversões de todos os públicos",
+  1: "Conquistar novos clientes (exclui clientes atuais e públicos engajados)",
+  2: "Conquistar novos clientes (exclui clientes atuais)",
+};
+
 export default function MetaLiveEditor({ draft, month, calendar, onUpdated, onAddCreatives, addingCreatives }: Props) {
   const clientId = getActiveClientId();
   const [open, setOpen] = useState(false);
@@ -193,6 +199,17 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated, onAd
           <h4>Conjuntos ({structure.adsets.length})</h4>
           {structure.adsets.map((item) => <div key={item.id} className="ds-noticeText" style={{ padding: 10, borderBottom: "1px solid #e3e6eb" }}>
             <strong>{item.name || item.id}</strong> · {item.effective_status || item.status}
+            <div>
+              <strong>Estratégia de ciclo de vida do cliente</strong>
+              <p className="ds-caption">
+                {customerGoalLabels[item.customer_acquisition_goal ?? -1] ?? "Não informada pela Meta"}
+              </p>
+              {/^[0-9]+$/.test(structure.ad_account_id) && /^[0-9]+$/.test(item.id) ? (
+                <a className="ds-button"
+                  href={`https://adsmanager.facebook.com/adsmanager/manage/adsets?act=${structure.ad_account_id}&selected_adset_ids=${item.id}`}
+                  target="_blank" rel="noopener noreferrer">Abrir conjunto na Meta</a>
+              ) : null}
+            </div>
             <button type="button" className="ds-button" disabled={addingCreatives || structureBusy}
               onClick={() => void addCreatives(item.id)}>Adicionar criativos neste conjunto</button>
             {item.daily_budget ? ` · Verba R$ ${(Number(item.daily_budget) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/dia` : ""}
