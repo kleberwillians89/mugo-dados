@@ -1051,7 +1051,7 @@ function PrivateApp() {
       ) : route === "library" ? (
         <LibraryPage key={`library:${activeClientId}`} />
       ) : route === "planning" ? (
-        <ProjectsPage key={`planning:${activeClientId}`} kind="planejamento" />
+        <ProjectsPage key={`planning:${activeClientId}`} kind="planejamento" goals={canView("goals") ? { canManage: canEdit("central") } : null} />
       ) : route === "production" ? (
         <ProjectsPage key={`production:${activeClientId}`} kind="evento" />
       ) : route === "tasks" ? (

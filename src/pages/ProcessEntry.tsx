@@ -4,7 +4,7 @@ import { getActiveClientName } from "../app/activeClient";
 import { getPathForRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
-import { requestNewProject } from "../app/newProjectRequest";
+import { requestGoalsSection, requestNewProject } from "../app/newProjectRequest";
 import "../styles/process-entry.css";
 
 export type ProcessKind = "planning" | "content" | "campaign" | "analysis";
@@ -124,10 +124,19 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
           {quickStarts.map((tool) => {
             const Icon = tool.icon;
             const action = tool.route === "planning" ? "Criar planejamento" : tool.route === "campaigns" ? "Criar Matriz Tática" : "Definir metas";
-            // Criar planejamento cai direto no formulário (sem clicar em "Novo planejamento" de novo).
+            // Criar planejamento cai direto no formulário; Definir metas abre o Planejamento na seção Metas
+            // (os mesmos registros de /metas). Sem acesso ao Planejamento, Definir metas abre a página Metas.
             const isNew = tool.route === "planning";
-            return <a key={`start:${tool.route}`} className="planningStartCard" href={`${getPathForRoute(tool.route)}${isNew ? "?novo=1" : ""}`}
-              onClick={(event) => { if (isNew && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) requestNewProject("planejamento"); open(event, tool.route); }}>
+            const goalsInPlanning = tool.route === "goals" && canView("planning");
+            const target: AppRoute = goalsInPlanning ? "planning" : tool.route;
+            const href = `${getPathForRoute(target)}${isNew ? "?novo=1" : goalsInPlanning ? "#metas" : ""}`;
+            return <a key={`start:${tool.route}`} className="planningStartCard" href={href}
+              onClick={(event) => {
+                const plain = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+                if (plain && isNew) requestNewProject("planejamento");
+                if (plain && goalsInPlanning) requestGoalsSection();
+                open(event, target);
+              }}>
               <span className="planningStartIcon"><Icon size={21} aria-hidden="true" /></span>
               <span><strong>{action}</strong><small>{tool.description}</small></span>
               <ArrowRight size={18} aria-hidden="true" />
