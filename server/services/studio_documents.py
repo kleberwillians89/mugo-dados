@@ -185,13 +185,13 @@ async def ai_write(client_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     prompt = build_ai_prompt(action, kind=kind, title=_clip(data.get("title"), 200), instruction=instruction,
                              selection=selection, document_text=document_text, intel=intel, profile=profile)
     if action == "titulos":
-        raw = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_doc_titles",
+        raw = await llm_json(brand="estrategia", client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_doc_titles",
                              schema=obj({"titulos": arr(STR)}), temperature=0.8)
         titles = [_clean_ai_text(t, 200) for t in raw.get("titulos") or [] if str(t or "").strip()][:5]
         if not titles:
             raise StudioError("AI_INVALID_OUTPUT")
         return {"action": action, "titles": titles, "text": "", "flags": [], "guard": []}
-    raw = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name=f"studio_doc_{action}",
+    raw = await llm_json(brand="estrategia", client_id=client_id, instructions=ROLE, prompt=prompt, schema_name=f"studio_doc_{action}",
                          schema=obj({"texto": STR}), temperature=0.3 if action == "corrigir" else 0.7, timeout=120)
     text = _clean_ai_text(raw.get("texto"))
     if not text:

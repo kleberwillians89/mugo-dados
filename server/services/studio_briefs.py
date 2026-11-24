@@ -146,7 +146,7 @@ async def generate_brief(client_id: str, request: str, links: List[str], *, inst
         + (f"\nTRECHOS DOS DOCUMENTOS DA MARCA ligados a este pedido (o nome do documento vem entre colchetes):\n{passages}\n" if passages else "")
         + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}"
     )
-    data = await llm_json(client_id=client_id, prompt=prompt, schema_name="studio_brief", schema=_schema(), temperature=0.4,
+    data = await llm_json(brand="conteudo", client_id=client_id, prompt=prompt, schema_name="studio_brief", schema=_schema(), temperature=0.4,
                           instructions="Você é o atendimento sênior de uma agência: transforma o pedido do cliente em briefing claro, curto e executável.")
     brief = clean_brief(data)
     if not (brief["summary"] or brief["objective"]):

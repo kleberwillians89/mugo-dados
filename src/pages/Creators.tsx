@@ -23,7 +23,7 @@ const CLIENT_NETWORK_OPTIONS = NETWORK_OPTIONS.filter((o) => o.id !== "tiktok");
 const TAB_OPTIONS = [{ id: "criadores", label: "Criadores" }, { id: "kits", label: "CRM criadores" }];
 const CAMPAIGN_OPTIONS = [{ id: "influencer", label: "Influência" }, { id: "ugc", label: "UGC" }];
 type Busy = null | "lookup" | "search" | "suggest" | "other";
-type SuggestResult = { suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean };
+type SuggestResult = { suggestions: CreatorSuggestion[]; discarded: string[]; filtered?: Record<string, string[]>; context_available: boolean };
 
 function message(cause: unknown, fallback: string) {
   return cause instanceof Error ? cause.message : fallback;
@@ -225,15 +225,17 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
         <header><h2 id="creator-ai-result">Sugestões da IA · {aiResult.suggestions.length}</h2>
           <button type="button" className="ds-button" onClick={() => setAiResult(null)}>Fechar</button></header>
         {!aiResult.context_available ? <p className="creatorMuted">O contexto de negócio desta empresa não está preenchido (Empresas → editar), por isso as sugestões ficam mais genéricas.</p> : null}
-        {!aiResult.suggestions.length ? <p>Nenhuma indicação foi confirmada na Meta. Detalhe o briefing e tente de novo.</p> :
-          <div className="creatorSuggestGrid">{aiResult.suggestions.map(({ creator, reason }) => <article key={creator.id} className="creatorSuggest">
+        {!aiResult.suggestions.length ? <p>Nenhuma indicação passou na conferência da Meta e nos filtros de porte, atividade e afinidade. Detalhe o briefing e tente de novo.</p> :
+          <div className="creatorSuggestGrid">{aiResult.suggestions.map(({ creator, reason, fit }) => <article key={creator.id} className="creatorSuggest">
             <Identity creator={creator} />
-            <dl><div><dt>Seguidores</dt><dd>{creatorCompact(creator.followers)}</dd></div><div><dt>Engajamento</dt><dd><Engagement value={creator.engagement_rate} /></dd></div></dl>
+            <dl><div><dt>Seguidores</dt><dd>{creatorCompact(creator.followers)}</dd></div><div><dt>Engajamento</dt><dd><Engagement value={creator.engagement_rate} /></dd></div>
+              {typeof fit === "number" ? <div><dt>Afinidade</dt><dd>{fit}/10</dd></div> : null}</dl>
             <p>{reason}</p>
             {!canAct ? null : activeList ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => addTo(creator.id)}>+ {activeListName}</button>
               : <small className="creatorMuted">Escolha uma shortlist para adicionar.</small>}
           </article>)}</div>}
         {aiResult.discarded.length ? <p className="creatorMuted">Descartados (não encontrados ou não profissionais na Meta): {aiResult.discarded.map((h) => `@${h}`).join(", ")}</p> : null}
+        {Object.entries(aiResult.filtered || {}).map(([why, handles]) => handles.length ? <p key={why} className="creatorMuted">Fora por {why}: {handles.map((h) => `@${h}`).join(", ")}</p> : null)}
       </section> : null}
 
       <div className="creatorToolbar">
