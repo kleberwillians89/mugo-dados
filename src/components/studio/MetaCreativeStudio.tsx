@@ -203,10 +203,13 @@ export default function MetaCreativeStudio({ clientId, month, calendar, ad, disa
     <div className="metaCreativeStudioTitle">
       <div><h3>Estúdio de criativos</h3><p>{many ? `Clique nas imagens na ordem em que devem aparecer (até ${MAX_AD_CARDS}).` : "Envie a imagem ou o vídeo do anúncio, ou use uma arte do Calendário ou um post do Instagram."}</p></div>
       <button type="button" className="ds-button" disabled={disabled || uploading}
-        onClick={() => fileRef.current?.click()}>{uploading ? "Enviando…" : "+ Enviar imagem ou vídeo"}</button>
-      <input ref={fileRef} type="file" hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,.mov,.mp4"
-        onChange={(event) => void upload(event.currentTarget.files?.[0])} />
+        onClick={() => fileRef.current?.click()}>{uploading ? uploadProgress : "+ Enviar imagens ou vídeos"}</button>
+      <input ref={fileRef} type="file" multiple hidden accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,.mov,.mp4"
+        onChange={(event) => void upload(Array.from(event.currentTarget.files || []))} />
     </div>
+    <p className="ds-caption">{many
+      ? `Escolha várias imagens de uma vez: cada uma vira um cartão do carrossel (até ${MAX_AD_CARDS} por anúncio).`
+      : `Envie vários vídeos e imagens juntos: cada arquivo vira um anúncio separado, com a mesma verba e público. ${availableAds} anúncio(s) adicional(is) disponível(is) neste conjunto.`}</p>
     {libraryError ? <p className="studioError" role="alert">{libraryError}</p> : null}
     {igError && source === "instagram" ? <p className="studioError" role="alert">{igError}</p> : null}
     {source === "shop" ? <p className="ds-caption">Produtos do catálogo da loja da marca. Ao escolher, a foto entra no anúncio e o nome, o preço e o link do produto preenchem título, descrição e destino (dá para editar depois).</p> : null}
