@@ -154,6 +154,19 @@ class CreativeDirectionInput(BaseModel):
     brief_id: Optional[UUID] = None
 
 
+class PieceBriefingInput(BaseModel):
+    """Briefing da peça editado pela equipe ("Editar peça"). Campo vazio apaga o campo."""
+    model_config = ConfigDict(extra="forbid")
+    angle: Optional[str] = Field(default=None, max_length=60)
+    summary: Optional[str] = Field(default=None, max_length=1500)
+    objective: Optional[str] = Field(default=None, max_length=1500)
+    key_message: Optional[str] = Field(default=None, max_length=1500)
+    tone: Optional[str] = Field(default=None, max_length=600)
+    target_audience: Optional[str] = Field(default=None, max_length=1500)
+    deliverables: Optional[List[str]] = Field(default=None, max_length=20)
+    tech_requirements: Optional[List[str]] = Field(default=None, max_length=20)
+
+
 class ItemPatch(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     scheduled_at: Optional[datetime] = None
@@ -171,6 +184,9 @@ class ItemPatch(BaseModel):
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
     creative_direction: Optional[CreativeDirectionInput] = None
+    script: Optional[str] = Field(default=None, max_length=6000)
+    visual_idea: Optional[str] = Field(default=None, max_length=3000)
+    briefing: Optional[PieceBriefingInput] = None
 
 
 class ReelsMusicInput(BaseModel):
