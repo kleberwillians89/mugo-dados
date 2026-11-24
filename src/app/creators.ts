@@ -91,3 +91,13 @@ export async function uploadMediaKit(file: File): Promise<KitFile> {
 }
 export const brl = (value: number | null | undefined) =>
   value == null ? "—" : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
+
+export const kitDateBR = (iso: string) => iso.split("-").reverse().join("/");
+/** Resumo de uma linha: "Kit ✓ (1) · 3 valor(es) · a partir de R$ 800 · Fechado ✓ 24/11/2026". */
+export function kitSummary(kit?: MediaKit): string {
+  if (!kit) return "Sem mídia kit";
+  const amounts = (kit.prices || []).map((p) => p.amount).filter((a): a is number => a != null);
+  return [kit.files?.length ? `Kit ✓ (${kit.files.length})` : "Sem arquivo",
+    amounts.length ? `${kit.prices.length} valor(es) · a partir de ${brl(Math.min(...amounts))}` : "",
+    kit.deals?.length ? `Fechado ✓ ${kitDateBR(kit.deals[0].closed_at)}${kit.deals.length > 1 ? ` (${kit.deals.length}x)` : ""}` : ""].filter(Boolean).join(" · ");
+}
