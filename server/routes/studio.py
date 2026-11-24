@@ -2133,6 +2133,37 @@ async def brand_learning_confirm(client_id: str, body: LearningConfirmInput, aut
     return {"ok": True, **result}
 
 
+class ReplyRatingInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    channel: Literal["whatsapp", "direct", "comentario"]
+    ref_id: str = Field(min_length=1, max_length=80)
+    customer_text: Optional[str] = Field(default=None, max_length=600)
+    ai_text: str = Field(min_length=1, max_length=1000)
+    rating: Literal["up", "down"]
+    reason: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.get("/knowledge/learn/sample")
+async def brand_learning_sample(client_id: str, authorization: str | None = Header(default=None)):
+    """Respostas que a IA mandou sozinha nos últimos dias, sorteadas para a equipe dar 👍👎."""
+    from services.autopilot_signals import sample
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    return {"ok": True, "replies": await sample(cid)}
+
+
+@router.post("/knowledge/learn/rate", status_code=201)
+async def brand_learning_rate(client_id: str, body: ReplyRatingInput, authorization: str | None = Header(default=None)):
+    from services.autopilot_signals import rate
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        await rate(cid, **body.model_dump(), user_id=await require_user_id(authorization))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except Exception:  # noqa: BLE001 — já avaliada (único) ou tabela ainda não aplicada
+        raise HTTPException(409, "Esta resposta já foi avaliada ou a avaliação não está disponível.") from None
+    return {"ok": True}
+
+
 @router.get("/knowledge/learn/pending")
 async def brand_learning_pending(client_id: str, authorization: str | None = Header(default=None)):
     """Aprendizados da semana que a IA separou sozinha, esperando revisão."""

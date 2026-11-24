@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Lightbulb } from "lucide-react";
+import AutoReplyReview from "./AutoReplyReview";
 import { confirmLearning, discardPendingLearning, getContextHealth, getPendingLearning, suggestLearning, type LearningSuggestion } from "../../app/brandContext";
 
 /**
@@ -92,5 +93,6 @@ export default function BrandLearning({ onLearned }: { onLearned?: () => void })
         <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void discard()}>Descartar</button>
       </div>
     </div> : null}
+    <AutoReplyReview />
   </section>;
 }
