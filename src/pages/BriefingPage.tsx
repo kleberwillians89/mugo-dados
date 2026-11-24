@@ -68,7 +68,7 @@ export default function BriefingPage() {
 
   const current = useMemo(() => briefs.find((b) => b.id === openId) || null, [briefs, openId]);
 
-  return <Shell title="Briefing" variant="editorial"><div className="ds-page studioPage briefPage">
+  return <Shell title="Briefing" variant="editorial"><div className="ds-page studioPage briefPage mugoBrand">
     <PageHeader company={getActiveClientName() || "empresa"} title="Briefing" />
     <section className="briefComposer" aria-label="Novo pedido">
       <label htmlFor="brief-request"><b>O que precisa?</b><span>{team ? "Escreva o pedido como chegou. A IA monta o briefing com o contexto da marca."

@@ -1,17 +1,17 @@
 /* Kanban integrado e recolhível (Shell). Recolhido: faixa fina; expandido: o quadro de Tarefas. Paleta Mugô. */
-.workKanban{ margin: 0 0 18px; border: 1px solid #e7eceb; border-radius: 14px; background: #fff; }
+.workKanban{ margin: 0 0 18px; border: 1px solid var(--mugo-soft-gray); border-radius: 14px; background: #fff; }
 .workKanban.is-open{ box-shadow: 0 6px 24px rgba(12, 65, 96, .06); }
 .workKanbanBar{ display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 8px 12px 8px 14px; min-height: 44px; }
-.workKanbanTitle{ display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: #0c4160; }
+.workKanbanTitle{ display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--mugo-deep-blue); }
 .workKanbanCounts{ display: inline-flex; flex-wrap: wrap; gap: 6px 14px; flex: 1 1 auto; font-size: 14px; color: #5f665f; }
 .workKanbanCounts b{ color: #1b1f1c; }
-.workKanbanCounts .is-late, .workKanbanCounts .is-late b{ color: #b22234; }
+.workKanbanCounts .is-late, .workKanbanCounts .is-late b{ color: var(--mugo-red); }
 .workKanbanLink{ font-size: 13px; color: #5f665f; text-decoration: underline; }
-.workKanbanToggle{ display: inline-flex; align-items: center; gap: 4px; border: 1px solid #e6d5bb; border-radius: 999px; padding: 5px 12px;
-  background: #f9f5ef; color: #0c4160; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
-.workKanbanToggle:hover{ background: #e6d5bb; }
-.workKanbanToggle:focus-visible{ outline: 2px solid #0c4160; outline-offset: 2px; }
-.workKanbanBoard{ border-top: 1px solid #e7eceb; padding: 12px; overflow-x: auto; }
+.workKanbanToggle{ display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--mugo-sand); border-radius: 999px; padding: 5px 12px;
+  background: var(--mugo-ivory); color: var(--mugo-deep-blue); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.workKanbanToggle:hover{ background: var(--mugo-sand); }
+.workKanbanToggle:focus-visible{ outline: 2px solid var(--mugo-deep-blue); outline-offset: 2px; }
+.workKanbanBoard{ border-top: 1px solid var(--mugo-soft-gray); padding: 12px; overflow-x: auto; }
 @media (max-width: 640px){
   .workKanbanBar{ padding: 8px 10px; }
   .workKanbanLink{ display: none; }

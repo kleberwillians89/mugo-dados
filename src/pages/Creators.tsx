@@ -164,7 +164,7 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
       : busy === "lookup" ? "Consultando o perfil…" : busy ? "Salvando…" : null;
   const activeListName = shortlists.find((s) => s.id === activeList)?.name;
 
-  return <Shell title="Criadores" variant="editorial"><div className="ds-page creatorsPage">
+  return <Shell title="Criadores" variant="editorial"><div className="ds-page creatorsPage mugoBrand">
     <div className="creatorIntro">
       <PageHeader company={clientName} title="Criadores" />
       <p>Descubra, analise e selecione criadores UGC e influenciadores. Métricas públicas com fonte e data; campos ausentes são sinalizados, nunca estimados.</p>

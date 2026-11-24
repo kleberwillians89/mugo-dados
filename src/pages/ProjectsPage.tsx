@@ -70,7 +70,7 @@ export default function ProjectsPage({ kind, goals = null }: { kind: ProjectKind
     if (!r) void load();
   }
 
-  return <Shell title={copy.title} variant="editorial"><div className="ds-page studioPage projPage">
+  return <Shell title={copy.title} variant="editorial"><div className="ds-page studioPage projPage mugoBrand">
     <PageHeader company={getActiveClientName() || "empresa"} title={copy.title}
       controls={<button type="button" className="ds-button is-primary" onClick={() => { setCreating(true); setOpenId(null); }}>{copy.newLabel}</button>} />
     <p className="libIntro">{copy.lead}</p>

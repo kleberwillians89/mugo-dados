@@ -23,6 +23,7 @@ describe("Meu trabalho: acesso operacional ao WhatsApp", () => {
     const open = vi.fn();
     await act(async () => root.render(<Tasks onOpenWhatsApp={open} />));
     expect(host.textContent).toContain("quadro");  // as tarefas continuam iguais
+    expect(host.querySelector(".ds-page.mugoBrand")).not.toBeNull();  // identidade Mugô aplicada na tela
     await act(async () => btn("Atendimento WhatsApp")!.click());
     expect(open).toHaveBeenCalledTimes(1);
   });
