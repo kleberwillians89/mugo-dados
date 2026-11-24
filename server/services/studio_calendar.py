@@ -529,7 +529,7 @@ def validate_items(
 async def list_items(client_id: str, month: date) -> List[Dict[str, Any]]:
     return await sb_select(
         ITEMS_TABLE, select="*",
-        filters={"client_id": f"eq.{client_id}", "month": f"eq.{month.isoformat()}"},
+        filters={"client_id": f"eq.{client_id}", "month": f"eq.{month.isoformat()}", "deleted_at": "is.null"},
         order="scheduled_at.asc", limit=200,
     )
 
@@ -741,7 +741,7 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
             before = found[0] if found else None
         except Exception as exc:  # noqa: BLE001
             print(f"[studio_calendar] estado_anterior_indisponivel {type(exc).__name__}")
-    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}
+    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"}
     if await _schedule_changed(client_id, item_id, clean):
         # Data ou plataforma mudou, ou saiu de "aprovado": o agendamento confirmado não vale mais.
         try:
@@ -770,7 +770,8 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
     """Equipe valida o agendamento de um post que o cliente aprovou, na data/horário sugeridos (ou ajustados).
     now=True: publica agora (o horário vira agora e o job dos próximos 5 min publica).
     Antes de agendar, confere se a arte publica sozinha (link do Canva, pasta do Drive, formato x arte)."""
-    rows = await sb_select(ITEMS_TABLE, select="*", limit=1, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
+    rows = await sb_select(ITEMS_TABLE, select="*", limit=1,
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"})
     if not rows:
         raise StudioError("ITEM_NOT_FOUND")
     item = rows[0]
@@ -791,7 +792,8 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
         when = datetime.fromisoformat(str(item["scheduled_at"]).replace("Z", "+00:00"))
         if when <= datetime.now(timezone.utc):
             raise StudioError("SCHEDULE_IN_PAST")
-    updated = await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "status": "eq.aprovado"},
+    updated = await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}",
+                                                    "status": "eq.aprovado", "deleted_at": "is.null"},
                               patch=patch)
     if not updated:
         raise StudioError("SCHEDULE_NEEDS_APPROVAL")
@@ -843,3 +845,26 @@ async def delete_item(client_id: str, item_id: str) -> None:
     rows = await sb_delete(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
     if not rows:
         raise StudioError("ITEM_NOT_FOUND")
+
+
+async def delete_approval_item(client_id: str, item_id: str, *, user_id: str, actor_name: str) -> None:
+    """Retira uma pauta pendente das aprovações sem apagar seu histórico ou arquivos.
+
+    A checagem e a atualização repetem tenant, estado e ausência de exclusão para que uma aprovação
+    concorrente nunca seja apagada por um clique antigo da fila.
+    """
+    rows = await sb_select(ITEMS_TABLE, select="id,status,deleted_at", limit=1,
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"})
+    if not rows:
+        raise StudioError("ITEM_NOT_FOUND")
+    if rows[0].get("status") != "em_revisao":
+        raise StudioError("ITEM_NOT_PENDING")
+    removed = await sb_update(ITEMS_TABLE,
+                              filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}",
+                                       "status": "eq.em_revisao", "deleted_at": "is.null"},
+                              patch={"deleted_at": datetime.now(timezone.utc).isoformat(), "deleted_by": user_id})
+    if not removed:
+        raise StudioError("ITEM_NOT_PENDING")
+    from .studio_history import record
+    await record(client_id, item_id, "excluiu o conteúdo da fila de aprovação",
+                 actor_name=actor_name, actor_id=user_id, side="mugo")

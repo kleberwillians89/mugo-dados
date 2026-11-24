@@ -85,12 +85,14 @@ class PublicTests(unittest.IsolatedAsyncioTestCase):
             view = await sa.public_view(TOKEN)
         self.assertEqual(reads.await_args_list[0].kwargs["filters"], {"token_hash": f"eq.{sa.hash_token(TOKEN)}"})
         self.assertEqual(reads.await_args_list[1].kwargs["filters"]["client_id"], "eq.roove")
+        self.assertEqual(reads.await_args_list[1].kwargs["filters"]["deleted_at"], "is.null")
         self.assertEqual(set(view["items"][0]), {"id", "scheduled_at", "format", "pillar", "title", "hook", "caption_draft", "art_url", "decision", "comment"})
         self.assertEqual(view["items"][0]["decision"], "aprovado")
         self.assertEqual(view["client_name"], "Roove")
 
     async def test_decision_updates_item_and_closes_request_when_all_decided(self):
-        reads = AsyncMock(side_effect=[[request_row()], [{"id": I2, "title": "Reels", "scheduled_at": FUTURE}], [{"item_id": I1}, {"item_id": I2}]])
+        reads = AsyncMock(side_effect=[[request_row()], [{"id": I2}], [{"id": I2, "title": "Reels", "scheduled_at": FUTURE}],
+                                           [{"item_id": I1}, {"item_id": I2}]])
         with patch.object(sa, "sb_select", reads), patch.object(sa, "sb_insert", AsyncMock()) as insert, \
              patch.object(sa, "sb_update", AsyncMock()) as update, patch("services.studio_team.notify_team", AsyncMock()) as notify:
             await sa.public_decide(TOKEN, I2, action="ajuste_solicitado", comment="Trocar a foto", reviewer_name=None)
@@ -99,7 +101,7 @@ class PublicTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(notify.await_args.kwargs, {"actor_name": "Ana Souza", "comment": "Trocar a foto"})
         self.assertEqual(insert.await_args.args[1]["reviewer_name"], "Ana Souza")
         item_patch = update.await_args_list[0].kwargs
-        self.assertEqual(item_patch["filters"], {"client_id": "eq.roove", "id": f"eq.{I2}"})
+        self.assertEqual(item_patch["filters"], {"client_id": "eq.roove", "id": f"eq.{I2}", "deleted_at": "is.null"})
         self.assertEqual(item_patch["patch"]["status"], "rejeitado")
         self.assertEqual(item_patch["patch"]["review_note"], "Cliente (Ana Souza): Trocar a foto")
         self.assertEqual(update.await_args_list[1].kwargs["patch"]["status"], "concluido")
@@ -113,6 +115,16 @@ class PublicTests(unittest.IsolatedAsyncioTestCase):
                 await sa.public_decide(TOKEN, I1, action="ajuste_solicitado", comment="  ", reviewer_name=None)
             self.assertEqual(err.exception.code, "COMMENT_REQUIRED")
         insert.assert_not_awaited()
+
+    async def test_soft_deleted_item_cannot_receive_a_new_public_decision(self):
+        reads = AsyncMock(side_effect=[[request_row()], []])
+        with patch.object(sa, "sb_select", reads), patch.object(sa, "sb_insert", AsyncMock()) as insert, \
+             patch.object(sa, "sb_update", AsyncMock()) as update:
+            with self.assertRaises(StudioError) as raised:
+                await sa.public_decide(TOKEN, I1, action="aprovado", comment=None, reviewer_name="Ana")
+        self.assertEqual(raised.exception.code, "LINK_UNAVAILABLE")
+        insert.assert_not_awaited()
+        update.assert_not_awaited()
 
 
 if __name__ == "__main__":

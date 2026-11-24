@@ -1013,6 +1013,7 @@ function PrivateApp() {
         <ProcessEntry key={`process-analysis:${activeClientId}`} kind="analysis" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "internal_approval" || route === "final_approval" ? (
         <ApprovalWorkspace key={`${route}:${activeClientId}`} mode={route === "internal_approval" ? "internal" : "final"} isAgency={teamHere}
+          canDeleteContent={teamHere && canEdit("calendar")}
           onOpenCalendar={() => openRoute("calendar")} />
       ) : route === "central" ? (
         <Central key={`central:${activeClientId}`} isAgency={teamHere} />
