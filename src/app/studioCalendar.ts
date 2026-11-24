@@ -1,7 +1,7 @@
-import { localParts, type CalendarItem, type ProductTag, type ReelsOptions, type StudioChannel, type StudioFormat } from "./studio";
+import { cleanDirection, localParts, type CalendarItem, type CreativeDirection, type ProductTag, type ReelsOptions, type StudioChannel, type StudioFormat } from "./studio";
 
 export type ViewMode = "mes" | "semana" | "dia" | "fluxo";
-export type PostDraft = { date: string; time: string; channel?: StudioChannel; format: StudioFormat; pillar: string; title: string; hook: string; caption_draft: string; rationale: string; art_url?: string; collaborators?: string[]; product_tags?: ProductTag[]; reels_options?: ReelsOptions };
+export type PostDraft = { date: string; time: string; channel?: StudioChannel; format: StudioFormat; pillar: string; title: string; hook: string; caption_draft: string; rationale: string; art_url?: string; collaborators?: string[]; product_tags?: ProductTag[]; reels_options?: ReelsOptions; creative_direction?: CreativeDirection };
 
 /** Datas como "AAAA-MM-DD" sem fuso: o calendário inteiro raciocina no dia de São Paulo. */
 export const toKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -14,5 +14,6 @@ export function draftFrom(item: CalendarItem): PostDraft {
   const { date, time } = localParts(item.scheduled_at);
   return { date, time, channel: item.channel || "instagram", format: item.format, pillar: item.pillar || "", title: item.title, hook: item.hook || "",
     caption_draft: item.caption_draft || "", rationale: item.rationale || "", art_url: item.art_url || "",
-    collaborators: item.collaborators || [], product_tags: item.product_tags || [], reels_options: item.reels_options || {} };
+    collaborators: item.collaborators || [], product_tags: item.product_tags || [], reels_options: item.reels_options || {},
+    creative_direction: cleanDirection(item.creative_direction) };
 }

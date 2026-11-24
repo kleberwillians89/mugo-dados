@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({ listProjects: vi.fn(), createProject: vi.fn(), updateProject: vi.fn(), deleteProject: vi.fn(),
-  generateProject: vi.fn(), chatProject: vi.fn(), projectToBrief: vi.fn() }));
+  generateProject: vi.fn(), researchProject: vi.fn(), chatProject: vi.fn(), projectToBrief: vi.fn() }));
 vi.mock("../app/projects", async (original) => ({ ...(await original<typeof import("../app/projects")>()), ...api }));
 vi.mock("../app/activeClient", () => ({ getActiveClientId: () => "ruah", getActiveClientName: () => "Ruah" }));
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
@@ -24,7 +24,7 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
-const btn = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.startsWith(label)) as HTMLButtonElement;
+const btn = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(label)) as HTMLButtonElement;
 const show = async (kind: "planejamento" | "evento") => { await act(async () => { root.render(<ProjectsPage kind={kind} />); }); await act(async () => {}); };
 const type = async (el: HTMLInputElement | HTMLTextAreaElement, value: string) => act(async () => {
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")!.set!.call(el, value);
@@ -32,6 +32,35 @@ const type = async (el: HTMLInputElement | HTMLTextAreaElement, value: string) =
 });
 
 describe("Evento", () => {
+  it("pesquisa com a consulta aprovada e salva a referência selecionada", async () => {
+    const url = "https://example.com/case";
+    const research = { status: "ok", selected: [], items: [
+      { url, title: "Case de ativação", summary: "Detalhes", category: "references", researched_at: "2026-11-23" },
+    ] };
+    api.listProjects.mockResolvedValue({ projects: [BASE], formats: [] });
+    api.researchProject.mockResolvedValueOnce({ project: { ...BASE, research } })
+      .mockResolvedValueOnce({ project: { ...BASE, research: { ...research, selected: [url] } } });
+    await show("evento");
+    await act(async () => { (host.querySelector(".projCard") as HTMLButtonElement).click(); });
+    await act(async () => { btn("Pesquisa").click(); });
+    const panel = host.querySelector('[aria-label="Pesquisa de mercado"]')!;
+    await type(panel.querySelectorAll("input")[0], "beach tennis");
+    await type(panel.querySelectorAll("input")[1], "São Paulo");
+    await act(async () => { btn("Pesquisar").click(); });
+    expect(api.researchProject).toHaveBeenCalledWith("evento", "p1", {
+      references: "beach tennis São Paulo cases e ativações",
+      suppliers: "beach tennis São Paulo locais e fornecedores",
+      market: "beach tennis São Paulo tendências de mercado",
+    });
+    expect(panel.querySelector("a")?.href).toBe(url);
+    await act(async () => { btn("Locais e fornecedores").click(); });
+    expect(panel.querySelector("a")).toBeNull();
+    await act(async () => { btn("Todos").click(); });
+    await act(async () => { panel.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+    expect(api.researchProject).toHaveBeenLastCalledWith("evento", "p1", { selected: [url] });
+    expect(panel.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
+  });
+
   it("cria, a IA gera o plano, edita o orçamento e manda para o Briefing", async () => {
     api.listProjects.mockResolvedValue({ projects: [], formats: ["Evento / Ativação", "Podcast"] });
     api.createProject.mockResolvedValue({ project: BASE });

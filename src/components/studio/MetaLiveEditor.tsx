@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { getActiveClientId } from "../../app/activeClient";
 import {
-  listShopPromotionCodes, updateLiveMetaBudget, updateLiveMetaCreative, readLiveMetaStructure, changeLiveMetaObjectStatus,
-  type LiveMetaStructure,
+  listShopPromotionCodes, updateLiveMetaBudget, updateLiveMetaCreative, readLiveMetaStructure, changeLiveMetaObjectStatus, updateLiveMetaAdsetBudget, readLiveMetaObjectInsights,
+  type LiveMetaStructure, type LiveMetaObjectInsights,
   type AdDraft, type AdPayload, type ShopPromotionCode,
 } from "../../app/metaAds";
 import type { CalendarItem } from "../../app/studio";
@@ -22,6 +22,9 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
   const [structure, setStructure] = useState<LiveMetaStructure | null>(null);
   const [structureBusy, setStructureBusy] = useState(false);
   const [objectBusy, setObjectBusy] = useState<string | null>(null);
+  const [insights, setInsights] = useState<Record<string, LiveMetaObjectInsights>>({});
+  const [insightsBusy, setInsightsBusy] = useState<string | null>(null);
+  const [adsetBudgets, setAdsetBudgets] = useState<Record<string, string>>({});
   const [codes, setCodes] = useState<ShopPromotionCode[]>([]);
   const [codesBusy, setCodesBusy] = useState(false);
   const [codesMessage, setCodesMessage] = useState("");
@@ -62,6 +65,46 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
       setNotice("Status atualizado e confirmado pela Meta.");
     } catch (cause) { if (getActiveClientId() === clientId) setError(message(cause)); }
     finally { setObjectBusy(null); }
+  }
+
+  async function applyAdsetBudget(id: string, name: string, originalCents: number) {
+    const newBudget = Number(adsetBudgets[id] ?? String(originalCents / 100));
+    if (!Number.isFinite(newBudget) || newBudget < 6 || newBudget > 1_000_000) {
+      setError("Informe um orçamento diário válido a partir de R$ 6,00.");
+      return;
+    }
+    if (!window.confirm(`Alterar a verba diária APENAS do conjunto "${name}" de ${currency(originalCents / 100)} para ${currency(newBudget)}? Essa alteração pode gerar gastos reais imediatamente.`)) return;
+    setObjectBusy(id); setError(""); setNotice("");
+    try {
+      await updateLiveMetaAdsetBudget(draft.id, id, newBudget);
+      if (getActiveClientId() !== clientId) return;
+      await loadStructure();
+      setAdsetBudgets((old) => { const next = { ...old }; delete next[id]; return next; });
+      setNotice("Orçamento do conjunto atualizado e confirmado diretamente na Meta.");
+    } catch (cause) { if (getActiveClientId() === clientId) setError(message(cause)); }
+    finally { setObjectBusy(null); }
+  }
+
+  async function loadObjectInsights(level: "adset" | "ad", id: string) {
+    const key = `${level}:${id}`;
+    setInsightsBusy(key); setError("");
+    try {
+      const result = await readLiveMetaObjectInsights(draft.id, level, id);
+      if (getActiveClientId() === clientId) setInsights((current) => ({ ...current, [key]: result }));
+    } catch (cause) { if (getActiveClientId() === clientId) setError(message(cause)); }
+    finally { setInsightsBusy(null); }
+  }
+
+  function insightSummary(data: LiveMetaObjectInsights) {
+    if (!data.has_data) return <p className="ds-caption">Sem dados disponíveis para este item nos últimos 7 dias.</p>;
+    return <div className="ds-caption" role="status" style={{ padding: 8, marginTop: 6 }}>
+      <strong>Últimos 7 dias (Meta)</strong> · Gasto {currency(data.spend)} · Alcance {data.reach.toLocaleString("pt-BR")}
+      {" · "}Impressões {data.impressions.toLocaleString("pt-BR")} · Cliques no link {data.link_clicks.toLocaleString("pt-BR")}
+      {" · "}CTR {data.ctr.toFixed(2)}% · CPC {currency(data.cpc)} · CPM {currency(data.cpm)}
+      {data.actions.length ? <details><summary>Resultados por evento ({data.actions.length})</summary>
+        <ul>{data.actions.map((event, i) => <li key={`${event.type}:${i}`}>{event.type}: {event.value.toLocaleString("pt-BR")}</li>)}</ul>
+      </details> : null}
+    </div>;
   }
 
   async function loadCodes() {
@@ -134,6 +177,24 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
           {structure.adsets.map((item) => <div key={item.id} className="ds-noticeText" style={{ padding: 10, borderBottom: "1px solid #e3e6eb" }}>
             <strong>{item.name || item.id}</strong> · {item.effective_status || item.status}
             {item.daily_budget ? ` · Verba R$ ${(Number(item.daily_budget) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/dia` : ""}
+            {item.daily_budget && Number(item.daily_budget) > 0 ? <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", marginTop: 8 }}>
+              <label className="ds-field">Verba diária deste conjunto (R$)
+                <input type="number" min={6} max={1000000} step={0.01}
+                  aria-label={`Verba diária do conjunto ${item.name || item.id}`}
+                  disabled={!!objectBusy || structureBusy}
+                  value={adsetBudgets[item.id] ?? String(Number(item.daily_budget) / 100)}
+                  onChange={(e) => setAdsetBudgets((old) => ({ ...old, [item.id]: e.target.value }))} />
+              </label>
+              <button type="button" className="ds-button" disabled={!!objectBusy || structureBusy || Number(adsetBudgets[item.id] ?? String(Number(item.daily_budget) / 100)) === Number(item.daily_budget) / 100}
+                onClick={() => void applyAdsetBudget(item.id, item.name || item.id, Number(item.daily_budget))}>
+                {objectBusy === item.id ? "Confirmando na Meta…" : "Salvar verba do conjunto"}
+              </button>
+            </div> : <small className="ds-caption">Orçamento definido na campanha ou vitalício; edição diária individual indisponível.</small>}
+            <button type="button" className="ds-button" style={{ marginLeft: 8 }} disabled={!!objectBusy || structureBusy}
+              onClick={() => void loadObjectInsights("adset", item.id)}>
+              {insightsBusy === `adset:${item.id}` ? "Consultando…" : insights[`adset:${item.id}`] ? "Atualizar métricas" : "Ver métricas (7 dias)"}
+            </button>
+            {insights[`adset:${item.id}`] ? insightSummary(insights[`adset:${item.id}`]) : null}
             <button type="button" className="ds-button" style={{ marginLeft: 8 }} disabled={!!objectBusy || structureBusy}
               onClick={() => void applyObjectStatus("adset", item.id, item.name, item.status)}>
               {objectBusy === item.id ? "Confirmando…" : item.status === "ACTIVE" ? "Pausar conjunto" : "Ativar conjunto"}
@@ -143,6 +204,11 @@ export default function MetaLiveEditor({ draft, month, calendar, onUpdated }: Pr
           {structure.ads.map((item) => <div key={item.id} className="ds-noticeText" style={{ padding: 10, borderBottom: "1px solid #e3e6eb" }}>
             {item.creative?.thumbnail_url ? <img src={item.creative.thumbnail_url} alt="" style={{ maxWidth: 80, verticalAlign: "middle", marginRight: 10 }} /> : null}
             <strong>{item.name || item.id}</strong> · {item.effective_status || item.status}
+            <button type="button" className="ds-button" style={{ marginLeft: 8 }} disabled={!!objectBusy || structureBusy}
+              onClick={() => void loadObjectInsights("ad", item.id)}>
+              {insightsBusy === `ad:${item.id}` ? "Consultando…" : insights[`ad:${item.id}`] ? "Atualizar métricas" : "Ver métricas (7 dias)"}
+            </button>
+            {insights[`ad:${item.id}`] ? insightSummary(insights[`ad:${item.id}`]) : null}
             <button type="button" className="ds-button" style={{ marginLeft: 8 }} disabled={!!objectBusy || structureBusy}
               onClick={() => void applyObjectStatus("ad", item.id, item.name, item.status)}>
               {objectBusy === item.id ? "Confirmando…" : item.status === "ACTIVE" ? "Pausar anúncio" : "Ativar anúncio"}

@@ -56,11 +56,16 @@ export const CONTENT_ANGLES: Record<string, string> = {
 };
 
 /** Briefing em texto corrido para copiar e mandar para quem vai produzir. */
-export function briefingText(item: Pick<CalendarItem, "title" | "format" | "hook" | "script" | "visual_idea" | "signals">): string {
+export function briefingText(item: Pick<CalendarItem, "title" | "format" | "hook" | "script" | "visual_idea" | "signals"> & { creative_direction?: CreativeDirection | null }): string {
   const b = item.signals?.briefing || {};
+  const d = item.creative_direction || {};
   return [
     `PAUTA: ${item.title}`,
     `FORMATO: ${item.format}`,
+    d.concept ? `CONCEITO: ${d.concept}` : "",
+    d.texts ? `TEXTOS NECESSÁRIOS:\n${d.texts}` : "",
+    d.references ? `REFERÊNCIAS:\n${d.references}` : "",
+    d.instructions ? `INSTRUÇÕES PARA A PEÇA:\n${d.instructions}` : "",
     b.angle ? `ÂNGULO: ${CONTENT_ANGLES[b.angle] || b.angle}` : "",
     b.summary ? `RESUMO: ${b.summary}` : "",
     b.objective ? `OBJETIVO: ${b.objective}` : "",
@@ -106,9 +111,36 @@ export type CalendarItem = {
   /** Arte anexada, na ordem dos slides; URLs assinadas de curta duração. */
   /** Impulsionamento previsto no plano do Mídia On salvo para o mês (só na tela). */
   boost?: { start: string; end: string; budget: number; why: string };
+  /** Direcionamento Criativo da peça (equipe; migração 000140). Não vem para o cliente. */
+  creative_direction?: CreativeDirection | null;
 };
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags" | "reels_options">>;
+/** Orientação específica de produção desta peça. Não substitui o briefing da campanha nem a Matriz Tática. */
+export type CreativeDirection = { concept?: string; texts?: string; references?: string; instructions?: string;
+  /** Briefing existente escolhido como referência (a tarefa lê do briefing; nada é copiado). */
+  brief_id?: string | null };
+export const CREATIVE_DIRECTION_FIELDS: { key: Exclude<keyof CreativeDirection, "brief_id">; label: string; placeholder: string; rows: number; max: number }[] = [
+  { key: "concept", label: "Título / conceito", placeholder: "A ideia da peça em uma frase", rows: 1, max: 300 },
+  { key: "texts", label: "Textos necessários", placeholder: "Capa, slides, falas, CTA (um por linha)", rows: 3, max: 3000 },
+  { key: "references", label: "Referências", placeholder: "Links ou descrição do estilo", rows: 2, max: 2000 },
+  { key: "instructions", label: "Instruções para a peça", placeholder: "Composição, enquadramento, ritmo, o que evitar", rows: 3, max: 3000 },
+];
+/** Sem campos vazios (e sem brief_id nulo): é o que vai para o servidor e o que se compara para saber se mudou. */
+export function cleanDirection(d?: CreativeDirection | null): CreativeDirection {
+  const out: CreativeDirection = {};
+  for (const { key } of CREATIVE_DIRECTION_FIELDS) { const v = (d?.[key] || "").trim(); if (v) out[key] = v; }
+  if (d?.brief_id) out.brief_id = d.brief_id;
+  return out;
+}
+/** A IA só sugere: nada é gravado até a pessoa escolher o que usar e salvar a pauta. */
+export function suggestCreativeDirection(itemId: string, current: CreativeDirection, instruction?: string) {
+  const text = cleanDirection(current);
+  delete text.brief_id;
+  return http<{ suggestion: CreativeDirection; based_on: BasedOn }>(base(`/calendar/items/${encodeURIComponent(itemId)}/creative-direction/suggest`),
+    { method: "POST", body: JSON.stringify({ current: text, instruction: instruction?.trim() || undefined }), timeoutMs: 100_000 });
+}
+
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags" | "reels_options">> & { creative_direction?: CreativeDirection };
 
 /** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
 export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };
@@ -178,6 +210,9 @@ export type ReelsOptions = {
   first_comment?: string;
   /** Música da biblioteca do Instagram (Audio API). Volumes de 1 a 100. */
   music?: ReelsMusic;
+  /** Stories interativos: exigem finalização manual no Instagram; nunca vão automaticamente pela API. */
+  story_sticker?: "poll" | "question" | "quiz" | "emoji_slider" | "link" | "countdown" | "music";
+  story_instruction?: string;
 };
 export type ReelsMusic = { audio_id: string; title?: string; artist?: string | null; cover?: string | null; audio_volume?: number; video_volume?: number };
 export type ReelsAudio = { audio_id: string; title: string; artist: string | null; duration_ms: number | null; cover: string | null;

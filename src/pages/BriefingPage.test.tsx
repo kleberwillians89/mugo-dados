@@ -43,16 +43,45 @@ describe("Briefing", () => {
     await act(async () => { btn("Montar briefing").click(); });
     expect(api.createBrief).toHaveBeenCalledWith("BF de decant com 3 mil", []);
     expect(host.textContent).toContain("Vender decants");
-    expect(host.querySelector(".briefDestinations li.is-suggested")?.textContent).toContain("Conteúdo do mês");
-    const send = host.querySelector(".briefDestinations li.is-suggested button") as HTMLButtonElement;
-    await act(async () => { send.click(); });
+    // Um só bloco: destino, responsável e prazo, já com a sugestão da IA escolhida.
+    expect(host.textContent).toContain("Encaminhamento");
+    expect(host.textContent).not.toContain("Levar para");
+    expect(host.textContent).not.toContain("Quem faz o quê");
+    const form = host.querySelector("[aria-label='Encaminhamento']") as HTMLElement;
+    const [dest, role] = [...form.querySelectorAll("select")] as HTMLSelectElement[];
+    expect(dest.value).toBe("social_media");
+    expect(role.value).toBe("designer");
+    expect(form.textContent).toContain("Conteúdo do mês");
+    expect(btn("Confirmar encaminhamento").disabled).toBe(true);  // tem integrantes: escolhe quem faz
+    const person = form.querySelector("select[aria-label='Responsável']") as HTMLSelectElement;
+    await act(async () => { person.value = "u-liliu"; person.dispatchEvent(new Event("change", { bubbles: true })); });
+    const due = form.querySelector("input[type=date]") as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(due, "2026-11-25");
+      due.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { btn("Confirmar encaminhamento").click(); });
     expect(api.sendBrief).toHaveBeenCalledWith("b1", "social_media");
-    expect(host.textContent).toContain("Esteira de agentes rodando");
-    const select = host.querySelector(".briefPerson select") as HTMLSelectElement;
-    await act(async () => { select.value = "u-liliu"; select.dispatchEvent(new Event("change", { bubbles: true })); });
-    await act(async () => { (host.querySelector(".briefPerson button") as HTMLButtonElement).click(); });
-    expect(api.briefTask).toHaveBeenCalledWith("b1", { role: "designer", assignee_user_id: "u-liliu", assignee_name: "Liliu", due_date: null, note: null });
+    expect(api.briefTask).toHaveBeenCalledWith("b1", { role: "designer", assignee_user_id: "u-liliu", assignee_name: "Liliu", due_date: "2026-11-25", note: null });
+    expect(host.textContent).toContain("Encaminhado: Social Media + tarefa de Liliu");
     expect(host.textContent).toContain("Tarefa de Liliu");
+  });
+
+  it("encaminha só para a tela, sem criar tarefa, e o destino que falhou pode ser repetido", async () => {
+    api.listBriefs.mockResolvedValue({ briefs: [BRIEF], team: true, destinations: {}, roles: {} });
+    api.sendBrief.mockResolvedValueOnce({ brief: { ...BRIEF, destinations: { midia_on: { status: "falhou", detail: "Sem conta de anúncios", at: "x" } } } });
+    await show();
+    const form = host.querySelector("[aria-label='Encaminhamento']") as HTMLElement;
+    const [dest, role] = [...form.querySelectorAll("select")] as HTMLSelectElement[];
+    await act(async () => { dest.value = "midia_on"; dest.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => { role.value = ""; role.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => { btn("Confirmar encaminhamento").click(); });
+    expect(api.sendBrief).toHaveBeenCalledWith("b1", "midia_on");
+    expect(api.briefTask).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Sem conta de anúncios");
+    expect(btn("Tentar de novo")).toBeTruthy();
+    expect(host.textContent).toContain("Não foi possível levar para Mídia On");
+    expect(host.textContent).not.toContain("✓ Encaminhado");
   });
 
   it("cliente vê só a versão curta e o andamento", async () => {

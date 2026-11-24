@@ -52,9 +52,14 @@ ERRORS = {
     "MATRIX_PLATFORMS_REQUIRED": (422, "Defina as plataformas do planejamento no Perfil da marca antes de gerar a matriz."),
     "MATRIX_FREQUENCY_TOO_HIGH": (422, "A frequência semanal configurada ultrapassa o limite de 80 oportunidades por matriz."),
     "MATRIX_DATE_INVALID": (422, "Escolha uma semana a partir desta, até 4 meses à frente."),
+    "MATRIX_PERIOD_INVALID": (422, "Escolha um período válido de 1 a 8 semanas."),
     "MATRIX_NOT_FOUND": (404, "Matriz não encontrada."),
     "MATRIX_SAVE_FAILED": (502, "Não foi possível salvar a matriz. Tente de novo."),
     "MATRIX_NOTHING_SELECTED": (409, "Selecione pelo menos uma oportunidade para enviar ao Calendário."),
+    "MATRIX_BRIEF_INVALID": (422, "O briefing selecionado não está disponível para este cliente."),
+    "MATRIX_NOT_IN_REVIEW": (409, "A matriz não está aguardando aprovação interna."),
+    "MATRIX_PERIOD_EXPORTED": (409, "O período não pode ser alterado depois da exportação. Ajuste as datas no Calendário."),
+    "MATRIX_PERIOD_HAS_CONTENT": (409, "O período escolhido deixaria pautas existentes fora da matriz."),
     "OPPORTUNITY_NOT_FOUND": (404, "Oportunidade não encontrada."),
     "OPPORTUNITY_EXPORTED": (409, "Esta oportunidade já está no Calendário. Edite o post por lá."),
     "OPPORTUNITY_INVALID": (422, "Confira os campos da oportunidade."),
@@ -337,6 +342,7 @@ class MatrixInput(BaseModel):
     # Período variável: de 1 a 8 semanas a partir da segunda da data de início. Vazio = 4 semanas, próxima segunda.
     weeks: Optional[int] = Field(default=None, ge=1, le=8)
     start: str = Field(default="", max_length=10)
+    brief_id: Optional[UUID] = None
 
 
 class AgentRunInput(BaseModel):
@@ -352,7 +358,7 @@ class OpportunityPatch(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     platform: Optional[Platform] = None
     pillar: Optional[str] = Field(default=None, min_length=1, max_length=120)
-    week: Optional[int] = Field(default=None, ge=1, le=4)
+    week: Optional[int] = Field(default=None, ge=1, le=8)
     weekday: Optional[int] = Field(default=None, ge=0, le=6)
     format: Optional[MatrixFormat] = None
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
@@ -369,7 +375,7 @@ class OpportunityCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     platform: Platform
     pillar: str = Field(min_length=1, max_length=120)
-    week: int = Field(ge=1, le=4)
+    week: int = Field(ge=1, le=8)
     weekday: int = Field(ge=0, le=6)
     format: MatrixFormat
     title: str = Field(min_length=1, max_length=200)
@@ -390,6 +396,44 @@ class BulkStatusInput(BaseModel):
 class ExportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ids: Optional[List[UUID]] = Field(default=None, max_length=80)
+
+
+class MatrixApprovalCommentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    opportunity_id: Optional[UUID] = None
+    comment: str = Field(min_length=1, max_length=2000)
+
+
+class MatrixApprovalDecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    decision: Literal["aprovar", "solicitar_ajuste"]
+    comment: Optional[str] = Field(default=None, max_length=2000)
+
+
+class MatrixBriefingInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    brief_id: Optional[UUID] = None
+    focus: Optional[str] = Field(default=None, max_length=1000)
+
+
+class MatrixPeriodInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    weeks: int = Field(ge=1, le=8)
+    start: str = Field(min_length=10, max_length=10)
+
+
+async def _matrix_approver(client_id: str, authorization: Optional[str]) -> None:
+    if await is_agency_user(authorization, client_id):
+        return
+    from services.team_access import member_access
+    access = await member_access(client_id, await require_user_id(authorization))
+    if "tasks.approve" not in set((access or {}).get("codes") or []):
+        raise HTTPException(status_code=403, detail="Só responsáveis pela aprovação interna podem decidir esta matriz.")
+
+
+def _matrix_actor(authorization: Optional[str], user_id: str) -> str:
+    from routes.studio import _chat_author
+    return _chat_author(authorization, user_id)
 
 
 @router.get("/agents/run")
@@ -470,11 +514,42 @@ async def create_matrix(client_id: str, body: Optional[MatrixInput] = None, auth
         raise _http(exc) from None
 
 
+@router.post("/matrix/{matrix_id}/complete")
+async def complete_matrix(client_id: str, matrix_id: UUID, authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    try:
+        return {"matrix": await matrix.complete(cid, str(matrix_id))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.get("/matrix/{matrix_id}")
 async def read_matrix(client_id: str, matrix_id: UUID, authorization: Optional[str] = Header(default=None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
     try:
         return {"matrix": await matrix.get_matrix(cid, str(matrix_id))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.patch("/matrix/{matrix_id}/briefing")
+async def update_matrix_briefing(client_id: str, matrix_id: UUID, body: MatrixBriefingInput,
+                                  authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    try:
+        return {"matrix": await matrix.set_briefing(cid, str(matrix_id),
+                                                     brief_id=str(body.brief_id) if body.brief_id else None,
+                                                     focus=body.focus)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.patch("/matrix/{matrix_id}/period")
+async def update_matrix_period(client_id: str, matrix_id: UUID, body: MatrixPeriodInput,
+                               authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    try:
+        return {"matrix": await matrix.set_period(cid, str(matrix_id), weeks=body.weeks, start=body.start)}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -567,6 +642,47 @@ async def matrix_to_calendar(client_id: str, matrix_id: UUID, body: Optional[Exp
         for item_id in result["created_ids"]:
             await record(cid, item_id, "criou a pauta pela Matriz de conteúdo", actor_name=author, actor_id=uid)
     return result
+
+
+@router.post("/matrix/{matrix_id}/approval/submit")
+async def submit_matrix_approval(client_id: str, matrix_id: UUID, authorization: Optional[str] = Header(default=None)):
+    """Submete a matriz inteira; não altera a aprovação posterior de cada post do Calendário."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    uid = await require_user_id(authorization)
+    try:
+        return {"matrix": await matrix.submit_approval(cid, str(matrix_id), actor_id=uid,
+                                                         actor_name=_matrix_actor(authorization, uid))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/matrix/{matrix_id}/approval/comments")
+async def comment_matrix_approval(client_id: str, matrix_id: UUID, body: MatrixApprovalCommentInput,
+                                  authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    await _matrix_approver(cid, authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return {"matrix": await matrix.approval_comment(cid, str(matrix_id),
+                                                          opportunity_id=str(body.opportunity_id) if body.opportunity_id else None,
+                                                          comment=body.comment, actor_id=uid,
+                                                          actor_name=_matrix_actor(authorization, uid))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/matrix/{matrix_id}/approval/decision")
+async def decide_matrix_approval(client_id: str, matrix_id: UUID, body: MatrixApprovalDecisionInput,
+                                 authorization: Optional[str] = Header(default=None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    await _matrix_approver(cid, authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return {"matrix": await matrix.decide_approval(cid, str(matrix_id), decision=body.decision,
+                                                         comment=body.comment, actor_id=uid,
+                                                         actor_name=_matrix_actor(authorization, uid))}
+    except StudioError as exc:
+        raise _http(exc) from None
 
 
 # ---------------------------------------------------------------- redação (editor de texto)

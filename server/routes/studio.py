@@ -141,6 +141,17 @@ class ItemCreate(BaseModel):
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
+    creative_direction: Optional["CreativeDirectionInput"] = None
+
+
+class CreativeDirectionInput(BaseModel):
+    """Direcionamento Criativo da peça: escrito pela equipe (a IA só sugere; quem confirma é a pessoa)."""
+    model_config = ConfigDict(extra="forbid")
+    concept: Optional[str] = Field(default=None, max_length=300)
+    texts: Optional[str] = Field(default=None, max_length=3000)
+    references: Optional[str] = Field(default=None, max_length=2000)
+    instructions: Optional[str] = Field(default=None, max_length=3000)
+    brief_id: Optional[UUID] = None
 
 
 class ItemPatch(BaseModel):
@@ -159,6 +170,7 @@ class ItemPatch(BaseModel):
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
+    creative_direction: Optional[CreativeDirectionInput] = None
 
 
 class ReelsMusicInput(BaseModel):
@@ -183,6 +195,8 @@ class ReelsOptionsInput(BaseModel):
     audio_name: Optional[str] = Field(default=None, max_length=100)
     first_comment: Optional[str] = Field(default=None, max_length=2200)
     music: Optional[ReelsMusicInput] = None
+    story_sticker: Optional[Literal["poll", "question", "quiz", "emoji_slider", "link", "countdown", "music"]] = None
+    story_instruction: Optional[str] = Field(default=None, max_length=500)
 
 
 class ProductTagInput(BaseModel):
@@ -975,6 +989,27 @@ async def make_briefing(client_id: str, item_id: UUID, body: BriefingInput, auth
     await _agency_only(authorization)
     try:
         return await generate_briefing(cid, str(item_id), body.model_dump(exclude_none=True))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class CreativeDirectionSuggestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    current: Optional[CreativeDirectionInput] = None
+    instruction: Optional[str] = Field(default=None, max_length=600)
+
+
+@router.post("/calendar/items/{item_id}/creative-direction/suggest")
+async def suggest_direction(client_id: str, item_id: UUID, body: Optional[CreativeDirectionSuggestInput] = None,
+                            authorization: str | None = Header(default=None)):
+    """Equipe: a IA sugere o Direcionamento Criativo da peça (parte do que já foi escrito). Não grava nada:
+    a pessoa escolhe o que usar e salva a pauta."""
+    from services.studio_engines import suggest_creative_direction
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        current = body.current.model_dump(mode="json", exclude_none=True) if body and body.current else None
+        return await suggest_creative_direction(cid, str(item_id), current, body.instruction if body else None)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -2406,6 +2441,31 @@ async def generate_project(client_id: str, kind: ProjectKind, project_id: UUID, 
         raise _known(exc) from None
 
 
+class ProjectResearchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    references: Optional[str] = Field(default=None, max_length=180)
+    suppliers: Optional[str] = Field(default=None, max_length=180)
+    market: Optional[str] = Field(default=None, max_length=180)
+    selected: Optional[List[str]] = Field(default=None, max_length=10)
+
+
+@router.post("/projects/{kind}/{project_id}/research")
+async def research_project(client_id: str, kind: ProjectKind, project_id: UUID, body: ProjectResearchInput,
+                           authorization: str | None = Header(default=None)):
+    from services.studio_projects import update_research
+
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    queries = {key: value for key, value in body.model_dump(exclude={"selected"}).items() if value}
+    if bool(queries) == (body.selected is not None):
+        raise HTTPException(status_code=422, detail="Envie as consultas ou a seleção de referências.")
+    try:
+        project = await update_research(cid, str(project_id), kind, queries=queries or None, selected=body.selected)
+        return {"project": project}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
 @router.post("/projects/{kind}/{project_id}/chat")
 async def project_chat(client_id: str, kind: ProjectKind, project_id: UUID, body: ProjectChat, authorization: str | None = Header(default=None)):
     from services.studio_projects import chat
@@ -2436,6 +2496,7 @@ async def project_to_brief(client_id: str, kind: ProjectKind, project_id: UUID, 
 ERRORS.update({
     "EVENT_LOCATION_REQUIRED": (422, "Coloque o local do evento para puxar clima e notícias."),
     "SUPPLIER_NAME_REQUIRED": (422, "Dê o nome do fornecedor."),
+    "PROJECT_RESEARCH_CONFLICT": (409, "O projeto mudou durante a pesquisa. Reabra o projeto e tente novamente."),
     "SUPPLIER_CATEGORY_INVALID": (422, "Categoria inválida."),
     "SUPPLIER_EMAIL_INVALID": (422, "E-mail inválido."),
     "SUPPLIER_RATING_INVALID": (422, "Nota de 1 a 5."),
