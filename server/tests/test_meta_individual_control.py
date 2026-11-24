@@ -15,9 +15,10 @@ class MetaIndividualControlTests(unittest.IsolatedAsyncioTestCase):
     async def test_structure_reads_current_meta_objects(self):
         async def graph(method, path, *, token, params=None, data=None):
             if path.endswith("/adsets"):
+                self.assertIn("ad_set_goal{type}", params["fields"])
                 return {"data": [{"id": "111111111", "name": "Conjunto A",
                                   "campaign_id": "123456789", "status": "PAUSED",
-                                  "effective_status": "PAUSED"}]}
+                                  "effective_status": "PAUSED", "ad_set_goal": {"type": 0}}]}
             if path.endswith("/ads"):
                 return {"data": [{"id": "222222222", "name": "Anúncio A",
                                   "campaign_id": "123456789", "adset_id": "111111111",
@@ -30,6 +31,24 @@ class MetaIndividualControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r["id"] for r in data["adsets"]], ["111111111"])
         self.assertEqual([r["id"] for r in data["ads"]], ["222222222"])
         self.assertTrue(data["read_only"])
+        self.assertEqual(data["ad_account_id"], "987654321")
+        self.assertEqual(data["adsets"][0]["customer_acquisition_goal"], 0)
+
+    async def test_structure_keeps_adsets_when_meta_version_lacks_customer_goal(self):
+        async def graph(method, path, *, token, params=None, data=None):
+            if path.endswith("/adsets"):
+                if "ad_set_goal" in params["fields"]:
+                    raise pub.MetaAdError("AD_META_REJECTED", "Tried accessing nonexisting field (ad_set_goal)")
+                return {"data": [{"id": "111111111", "campaign_id": "123456789"}]}
+            if path.endswith("/ads"):
+                return {"data": []}
+            return {"id": "123456789", "account_id": "987654321"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=ROW)), \
+             patch.object(pub, "_ad_account", AsyncMock(return_value=ACCOUNT)), \
+             patch.object(pub, "_graph", graph):
+            data = await pub.live_campaign_structure("ruah", "draft")
+        self.assertEqual(data["adsets"][0]["id"], "111111111")
+        self.assertIsNone(data["adsets"][0]["customer_acquisition_goal"])
 
     async def test_wrong_ad_cannot_be_activated(self):
         async def graph(method, path, *, token, params=None, data=None):

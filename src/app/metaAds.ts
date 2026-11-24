@@ -91,7 +91,10 @@ export type LiveMetaObject = {
 };
 export type LiveMetaStructure = {
   source: "meta_graph"; checked_at: string; read_only: true;
-  campaign: LiveMetaObject; adsets: LiveMetaObject[]; ads: LiveMetaObject[];
+  ad_account_id: string;
+  campaign: LiveMetaObject;
+  adsets: (LiveMetaObject & { customer_acquisition_goal?: number | null })[];
+  ads: LiveMetaObject[];
 };
 export const readLiveMetaStructure = (id: string) =>
   http<LiveMetaStructure>(base(`/${encodeURIComponent(id)}/structure`), { timeoutMs: 60_000 });
