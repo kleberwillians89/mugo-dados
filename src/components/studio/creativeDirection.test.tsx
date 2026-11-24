@@ -30,34 +30,42 @@ const type = async (el: HTMLInputElement | HTMLTextAreaElement, value: string) =
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   await act(async () => { Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); });
 };
-const field = (label: string) => [...host.querySelectorAll(".postDirection label")].find((l) => l.textContent?.startsWith(label))!
-  .querySelector("input,textarea") as HTMLInputElement | HTMLTextAreaElement;
+const field = (label: string) => host.querySelector(`.postBriefingDoc textarea[aria-label="${label}"]`) as HTMLTextAreaElement;
 async function open(item: CalendarItem = ITEM, onSave = vi.fn(async () => true), clientMode = false) {
   await act(async () => { root.render(<PostModal item={item} initial={draftFrom(item)} handle="@ruah" pillars={[]} canManage busy={false} error={null}
     onClose={() => undefined} onSave={onSave} onStatus={noop} onDelete={noop} clientMode={clientMode} onSendForApproval={() => undefined} />); });
   await act(async () => {});
-  if (!clientMode) await act(async () => { btn("Editar peça")?.click(); });  // a edição da peça abre pelo botão no Briefing
   return onSave;
 }
 
 describe("Calendário: Direcionamento Criativo", () => {
-  it("o Briefing da peça é o primeiro bloco, com 'Editar peça' abrindo a edição logo abaixo", async () => {
-    await act(async () => { root.render(<PostModal item={ITEM} initial={draftFrom(ITEM)} handle="@ruah" pillars={[]} canManage busy={false} error={null}
-      onClose={() => undefined} onSave={vi.fn(async () => true)} onStatus={noop} onDelete={noop} onSendForApproval={() => undefined} />); });
+  it("o Briefing da peça é o primeiro bloco e é uma página editável no mesmo formato", async () => {
+    await open();
     const panel = host.querySelector(".postPanel")!;
-    const blocks = () => [...panel.children].filter((el) => !el.classList.contains("postPanelHead"));
-    expect(blocks()[0].querySelector("summary")?.textContent).toBe("Briefing da peça");
-    expect(blocks()[0].textContent).toContain("Minha ideia");            // o direcionamento salvo aparece no briefing
-    expect(host.querySelector(".postDirection")).toBeNull();               // edição fechada até clicar
-    await act(async () => { btn("Editar peça")!.click(); });
-    expect(blocks()[1].getAttribute("aria-label")).toBe("Direcionamento Criativo");
-    expect(btn("Fechar edição")).toBeTruthy();
+    const first = [...panel.children].filter((el) => !el.classList.contains("postPanelHead"))[0];
+    expect(first.querySelector("summary")?.textContent).toBe("Briefing da peça");
+    const doc = first.querySelector(".postBriefingDoc")!;
+    // Títulos em negrito como hoje, texto editável direto (sem botão de editar, sem formulário à parte).
+    expect([...doc.querySelectorAll("b")].map((b) => b.textContent)).toEqual(expect.arrayContaining(
+      ["Título / conceito", "Resumo", "Objetivo", "Mensagem central", "Entregáveis", "Roteiro", "Direção da arte"]));
+    expect(field("Título / conceito").value).toBe("Minha ideia");
+    expect(btn("Editar peça")).toBeUndefined();
+    expect(host.querySelector("details[aria-label='Direcionamento Criativo']")).toBeNull();
     expect(host.textContent).not.toContain("Gerar briefing com IA");
     expect(host.textContent).not.toContain("Refazer com IA");
-    // O resto da janela continua: legenda, envio ao cliente, aprovar.
-    expect(host.textContent).toContain("Legenda");
     expect(btn("Enviar para o cliente aprovar")).toBeTruthy();
     expect(btn("Aprovar")).toBeTruthy();
+  });
+
+  it("editar a página e salvar manda briefing, roteiro e direção da arte junto com a pauta", async () => {
+    const item = { ...ITEM, script: "Cena 1", visual_idea: "Luz quente", signals: { engine: "ia", briefing: { summary: "Antigo", deliverables: ["Reels"] } } } as unknown as CalendarItem;
+    const onSave = await open(item);
+    await type(field("Resumo"), "Novo resumo");
+    await type(field("Entregáveis"), "Reels\nCapa");
+    await type(field("Roteiro"), "Cena 1\nCena 2");
+    await act(async () => { btn("Salvar alterações")!.click(); });
+    const draft = onSave.mock.calls[0][0];
+    expect(draft.piece).toEqual({ briefing: { summary: "Novo resumo", deliverables: ["Reels", "Capa"] }, script: "Cena 1\nCena 2", visual_idea: "Luz quente" });
   });
 
   it("texto livre é editado e salvo junto com a pauta, com o briefing de referência", async () => {
@@ -66,7 +74,6 @@ describe("Calendário: Direcionamento Criativo", () => {
     await type(field("Textos necessários"), "Capa: 3 perfumes leves");
     const select = host.querySelector(".postDirection select") as HTMLSelectElement;
     await act(async () => { select.value = "0b6f2c1e-6a43-4b7e-9d1a-3f0f0c9d2a11"; select.dispatchEvent(new Event("change", { bubbles: true })); });
-    expect(host.textContent).toContain("O direcionamento mudou");
     await act(async () => { btn("Salvar alterações")!.click(); });
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0][0].creative_direction).toEqual({ concept: "Verão sem peso", texts: "Capa: 3 perfumes leves",

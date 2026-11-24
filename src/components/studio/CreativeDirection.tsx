@@ -14,6 +14,10 @@ type Props = {
   pending?: boolean;
   /** Pauta que veio da Matriz: o briefing da Matriz já acompanha a tarefa quando nenhum outro é escolhido. */
   fromMatrix?: boolean;
+  /** Dentro do Briefing da peça: sem cabeçalho próprio. */
+  embedded?: boolean;
+  /** Só a ajuda da IA e o briefing de referência (os campos ficam na página do briefing). */
+  aiOnly?: boolean;
 };
 
 const message = (cause: unknown) => (cause instanceof Error && cause.message ? cause.message : "A IA não respondeu agora.");
@@ -23,7 +27,7 @@ const message = (cause: unknown) => (cause instanceof Error && cause.message ? c
  * instruções). Escrita livre, com ajuda opcional da IA: a sugestão aparece ao lado e só entra no texto quando a pessoa
  * escolhe "Usar", "Substituir" ou "Acrescentar". Salva junto com a pauta. Não substitui o briefing nem a Matriz.
  */
-export default function CreativeDirection({ value, onChange, itemId, disabled, pending, fromMatrix }: Props) {
+export default function CreativeDirection({ value, onChange, itemId, disabled, pending, fromMatrix, embedded, aiOnly }: Props) {
   const [briefs, setBriefs] = useState<Brief[] | null>(null);
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,11 +68,9 @@ export default function CreativeDirection({ value, onChange, itemId, disabled, p
   const selected = value.brief_id || "";
   const knownBrief = !selected || (briefs || []).some((b) => b.id === selected);
 
-  return <details className="postFromMatrix postBriefing postDirection" open aria-label="Direcionamento Criativo">
-    <summary>Direcionamento Criativo</summary>
-    <p className="postBriefingEmpty">Orientação desta peça para quem vai criar. Escreva livremente, peça ajuda à IA ou combine os dois. Não substitui o briefing da campanha nem a Matriz.</p>
+  const body = <>
     <div className="postBriefingForm">
-      {CREATIVE_DIRECTION_FIELDS.map((f) => <label key={f.key}>{f.label}
+      {aiOnly ? null : CREATIVE_DIRECTION_FIELDS.map((f) => <label key={f.key}>{f.label}
         {f.rows === 1
           ? <input maxLength={f.max} value={value[f.key] || ""} placeholder={f.placeholder} disabled={disabled} onChange={(e) => set(f.key, e.target.value)} />
           : <textarea rows={f.rows} maxLength={f.max} value={value[f.key] || ""} placeholder={f.placeholder} disabled={disabled} onChange={(e) => set(f.key, e.target.value)} />}
@@ -108,5 +110,11 @@ export default function CreativeDirection({ value, onChange, itemId, disabled, p
       </div>
     </div> : null}
     {pending ? <small className="postArtHint is-pending">O direcionamento mudou. Clique em <b>Salvar alterações</b>, aqui embaixo, para valer.</small> : null}
+  </>;
+  if (embedded) return <div className="postDirection" aria-label="Direcionamento Criativo">{body}</div>;
+  return <details className="postFromMatrix postBriefing postDirection" open aria-label="Direcionamento Criativo">
+    <summary>Direcionamento Criativo</summary>
+    <p className="postBriefingEmpty">Orientação desta peça para quem vai criar. Escreva livremente, peça ajuda à IA ou combine os dois. Não substitui o briefing da campanha nem a Matriz.</p>
+    {body}
   </details>;
 }

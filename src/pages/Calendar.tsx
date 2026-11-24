@@ -20,7 +20,7 @@ import MeetingsStrip from "../components/studio/MeetingsStrip";
 import ApprovalDelivery from "../components/studio/ApprovalDelivery";
 import Approval from "./Approval";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
-import { addDays, draftFrom, fromKey, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
+import { addDays, draftFrom, fromKey, pieceFrom, piecePatch, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
 import { getPlan as getMediaPlan, type BoostPost } from "../app/media";
 import "../styles/studio.css";
 
@@ -162,7 +162,9 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
       // Opções do Reels também só vão quando mudam (a coluna é da migração 000131).
       ...(JSON.stringify(draft.reels_options || {}) !== JSON.stringify(modal?.item?.reels_options || {}) ? { reels_options: draft.reels_options || {} } : {}),
       // Direcionamento Criativo: salva junto com a pauta, só quando muda (a coluna é da migração 000140).
-      ...(JSON.stringify(cleanDirection(draft.creative_direction)) !== JSON.stringify(cleanDirection(modal?.item?.creative_direction)) ? { creative_direction: cleanDirection(draft.creative_direction) } : {}) };
+      ...(JSON.stringify(cleanDirection(draft.creative_direction)) !== JSON.stringify(cleanDirection(modal?.item?.creative_direction)) ? { creative_direction: cleanDirection(draft.creative_direction) } : {}),
+      // Briefing da peça ("Editar peça"): só vai quando mudou.
+      ...(modal?.item && draft.piece && JSON.stringify(draft.piece) !== JSON.stringify(pieceFrom(modal.item)) ? piecePatch(draft.piece) : {}) };
     // Cliente só manda o que pode mudar (texto e data); o resto fica como a Mugô deixou.
     const clientBody = { scheduled_at: body.scheduled_at, title: body.title, hook: body.hook, caption_draft: body.caption_draft };
     const current = modal?.item;

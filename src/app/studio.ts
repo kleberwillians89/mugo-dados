@@ -140,7 +140,9 @@ export function suggestCreativeDirection(itemId: string, current: CreativeDirect
     { method: "POST", body: JSON.stringify({ current: text, instruction: instruction?.trim() || undefined }), timeoutMs: 100_000 });
 }
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags" | "reels_options">> & { creative_direction?: CreativeDirection };
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags" | "reels_options">> & { creative_direction?: CreativeDirection;
+  /** "Editar peça": briefing da peça editado pela equipe (texto vazio apaga o campo). */
+  script?: string; visual_idea?: string; briefing?: StudioBriefing };
 
 /** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
 export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };

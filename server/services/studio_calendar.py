@@ -657,7 +657,44 @@ SCRIPT_HINTS = {
 }
 
 
-EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags", "reels_options", "creative_direction")
+EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags", "reels_options", "creative_direction",
+            "script", "visual_idea", "briefing")
+
+# Briefing da peça editado pela equipe ("Editar peça"): só estes campos, com tamanho fixo. Vai para signals.briefing.
+BRIEFING_TEXT_LIMITS = {"angle": 60, "summary": 1500, "objective": 1500, "key_message": 1500, "tone": 600, "target_audience": 1500}
+BRIEFING_LIST_FIELDS = ("deliverables", "tech_requirements")
+
+
+def clean_piece_briefing(value: Any) -> Dict[str, Any]:
+    """Campos conhecidos do briefing; texto vazio = apagar o campo (vira None, tirado no merge)."""
+    data = value if isinstance(value, dict) else {}
+    out: Dict[str, Any] = {}
+    for key, limit in BRIEFING_TEXT_LIMITS.items():
+        if key in data:
+            text = str(data.get(key) or "").strip()[:limit]
+            out[key] = text or None
+    for key in BRIEFING_LIST_FIELDS:
+        if key in data:
+            items = [str(x).strip()[:300] for x in (data.get(key) or []) if str(x or "").strip()][:20]
+            out[key] = items or None
+    return out
+
+
+async def _merge_briefing(client_id: str, item_id: str, briefing: Dict[str, Any]) -> Dict[str, Any]:
+    """Junta a edição ao signals atual sem perder as outras chaves (sinais da IA, matriz, etc.)."""
+    rows = await sb_select(ITEMS_TABLE, select="signals", limit=1,
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"})
+    if not rows:
+        raise StudioError("ITEM_NOT_FOUND")
+    signals = dict(rows[0].get("signals") or {}) if isinstance(rows[0].get("signals"), dict) else {}
+    current = dict(signals.get("briefing") or {}) if isinstance(signals.get("briefing"), dict) else {}
+    for key, value in briefing.items():
+        if value is None:
+            current.pop(key, None)
+        else:
+            current[key] = value
+    signals["briefing"] = current
+    return signals
 
 # Direcionamento Criativo da peça (migração 000140): orientação de produção escrita pela equipe (com ou sem IA).
 CREATIVE_DIRECTION_LIMITS = {"concept": 300, "texts": 3000, "references": 2000, "instructions": 3000}
@@ -733,6 +770,9 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
         clean["reels_options"] = clean_reels_options(clean["reels_options"])
     if "creative_direction" in clean:
         clean["creative_direction"] = clean_creative_direction(clean["creative_direction"])
+    for key, limit in (("script", 6000), ("visual_idea", 3000)):
+        if key in clean:
+            clean[key] = str(clean[key] or "").strip()[:limit] or None
     if "status" in clean:
         if clean["status"] not in STATUSES:
             raise StudioError("STATUS_INVALID")
@@ -751,6 +791,10 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
             when = when.replace(tzinfo=SAO_PAULO)
         clean["scheduled_at"] = when.isoformat()
         clean["month"] = when.astimezone(SAO_PAULO).date().replace(day=1).isoformat()
+    if "briefing" in clean:
+        edit = clean_piece_briefing(clean.pop("briefing"))
+        if edit:
+            clean["signals"] = await _merge_briefing(client_id, item_id, edit)
     if not clean:
         raise StudioError("EMPTY_PATCH")
     before = None
