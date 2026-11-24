@@ -234,3 +234,13 @@ export type LiveCampaign = {
 export function getLiveCampaigns() {
   return http<{ campaigns: LiveCampaign[]; checked_at: string; read_only: true }>(base("/live"), { timeoutMs: 60_000 });
 }
+
+/** Leitura da IA das campanhas no ar: números da Meta de agora, cada campanha julgada pelo próprio objetivo. */
+export type LiveReadNumbers = Record<string, number | null>;
+export type LiveReadCampaign = { id: string; campanha: string; objetivo: string; veredito: "escalar" | "manter" | "ajustar" | "pausar";
+  leitura: string; acao: string; numeros: LiveReadNumbers; ultimos_7_dias: LiveReadNumbers; sinais: string[] };
+export type LiveRead = { resumo: string | null; campanhas: LiveReadCampaign[]; proximos_passos: string[]; checked_at: string;
+  message?: string; cached?: boolean };
+export function getLiveRead(refresh = false) {
+  return http<LiveRead>(base(`/live-read${refresh ? "?refresh=true" : ""}`), { timeoutMs: 150_000 });
+}

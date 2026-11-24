@@ -14,6 +14,7 @@ vi.mock("../components/data/PageHeader", () => ({ default: () => null }));
 vi.mock("../components/studio/BrandContextPanel", () => ({ default: () => null }));
 vi.mock("../components/studio/MetaAdsPanel", () => ({ default: () => null }));
 vi.mock("../components/studio/MediaClientCampaigns", () => ({ default: () => null }));
+vi.mock("../components/studio/MediaLiveRead", () => ({ default: () => null }));
 vi.mock("../components/studio/GoogleAdsPanel", () => ({ default: () => null }));
 
 import * as media from "../app/media";
