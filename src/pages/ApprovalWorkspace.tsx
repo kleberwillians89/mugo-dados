@@ -2,6 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Monitor, Smartphone } from "lucide-react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
+  CRM_UNAVAILABLE_TEXT,
+  TASK_EVENT,
+  dueInfo,
+  listCrmTasks,
+  taskApproval,
+  taskHistory,
+  type CrmTask,
+} from "../app/crm";
+import {
   STUDIO_FORMATS,
   deleteApprovalContent,
   decideCalendarItem,
@@ -23,6 +32,10 @@ import "../styles/approval-workspace.css";
 
 export type ApprovalMode = "internal" | "final";
 type PreviewMode = "desktop" | "mobile";
+type QueueEntry =
+  | { key: string; kind: "calendar"; item: PipelineItem }
+  | { key: string; kind: "task"; task: CrmTask };
+type HistoryEntry = { id: string; action: string; detail: string | null; actor_name: string | null; actor_side: "mugo" | "cliente" | "sistema"; created_at: string };
 
 const monthKey = (offset = 0) => {
   const now = new Date();
@@ -48,10 +61,11 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(monthKey);
   const [items, setItems] = useState<PipelineItem[]>([]);
+  const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewMode>("desktop");
   const [note, setNote] = useState("");
-  const [history, setHistory] = useState<ItemEvent[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,35 +74,53 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
 
   const stage = mode === "internal" ? "revisao_interna" : "com_cliente";
   const title = mode === "internal" ? "Aprovação Interna" : "Aprovação Final";
-  const pending = useMemo(() => items.filter((item) => item.stage === stage), [items, stage]);
-  const selected = pending.find((item) => item.id === selectedId) || pending[0] || null;
+  const pending = useMemo<QueueEntry[]>(() => [
+    ...items.filter((item) => item.stage === stage).map((item) => ({ key: `calendar:${item.id}`, kind: "calendar" as const, item })),
+    ...(mode === "internal" ? tasks.filter((task) => task.status === "internal_review" && !task.calendar_item_id)
+      .map((task) => ({ key: `task:${task.id}`, kind: "task" as const, task })) : []),
+  ], [items, mode, stage, tasks]);
+  const selected = pending.find((entry) => entry.key === selectedId) || pending[0] || null;
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try {
-      const response = await getPipeline(month);
-      if (getActiveClientId() !== clientId) return;
-      setItems(response.items || []);
-    } catch (cause) {
-      if (getActiveClientId() !== clientId) return;
-      setError(message(cause, "Não foi possível carregar as peças para aprovação."));
-      setItems([]);
-    } finally {
-      if (getActiveClientId() === clientId) setLoading(false);
-    }
-  }, [clientId, month]);
+    const [calendarResult, taskResult] = await Promise.allSettled([
+      getPipeline(month),
+      mode === "internal" ? listCrmTasks("internal_review") : Promise.resolve(null),
+    ]);
+    if (getActiveClientId() !== clientId) return;
+    const errors: string[] = [];
+    if (calendarResult.status === "fulfilled") setItems(calendarResult.value.items || []);
+    else { setItems([]); errors.push(message(calendarResult.reason, "Não foi possível carregar as peças para aprovação.")); }
+    if (taskResult.status === "fulfilled" && taskResult.value) {
+      if (taskResult.value.available) setTasks(taskResult.value.tasks || []);
+      else { setTasks([]); errors.push(CRM_UNAVAILABLE_TEXT[taskResult.value.reason]); }
+    } else if (taskResult.status === "rejected") {
+      setTasks([]); errors.push(message(taskResult.reason, "Não foi possível carregar os jobs para aprovação."));
+    } else setTasks([]);
+    setError(errors.length ? errors.join(" ") : null);
+    setLoading(false);
+  }, [clientId, mode, month]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!pending.some((item) => item.id === selectedId)) setSelectedId(pending[0]?.id || null);
+    if (!pending.some((entry) => entry.key === selectedId)) setSelectedId(pending[0]?.key || null);
   }, [pending, selectedId]);
   useEffect(() => {
     setNote(""); setHistory([]);
-    if (!selected || !isAgency) return;
+    if (!selected || (selected.kind === "calendar" && !isAgency)) return;
     let alive = true;
-    getItemHistory(selected.id).then((response) => { if (alive) setHistory(response.events || []); }).catch(() => { if (alive) setHistory([]); });
+    const request = selected.kind === "calendar"
+      ? getItemHistory(selected.item.id).then((response) => (response.events || []).map((event: ItemEvent) => ({
+        id: event.id, action: event.action, detail: event.detail, actor_name: event.actor_name,
+        actor_side: event.actor_side, created_at: event.created_at,
+      })))
+      : taskHistory(selected.task.id).then((response) => (response.events || []).map((event) => ({
+        id: event.id, action: TASK_EVENT[event.kind].toLowerCase(), detail: event.comment,
+        actor_name: event.actor_name, actor_side: event.actor_side, created_at: event.created_at,
+      })));
+    request.then((events) => { if (alive) setHistory(events); }).catch(() => { if (alive) setHistory([]); });
     return () => { alive = false; };
-  }, [isAgency, selected?.id]);
+  }, [isAgency, selected?.key]);
 
   async function requestChanges() {
     if (!selected || busy) return;
@@ -96,9 +128,10 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
     if (!text) { setError("Descreva o ajuste necessário antes de enviar."); return; }
     setBusy(true); setError(null); setNotice(null);
     try {
-      if (mode === "internal") await updateCalendarItem(selected.id, { status: "rejeitado", review_note: text });
-      else await decideCalendarItem(selected.id, "rejeitado", text);
-      setNotice("Ajuste solicitado. A peça saiu desta fila."); setNote("");
+      if (selected.kind === "task") await taskApproval(selected.task.id, "internal_changes", text);
+      else if (mode === "internal") await updateCalendarItem(selected.item.id, { status: "rejeitado", review_note: text });
+      else await decideCalendarItem(selected.item.id, "rejeitado", text);
+      setNotice(`Ajuste solicitado. ${selected.kind === "task" ? "O job" : "A peça"} saiu desta fila.`); setNote("");
       await load();
     } catch (cause) { setError(message(cause, "Não foi possível solicitar o ajuste.")); }
     finally { setBusy(false); }
@@ -108,12 +141,17 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
     if (!selected || busy) return;
     setBusy(true); setError(null); setNotice(null); setApprovalLink(null);
     try {
-      if (mode === "internal") {
-        const response = await sendForApproval({ month: selected.month || month, item_ids: [selected.id] });
+      if (selected.kind === "task") {
+        await taskApproval(selected.task.id, "internal_approve");
+        setNotice(selected.task.visible_to_client && selected.task.needs_client_approval !== false
+          ? "Job aprovado internamente e enviado para a aprovação do cliente."
+          : "Job aprovado internamente e concluído.");
+      } else if (mode === "internal") {
+        const response = await sendForApproval({ month: selected.item.month || month, item_ids: [selected.item.id] });
         setApprovalLink(response.link || null);
         setNotice("Peça aprovada internamente e enviada para a aprovação final.");
       } else {
-        await decideCalendarItem(selected.id, "aprovado", note.trim() || undefined);
+        await decideCalendarItem(selected.item.id, "aprovado", note.trim() || undefined);
         setNotice("Peça aprovada. A decisão foi registrada no Calendário.");
       }
       setNote(""); await load();
@@ -122,9 +160,9 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
   }
 
   async function remove() {
-    if (!selected || busy || !canDeleteContent) return;
-    if (!window.confirm(`Excluir o conteúdo “${selected.title}” da fila de aprovação? O histórico será preservado.`)) return;
-    const removedId = selected.id;
+    if (!selected || selected.kind !== "calendar" || busy || !canDeleteContent) return;
+    if (!window.confirm(`Excluir o conteúdo “${selected.item.title}” da fila de aprovação? O histórico será preservado.`)) return;
+    const removedId = selected.item.id;
     setBusy(true); setError(null); setNotice(null); setApprovalLink(null);
     try {
       await deleteApprovalContent(removedId);
@@ -152,13 +190,14 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
       <aside className="approvalQueue" aria-label="Peças na fila">
         <header><span>Peças na Fila</span><b>{pending.length}</b></header>
         {loading ? <p className="approvalQueueEmpty">Carregando…</p> : null}
-        {!loading && !pending.length ? <p className="approvalQueueEmpty">Nenhuma peça aguardando decisão nesta etapa.</p> : null}
-        <ol>{pending.map((item) => {
-          const when = localParts(item.scheduled_at);
-          return <li key={item.id}><button type="button" className={selected?.id === item.id ? "is-active" : ""} onClick={() => { setSelectedId(item.id); setNotice(null); setApprovalLink(null); }}>
-            <small>{item.channel || "social"} · {STUDIO_FORMATS[item.format]}</small>
-            <strong>{item.title}</strong>
-            <span>{when.label} · {when.time}</span>
+        {!loading && !pending.length ? <p className="approvalQueueEmpty">Nenhum conteúdo aguardando decisão nesta etapa.</p> : null}
+        <ol>{pending.map((entry) => {
+          const calendarWhen = entry.kind === "calendar" ? localParts(entry.item.scheduled_at) : null;
+          const taskDue = entry.kind === "task" ? dueInfo(entry.task.due_date) : null;
+          return <li key={entry.key}><button type="button" className={selected?.key === entry.key ? "is-active" : ""} onClick={() => { setSelectedId(entry.key); setNotice(null); setApprovalLink(null); }}>
+            <small>{entry.kind === "calendar" ? `${entry.item.channel || "social"} · ${STUDIO_FORMATS[entry.item.format]}` : `Job · ${entry.task.category || "Tarefa"}`}</small>
+            <strong>{entry.kind === "calendar" ? entry.item.title : entry.task.title}</strong>
+            <span>{calendarWhen ? `${calendarWhen.label} · ${calendarWhen.time}` : taskDue?.label}</span>
           </button></li>;
         })}</ol>
       </aside>
@@ -168,21 +207,22 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteContent, on
           <button type="button" className={preview === "desktop" ? "is-active" : ""} aria-pressed={preview === "desktop"} onClick={() => setPreview("desktop")}><Monitor size={15} aria-hidden="true" /> Desktop</button>
           <button type="button" className={preview === "mobile" ? "is-active" : ""} aria-pressed={preview === "mobile"} onClick={() => setPreview("mobile")}><Smartphone size={15} aria-hidden="true" /> Mobile</button>
         </div>
-        {selected ? <ContentPreview item={selected} mode={preview} /> : <div className="approvalPreviewEmpty"><p>Selecione uma peça pendente para revisar.</p></div>}
+        {selected ? (selected.kind === "calendar" ? <ContentPreview item={selected.item} mode={preview} /> : <TaskPreview task={selected.task} mode={preview} />)
+          : <div className="approvalPreviewEmpty"><p>Selecione um conteúdo pendente para revisar.</p></div>}
       </main>
 
       <aside className="approvalNotes" aria-label="Notas e comentários">
         <header><span>Notas e comentários</span></header>
         {selected ? <>
-          {selected.review_note ? <div className="approvalLastNote"><small>Último pedido de ajuste</small><p>{selected.review_note}</p></div> : null}
-          <label><span>Observação da decisão</span><textarea rows={5} maxLength={1000} value={note} onChange={(event) => { setNote(event.target.value); setError(null); }} placeholder="Registre sua orientação para esta peça" /></label>
-          <PostComments key={selected.id} itemId={selected.id} clientMode={!isAgency} />
-          {isAgency && history.length ? <details className="approvalHistory"><summary>Histórico ({history.length})</summary><ol>{[...history].reverse().map((event) => <li key={event.id}><b>{event.actor_name || (event.actor_side === "cliente" ? "Cliente" : "Equipe Mugô")}</b> {event.action}<small>{new Date(event.created_at).toLocaleString("pt-BR")}</small>{event.detail ? <p>{event.detail}</p> : null}</li>)}</ol></details> : null}
+          {selected.kind === "calendar" && selected.item.review_note ? <div className="approvalLastNote"><small>Último pedido de ajuste</small><p>{selected.item.review_note}</p></div> : null}
+          <label><span>Observação da decisão</span><textarea rows={5} maxLength={1000} value={note} onChange={(event) => { setNote(event.target.value); setError(null); }} placeholder="Registre sua orientação para este conteúdo" /></label>
+          {selected.kind === "calendar" ? <PostComments key={selected.item.id} itemId={selected.item.id} clientMode={!isAgency} /> : null}
+          {(isAgency || selected.kind === "task") && history.length ? <details className="approvalHistory"><summary>Histórico ({history.length})</summary><ol>{[...history].reverse().map((event) => <li key={event.id}><b>{event.actor_name || (event.actor_side === "cliente" ? "Cliente" : "Equipe Mugô")}</b> {event.action}<small>{new Date(event.created_at).toLocaleString("pt-BR")}</small>{event.detail ? <p>{event.detail}</p> : null}</li>)}</ol></details> : null}
         </> : <p className="approvalQueueEmpty">As notas da peça selecionada aparecem aqui.</p>}
       </aside>
     </div>
     {selected ? <footer className="approvalDecisionBar">
-      {canDeleteContent ? <button type="button" className="ds-button" disabled={busy} onClick={() => void remove()}>Excluir conteúdo</button> : null}
+      {canDeleteContent && selected.kind === "calendar" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void remove()}>Excluir conteúdo</button> : null}
       <button type="button" className="ds-button" disabled={busy} onClick={() => void requestChanges()}>Solicitar ajuste</button>
       <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void approve()}>{busy ? "Salvando…" : "Aprovar agora"}</button>
     </footer> : null}
@@ -200,6 +240,22 @@ function ContentPreview({ item, mode }: { item: PipelineItem; mode: PreviewMode 
       {item.hook ? <b>{item.hook}</b> : null}
       <p>{item.caption_draft || "Sem legenda cadastrada."}</p>
       <small>{when.weekday}, {when.label} · {when.time}</small>
+    </div>
+  </article>;
+}
+
+function TaskPreview({ task, mode }: { task: CrmTask; mode: PreviewMode }) {
+  const due = dueInfo(task.due_date);
+  return <article className={`approvalDevice is-${mode}`}>
+    <div className="approvalDeviceChrome"><span /><span /><span /></div>
+    <header><small>Job · {task.category || "Tarefa"}</small><strong>{task.title}</strong></header>
+    <div className="approvalDeviceMedia"><div className="approvalMediaFallback">{task.deliverable_url
+      ? <a href={task.deliverable_url} target="_blank" rel="noreferrer noopener">Abrir material para revisão ↗</a>
+      : "Nenhum material foi anexado ao job."}</div></div>
+    <div className="approvalDeviceCopy">
+      <b>{task.assignee?.name || "Sem responsável definido"}</b>
+      <p>{task.notes || "Sem orientações adicionais."}</p>
+      <small>{due.label}</small>
     </div>
   </article>;
 }
