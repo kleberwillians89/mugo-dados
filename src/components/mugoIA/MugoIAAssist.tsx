@@ -45,7 +45,7 @@ export default function MugoIAAssist() {
 
   return <>
     <button type="button" className="miaAssistButton" onClick={() => setOpen(true)} data-testid="mia-assist">
-      <MessageCircleQuestion size={16} aria-hidden="true" /> Pedir à Mugô IA
+      <MessageCircleQuestion size={16} aria-hidden="true" /> {info.button || "Pedir à Mugô IA"}
     </button>
     <Drawer open={open} onClose={() => setOpen(false)} width="lg" title={`Mugô IA · ${info.label}`}
       description="Lê tudo da marca, pesquisa o mercado e ajuda nesta etapa. O que ela criar vira rascunho para vocês revisarem."

@@ -2,12 +2,15 @@ import { createContext } from "react";
 import type { AppRoute } from "../../app/routes";
 
 /** Telas de criação onde a Mugô IA aparece no cabeçalho (mesmo cérebro; a tela só muda o foco da ajuda). */
-export const ASSIST_SCREENS: Partial<Record<AppRoute, { label: string; suggestions: string[] }>> = {
+export const ASSIST_SCREENS: Partial<Record<AppRoute, { label: string; suggestions: string[]; button?: string }>> = {
   briefing: { label: "Briefing", suggestions: ["Monta o briefing da próxima campanha da marca", "O que não pode faltar neste briefing para a equipe executar?"] },
   redacao: { label: "Redação", suggestions: ["Escreve 3 opções de legenda para o próximo post, no tom da marca", "Revisa o texto que vou colar aqui no tom da marca"] },
   campaigns: { label: "Social Media", suggestions: ["Sugere 5 pautas para a próxima semana com base no que está funcionando", "O que os concorrentes estão postando agora?"] },
   calendar: { label: "Calendário", suggestions: ["Quais datas comerciais vêm aí e o que postar em cada uma?", "Monta a semana de posts da próxima data comercial"] },
-  email_marketing: { label: "E-mail Marketing", suggestions: ["Cria um e-mail para a próxima data comercial", "Cria um e-mail para quem não compra há 90 dias"] },
+  whatsapp: { label: "WhatsApp", button: "Criar mensagem com a Mugô IA", suggestions: ["Cria um modelo de WhatsApp para aprovar na Meta convidando a base para a próxima campanha, com botão",
+    "Cria a mensagem de acesso antecipado da Black Friday com o botão do grupo"] },
+  engagement: { label: "Comentários", suggestions: ["Como responder os comentários de hoje no tom da marca?", "Que dúvidas aparecem mais nos comentários e o que postar sobre elas?"] },
+  email_marketing: { label: "E-mail Marketing", button: "Criar e-mail com a Mugô IA", suggestions: ["Cria um e-mail para a próxima data comercial", "Cria um e-mail para quem não compra há 90 dias"] },
   media: { label: "Mídia On", suggestions: ["Monta uma campanha de vendas na Meta com R$ 50 por dia por 14 dias", "O que os concorrentes estão anunciando agora?"] },
   planning: { label: "Planejamento", suggestions: ["Quais objetivos e fases fazem sentido para o próximo trimestre?", "O que o mercado da marca pede nos próximos 60 dias?"] },
   production: { label: "Eventos", suggestions: ["Ideias de ativação para o próximo evento da marca", "Monta o briefing do próximo evento"] },

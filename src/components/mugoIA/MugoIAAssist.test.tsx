@@ -33,6 +33,14 @@ describe("Mugô IA nas telas de criação", () => {
     expect(document.body.textContent).toContain("Copiar texto");
   });
 
+  it("no WhatsApp a Mugô IA cria o modelo para aprovar na Meta", async () => {
+    await act(async () => root.render(<MugoIAAssistContext.Provider value={{ screen: "whatsapp", canCreate: true }}>
+      <PageHeader title="WhatsApp" /></MugoIAAssistContext.Provider>));
+    await click("Criar mensagem com a Mugô IA");
+    expect(document.body.textContent).toContain("Mugô IA · WhatsApp");
+    expect(document.body.textContent).toContain("modelo de WhatsApp para aprovar na Meta");
+  });
+
   it("fora das telas de criação (ou sem permissão) não aparece nem cria espaço vazio", async () => {
     await act(async () => root.render(<PageHeader title="Dashboard" />));
     expect(host.querySelector('[data-testid="mia-assist"]')).toBeNull();
