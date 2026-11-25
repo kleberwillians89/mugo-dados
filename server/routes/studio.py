@@ -2044,6 +2044,8 @@ async def clear_brand_agent(client_id: str, authorization: str | None = Header(d
 class MugoIAInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=1500)
+    # Tela de criação de onde a pessoa chamou a Mugô IA (Briefing, Redação, Social Media…): ela ajuda naquela etapa.
+    screen: Optional[str] = Field(default=None, max_length=40)
 
 
 def _person_name(authorization: str | None, uid: str) -> str:
@@ -2074,7 +2076,7 @@ async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | No
     uid = await require_user_id(authorization)
     team = await is_agency_user(authorization)
     try:
-        return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid))}
+        return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid), screen=body.screen)}
     except StudioError as exc:
         raise _known(exc) from None
 

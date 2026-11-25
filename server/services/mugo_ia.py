@@ -99,6 +99,18 @@ INSTRUCTIONS = (
     "ferramenta; nunca diga que já criou, enviou ou publicou. Sem pedido de criação: tipo nenhuma."
 )
 ACTION_TYPES = ("nenhuma", "email", "campanha_meta", "briefing")
+# Telas de criação onde a Mugô IA aparece. A tela muda o foco da ajuda; o cérebro e os dados são os mesmos.
+SCREENS: Dict[str, str] = {
+    "briefing": "Briefing: a pessoa está organizando uma demanda (objetivo, público, mensagem, entregas, prazos)",
+    "redacao": "Redação: a pessoa está escrevendo textos (legenda, roteiro, artigo, copy) no editor",
+    "campaigns": "Social Media: a pessoa está montando a matriz de conteúdo e as postagens das redes",
+    "calendar": "Calendário editorial: a pessoa está planejando datas e pautas de posts",
+    "email_marketing": "E-mail Marketing: a pessoa está criando uma campanha de e-mail (assunto, texto, público)",
+    "media": "Mídia On: a pessoa está criando e ajustando campanhas pagas na Meta e no Google",
+    "planning": "Planejamento: a pessoa está montando o planejamento estratégico (objetivos, fases, ações)",
+    "production": "Eventos: a pessoa está planejando uma produção ou evento da marca",
+    "creators": "Criadores: a pessoa está escolhendo e organizando criadores e influenciadores",
+}
 ACTION_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["tipo", "titulo", "pedido", "assunto", "preheader", "email_titulo", "email_texto", "botao", "objetivo",
@@ -291,7 +303,8 @@ async def gather_context(client_id: str, *, team: bool) -> Dict[str, Any]:
     return {"package": package, "live": {k: v for k, v in out.items() if v}, "gaps": gaps}
 
 
-def build_prompt(*, context: Dict[str, Any], chunks: List[Dict[str, Any]], past: List[Dict[str, Any]], question: str) -> str:
+def build_prompt(*, context: Dict[str, Any], chunks: List[Dict[str, Any]], past: List[Dict[str, Any]], question: str,
+                 screen: Optional[str] = None) -> str:
     from .studio_intelligence import to_prompt
     package = context.get("package") or {}
     from zoneinfo import ZoneInfo
@@ -320,6 +333,9 @@ def build_prompt(*, context: Dict[str, Any], chunks: List[Dict[str, Any]], past:
                      json.dumps(web.get("sources") or [], ensure_ascii=False)[:4500])
     elif web.get("status") not in (None, "not_needed"):
         parts.append("PESQUISA WEB: indisponível ou sem fontes verificáveis neste momento.")
+    if screen in SCREENS:
+        parts.append(f"TELA ATUAL: {SCREENS[screen]}. Ajude nessa etapa: entregue o que ela precisa pronto para usar "
+                     "(texto, estrutura, ideias, revisão), no tom da marca, com os dados e a pesquisa de mercado.")
     parts.append(f"ÚLTIMA MENSAGEM DA PESSOA:\n{question}")
     return "\n\n".join(parts)
 
@@ -393,7 +409,8 @@ def clean_action(raw: Any) -> Optional[Dict[str, Any]]:
     return out
 
 
-async def ask(client_id: str, user_id: str, question: str, *, team: bool, person: str = "") -> Dict[str, Any]:
+async def ask(client_id: str, user_id: str, question: str, *, team: bool, person: str = "",
+              screen: Optional[str] = None) -> Dict[str, Any]:
     from .brand_knowledge import search_chunks
     from .studio_engines import throttle
     from .studio_llm import llm_json
@@ -411,7 +428,7 @@ async def ask(client_id: str, user_id: str, question: str, *, team: bool, person
                                                           _client_name(client_id), research(client_id, question), market(client_id))
     context["web"] = web
     context["mercado"] = mercado
-    prompt = build_prompt(context=context, chunks=chunks, past=past, question=question)
+    prompt = build_prompt(context=context, chunks=chunks, past=past, question=question, screen=screen)
     instructions = INSTRUCTIONS.format(name=name, **voice(context.get("package") or {}, person=person, team=team, name=name))
 
     result: Dict[str, Any] = {}
@@ -459,7 +476,8 @@ async def ask(client_id: str, user_id: str, question: str, *, team: bool, person
         meta["acao"] = action
     saved: Optional[Dict[str, Any]] = None
     try:
-        await sb_insert(MESSAGES, {"client_id": client_id, "user_id": user_id, "role": "user", "content": question, "meta": {"channel": CHANNEL}},
+        await sb_insert(MESSAGES, {"client_id": client_id, "user_id": user_id, "role": "user", "content": question,
+                                   "meta": {"channel": CHANNEL, **({"screen": screen} if screen in SCREENS else {})}},
                         returning="minimal")
         saved = await sb_insert(MESSAGES, {"client_id": client_id, "user_id": user_id, "role": "assistant", "content": answer,
                                            "meta": {**meta, "channel": CHANNEL}})

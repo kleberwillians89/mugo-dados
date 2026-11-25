@@ -28,7 +28,7 @@ export default function MugoIAAction({ messageId, action, canCreate, onChange }:
     finally { setBusy(false); }
   }
 
-  return <section className="miaAction" data-testid="mia-action" data-kind={action.tipo}>
+  return <section className="miaCreate" data-testid="mia-action" data-kind={action.tipo}>
     <header><Icon size={16} aria-hidden="true" /><small>{kind.label}</small><b>{action.titulo}</b></header>
     {action.tipo === "email" ? <dl>
       <div><dt>Assunto</dt><dd>{action.assunto}</dd></div>
@@ -38,10 +38,10 @@ export default function MugoIAAction({ messageId, action, canCreate, onChange }:
       <div><dt>Objetivo</dt><dd>{action.objetivo || "vendas"}</dd></div>
       <div><dt>Verba</dt><dd>{money(action.verba_diaria)}/dia · {action.dias || 14} dias</dd></div>
     </dl> : null}
-    {action.status === "criado" && action.criado ? <p className="miaActionDone">
+    {action.status === "criado" && action.criado ? <p className="miaCreateDone">
       <Check size={15} aria-hidden="true" /> Rascunho criado em {action.criado.label}{action.criado.name ? `: ${action.criado.name}` : ""}.
       <button type="button" className="miaGhost" onClick={() => navigateToAppRoute(action.criado!.route)}>Abrir <ArrowRight size={14} aria-hidden="true" /></button>
-    </p> : canCreate ? <div className="miaActionRow">
+    </p> : canCreate ? <div className="miaCreateRow">
       <button type="button" className="ds-button ds-button--primary" disabled={busy || !messageId} onClick={() => void create()}>
         {busy ? "Criando o rascunho…" : kind.button}</button>
       <small>Vira rascunho para revisar. Nada é enviado nem publicado sem vocês.</small>

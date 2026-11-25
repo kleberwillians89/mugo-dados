@@ -102,15 +102,28 @@
 }
 
 /* Proposta de criação (e-mail, campanha na Meta, briefing): vira rascunho na ferramenta com um clique. */
-.miaAction{margin-top:12px;border:1px solid var(--mia-line);border-left:3px solid #b79830;border-radius:12px;padding:12px 14px;background:rgba(183,152,48,.06);display:grid;gap:10px;font-size:14px}
-.miaAction header{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.miaAction header svg{color:#7a6420}
-.miaAction header small{color:var(--text-muted,#6b7075);text-transform:uppercase;letter-spacing:.04em;font-size:11px}
-.miaAction header b{flex-basis:100%}
-.miaAction dl{display:grid;gap:4px;margin:0}
-.miaAction dl div{display:flex;gap:8px}
-.miaAction dt{color:var(--text-muted,#6b7075);min-width:84px}
-.miaAction dd{margin:0}
-.miaActionRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.miaActionRow small{color:var(--text-muted,#6b7075)}
-.miaActionDone{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;color:#1f6b45}
+.miaCreate{margin-top:12px;border:1px solid var(--mia-line);border-left:3px solid #b79830;border-radius:12px;padding:12px 14px;background:rgba(183,152,48,.06);display:grid;gap:10px;font-size:14px}
+.miaCreate header{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.miaCreate header svg{color:#7a6420}
+.miaCreate header small{color:var(--text-muted,#6b7075);text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+.miaCreate header b{flex-basis:100%}
+.miaCreate dl{display:grid;gap:4px;margin:0}
+.miaCreate dl div{display:flex;gap:8px}
+.miaCreate dt{color:var(--text-muted,#6b7075);min-width:84px}
+.miaCreate dd{margin:0}
+.miaCreateRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.miaCreateRow small{color:var(--text-muted,#6b7075)}
+.miaCreateDone{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;color:#1f6b45}
+
+/* Mugô IA nas telas de criação: botão no cabeçalho (ouro envelhecido, como no menu) e conversa em modal. */
+.miaAssistButton{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 14px;border-radius:999px;border:1px solid rgba(183,152,48,.55);
+  background:rgba(183,152,48,.12);color:var(--text-primary,#15181b);font:600 14px/1 var(--font-body,inherit);cursor:pointer}
+.miaAssistButton svg{color:#7a6420}
+.miaAssistButton:hover{background:rgba(183,152,48,.2)}
+.miaAssistButton:focus-visible{outline:2px solid #7a6420;outline-offset:2px}
+.miaAssist{display:grid;gap:14px}
+.miaAssist .miaStarters{display:grid;gap:8px}
+.miaAssistTools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
+.miaAssistTools small{color:var(--text-muted,#6b7075)}
+.miaAssistForm{display:flex;gap:8px;align-items:flex-end;width:100%}
+.miaAssistForm textarea{flex:1;resize:vertical;min-height:44px;border-radius:12px;border:1px solid var(--border-subtle,#d9dde1);padding:10px 12px;font:inherit}
