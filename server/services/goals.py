@@ -201,8 +201,17 @@ async def list_goals(client_id, start=None, end=None, *, include_actuals=True):
         if key not in cache:
             try: cache[key]=await resolve_goal_actual(client_id,*key)
             except Exception: cache[key]=unavailable("A fonte persistida não pôde ser lida agora.")
-        results.append(evaluate_goal(goal,cache[key]))
-    return {"ok":True, "client_id":client_id, "goals":results}
+        evaluated = evaluate_goal(goal,cache[key])
+        # Ritmo sazonal (dias da semana) só quando o histórico da própria marca sustenta; senão, linear.
+        if evaluated.get("additive") and evaluated.get("status") not in ("FUTURA", "INDISPONIVEL"):
+            ckey=("curve",goal["metric"],goal["period_start"])
+            if ckey not in cache:
+                try: cache[ckey]=await seasonal_curve(client_id,goal["metric"],goal["period_start"])
+                except Exception: cache[ckey]=None
+            evaluated = apply_curve(evaluated, cache[ckey])
+        results.append(evaluated)
+    from .goal_ops import alerts
+    return {"ok":True, "client_id":client_id, "goals":results, "alerts":alerts(results)}
 
 
 # ---------------------------------------------------------------- desdobramento (indicadores relacionados)
@@ -306,7 +315,12 @@ async def suggest_goal(client_id, metric, period_start, period_end):
     result = scenarios(metric, direction, windows)
     dates = [label for a, b, label in COMMERCIAL_DATES
              if any(f"{y}-{a}" <= end.isoformat() and f"{y}-{b}" >= start.isoformat() for y in {start.year, end.year})]
+    try:
+        record = await past_goal_record(client_id, metric, start.isoformat())
+    except Exception:  # noqa: BLE001
+        record = None
     premises = {"history": windows, "model": "Períodos anteriores do mesmo tamanho; ritmo linear, sem ajuste de sazonalidade.",
+                "past_goals": record,
                 "commercial_dates": dates,
                 "seasonality_note": (f"O período inclui {', '.join(dates)}. O histórico usado não tem essas datas e não foi ajustado: trate os cenários com cuidado."
                                      if dates else None)}
@@ -338,3 +352,109 @@ async def goal_history(client_id, goal_id):
     except Exception:  # noqa: BLE001
         return {"available": False, "events": []}
     return {"available": True, "events": [r for r in rows if r.get("client_id") == client_id]}
+
+
+# ---------------------------------------------------------------- ritmo sazonal (dias da semana) e avaliação
+
+SEASONAL_FIELDS = {"orders": ["shopify_orders"], "revenue": ["shopify_net_revenue"], "ad_spend": ["meta_spend", "google_ads_spend"],
+                   "sessions": ["ga4_sessions"], "conversions": ["meta_purchases"], "google_conversions": ["google_ads_conversions"],
+                   "impressions": ["instagram_impressions"], "engagement": ["instagram_interactions"]}
+CURVE_WEEKS = 8
+MIN_PER_WEEKDAY = 4      # cada dia da semana precisa de pelo menos 4 dias com dado
+MIN_SPREAD = 1.15        # curva só vale se o dia mais forte for 15% maior que o mais fraco; abaixo disso, linear
+
+
+def weekday_curve(rows, fields):
+    """Peso médio de cada dia da semana (seg=0..dom=6), média 1. None sem dado suficiente ou sem diferença relevante. Puro."""
+    by_day = {d: [] for d in range(7)}
+    for r in rows:
+        vals = [r.get(f) for f in fields]
+        if all(v is None for v in vals):
+            continue
+        by_day[date.fromisoformat(str(r["metric_date"])).weekday()].append(sum(float(v or 0) for v in vals))
+    if any(len(v) < MIN_PER_WEEKDAY for v in by_day.values()):
+        return None
+    avgs = [sum(v) / len(v) for _, v in sorted(by_day.items())]
+    mean = sum(avgs) / 7
+    if mean <= 0 or min(avgs) <= 0 or max(avgs) / min(avgs) < MIN_SPREAD:
+        return None
+    return [a / mean for a in avgs]
+
+
+async def seasonal_curve(client_id, metric, period_start):
+    """Curva dos dias da semana a partir das 8 semanas antes do período (dados da própria marca)."""
+    fields = SEASONAL_FIELDS.get(metric)
+    if not fields:
+        return None
+    start = date.fromisoformat(str(period_start))
+    since = (start - timedelta(weeks=CURVE_WEEKS)).isoformat()
+    rows = await own_rows("dashboard_daily_metrics", client_id, filters={"metric_date": f"gte.{since}", "and": f"(metric_date.lt.{start.isoformat()})"},
+                          select="client_id,metric_date," + ",".join(fields))
+    return weekday_curve(rows, fields)
+
+
+def apply_curve(result, curve, today=None):
+    """Troca o ritmo linear pelo sazonal quando há curva: % esperado até hoje, necessário HOJE e projeção. Puro."""
+    if not curve or not result.get("additive") or result.get("status") in ("FUTURA", "INDISPONIVEL"):
+        return result
+    today = today or datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    start, end = date.fromisoformat(str(result["period_start"])), date.fromisoformat(str(result["period_end"]))
+    days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+    w = {d: curve[d.weekday()] for d in days}
+    total = sum(w.values())
+    elapsed_w = sum(v for d, v in w.items() if d <= today)
+    remaining_w = sum(v for d, v in w.items() if d >= today)
+    out = dict(result)
+    out["elapsed_percent"] = elapsed_w / total * 100
+    out["pace_model"] = "sazonal"
+    out["curve"] = [round(c, 3) for c in curve]
+    if result.get("progress_percent") is not None and result.get("direction") != "max":
+        delta = result["progress_percent"] - out["elapsed_percent"]
+        out["pace_delta"] = delta
+        if result["status"] not in ("META_ATINGIDA",):
+            out["status"] = "NO_RITMO" if delta >= -PACE_TOLERANCE else "ATENCAO" if delta >= -ATTENTION_TOLERANCE else "ABAIXO_DO_RITMO"
+    if result.get("remaining") and today <= end and remaining_w > 0:
+        out["required_today"] = result["remaining"] * w.get(today, 0) / remaining_w if today >= start else None
+    if result.get("projected_value") is not None and elapsed_w > 0:
+        out["projected_value"] = float(result["actual"]) / (elapsed_w / total)
+    return out
+
+
+async def goal_evaluation(client_id, goal, evaluated):
+    """Leitura de uma meta para aprender depois: alvo original x alterações, resultado, desvio, premissas e ações."""
+    hist = await goal_history(client_id, str(goal["id"]))
+    events = list(reversed(hist.get("events") or []))
+    created = next((e for e in events if e.get("action") == "criada"), None)
+    original = (created or {}).get("after", {}) or {}
+    edits = [e for e in events if e.get("action") == "editada" and (e.get("before") or {}).get("target_value") != (e.get("after") or {}).get("target_value")]
+    target = float(goal["target_value"])
+    actual = evaluated.get("actual")
+    deviation = (float(actual) - target) / target * 100 if actual is not None and target else None
+    tasks = []
+    try:
+        recs = await sb_select("goal_recommendations", select="items,client_id,created_at", filters={"client_id": f"eq.{client_id}", "goal_id": f"eq.{goal['id']}"}, limit=20)
+        tasks = [i.get("task_id") for r in recs if r.get("client_id") == client_id for i in (r.get("items") or []) if i.get("task_id")]
+    except Exception:  # noqa: BLE001
+        pass
+    ended = date.fromisoformat(str(goal["period_end"])) < datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    return {"ended": ended, "original_target": original.get("target_value"), "current_target": target, "target_changes": len(edits),
+            "actual": actual, "deviation_percent": deviation, "result": evaluated.get("status"), "direction": evaluated.get("direction"),
+            "suggestion": goal.get("suggestion"), "tasks_created": len(tasks), "history_available": hist.get("available", False)}
+
+
+async def past_goal_record(client_id, metric, before):
+    """Metas encerradas do mesmo indicador: quantas foram atingidas e o desvio médio (premissa da sugestão; não muda nada sozinho)."""
+    rows = await own_rows("client_goals", client_id, order="period_end.desc")
+    past = [r for r in rows if r.get("metric") == metric and str(r.get("period_end")) < str(before)][:6]
+    out = []
+    for g in past:
+        try:
+            a = await resolve_goal_actual(client_id, metric, g["period_start"], g["period_end"])
+        except Exception:  # noqa: BLE001
+            continue
+        if a.get("available") and float(g["target_value"]) > 0:
+            out.append((float(a["actual"]) - float(g["target_value"])) / float(g["target_value"]) * 100)
+    if not out:
+        return None
+    hit = sum(1 for d in out if d >= 0) if DEFAULT_DIRECTION.get(metric, "min") == "min" else sum(1 for d in out if d <= 0)
+    return {"goals": len(out), "hit": hit, "average_deviation_percent": sum(out) / len(out)}

@@ -19,6 +19,9 @@ import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsP
 import MediaLiveRead from "../components/studio/MediaLiveRead";
 import type { LiveRead, LiveReadNote } from "../app/metaAds";
 import MediaKpiStrip from "../components/studio/MediaKpiStrip";
+import MediaGoals from "../components/goals/MediaGoals";
+import { requestGoalsSection } from "../app/newProjectRequest";
+import "../styles/goals.css";
 import GoogleAdsPanel, { type GooglePrepareRequest } from "../components/studio/GoogleAdsPanel";
 import MediaCampaignHub from "../components/studio/MediaCampaignHub";
 import MediaLiveCampaigns from "../components/studio/MediaLiveCampaigns";
@@ -280,6 +283,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
       <GoogleAdsPanel request={googlePrepare} />
     </div> : null}
     {canManage ? <MediaKpiStrip onOpen={(target) => { navigateToAppRoute(target); window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state })); }} /> : null}
+    {canManage ? <MediaGoals onOpenPlanning={() => { requestGoalsSection(); navigateToAppRoute("planning"); window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state })); }} /> : null}
     <div className="mediaAnalysisHead"><h2>Planejamento e análise de mídia</h2>
       <p>Estratégia do mês, verba por canal e relatórios aprofundados. A operação das campanhas fica acima.</p></div>
     <div className="mediaExperienceSwitch" role="group" aria-label="Modo de visualização">
