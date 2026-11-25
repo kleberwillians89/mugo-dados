@@ -34,5 +34,17 @@ describe("Leitura da IA das campanhas no ar", () => {
     expect(host.textContent).toContain("Criar remarketing com quem clicou");
     await act(async () => { [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Atualizar"))!.click(); });
     expect(api.getLiveRead).toHaveBeenLastCalledWith(true);
+    });
+
+  it("lê Google junto com a Meta e avisa quem está na tela", async () => {
+    const google = { id: "google:9", canal: "Google", campanha: "PMax Black Friday", objetivo: "Google Ads", veredito: "escalar", leitura: "ROAS 6.", acao: "Subir verba.",
+      numeros: { investido: 300, conversoes: 6, custo_por_conversao: 50, roas: 6, cpc: 1.5 }, ultimos_7_dias: {}, sinais: [] };
+    api.getLiveRead.mockResolvedValue({ ...READ, campanhas: [...READ.campanhas, google] });
+    const onData = vi.fn();
+    await act(async () => { root.render(<MediaLiveRead onData={onData} />); }); await act(async () => {});
+    const card = host.querySelector('[data-campaign="google:9"]')!.textContent!;
+    expect(card).toContain("Google");
+    expect(card).toContain("Custo por conversão");
+    expect(onData).toHaveBeenCalledWith(expect.objectContaining({ resumo: READ.resumo }));
   });
 });

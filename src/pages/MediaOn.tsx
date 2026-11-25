@@ -17,6 +17,7 @@ import Delta from "../components/data/Delta";
 import SegmentedControl from "../components/data/SegmentedControl";
 import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsPanel";
 import MediaLiveRead from "../components/studio/MediaLiveRead";
+import type { LiveRead, LiveReadNote } from "../app/metaAds";
 import MediaKpiStrip from "../components/studio/MediaKpiStrip";
 import GoogleAdsPanel, { type GooglePrepareRequest } from "../components/studio/GoogleAdsPanel";
 import MediaCampaignHub from "../components/studio/MediaCampaignHub";
@@ -46,6 +47,8 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(thisMonth);
   const [objective, setObjective] = useState<Objective>("vendas");
+  // A leitura da IA das campanhas no ar também responde "o que explica" e "o que melhorar" no Resumo Executivo.
+  const [liveRead, setLiveRead] = useState<LiveRead | null>(null);
   const [prepare, setPrepare] = useState<PrepareRequest>(null);
   const [googlePrepare, setGooglePrepare] = useState<GooglePrepareRequest>(null);
   const [mediaBriefs, setMediaBriefs] = useState<Brief[]>([]);
@@ -264,7 +267,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
     </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
       : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
     {!canManage ? <MediaLiveCampaigns /> : null}
-    {canManage ? <MediaLiveRead /> : null}
+    {canManage ? <MediaLiveRead onData={setLiveRead} /> : null}
     {canManage ? <MediaClientCampaigns /> : null}
     {canManageCampaigns ? <MediaCampaignHub
       briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
@@ -335,7 +338,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
         : "A equipe ainda não publicou a estratégia deste mês."}</p>
       {canManage && experienceMode === "simple" ? <button type="button" className="ds-button is-primary" onClick={() => setExperienceMode("technical")}>Preparar minha primeira análise</button> : null}</div> : null}
 
-    {strategy && simpleView && experienceMode === "simple" ? <SimpleMediaOverview view={simpleView} /> : null}
+    {strategy && simpleView && experienceMode === "simple" ? <SimpleMediaOverview view={simpleView} live={liveRead} /> : null}
 
     {strategy && scenario && result && experienceMode === "technical" ? <>
       {strategy.objective_projection?.message ? <p className={`mediaEstimate ${strategy.objective_projection.status === "declared_only" ? "is-limited" : ""}`}>
@@ -529,8 +532,14 @@ function SimpleCampaignCard({ item, showDecisionReason = false }: { item: Simple
   </article>;
 }
 
-function SimpleMediaOverview({ view }: { view: ReturnType<typeof buildSimpleMediaView> }) {
+function LiveNotes({ notes }: { notes: LiveReadNote[] }) {
+  return <ul className="mediaSimpleReasons">{notes.map((n) => <li key={`${n.id}:${n.texto}`}><b>{n.campanha}</b> <small>({n.canal})</small>: {n.texto}</li>)}</ul>;
+}
+
+function SimpleMediaOverview({ view, live }: { view: ReturnType<typeof buildSimpleMediaView>; live?: LiveRead | null }) {
   const supportedExplanations = view.wins.filter((item) => item.explanation);
+  const liveWhy = live?.explicacoes || [];
+  const liveImprove = live?.melhorias || [];
   return <div className="mediaSimpleView" aria-label="Resumo executivo do desempenho">
     <section className="ds-section mediaSimpleHero" aria-labelledby="media-simple-summary">
       <span className="mediaSimpleEyebrow">Seu marketing em 1 minuto</span>
@@ -551,15 +560,15 @@ function SimpleMediaOverview({ view }: { view: ReturnType<typeof buildSimpleMedi
 
     <section className="ds-section" aria-labelledby="media-simple-why">
       <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-why" className="ds-sectionTitle">O que pode explicar os resultados?</h2>
-        <p className="ds-caption">Os dados mostram sinais; não provam causalidade.</p></div></div>
-      {supportedExplanations.length ? <ul className="mediaSimpleReasons">{supportedExplanations.map((item) => <li key={`${item.channel}:${item.campaign}`}><b>{item.campaign}:</b> {item.explanation}</li>)}</ul>
+        <p className="ds-caption">{liveWhy.length ? "Leitura da IA das campanhas no ar (Meta e Google). Sinais, não prova de causa." : "Os dados mostram sinais; não provam causalidade."}</p></div></div>
+      {liveWhy.length ? <LiveNotes notes={liveWhy} /> : supportedExplanations.length ? <ul className="mediaSimpleReasons">{supportedExplanations.map((item) => <li key={`${item.channel}:${item.campaign}`}><b>{item.campaign}:</b> {item.explanation}</li>)}</ul>
         : <p className="mediaSimpleLimitation">Os dados disponíveis mostram desempenho, mas não trazem evidência suficiente para explicar por que ele ocorreu.</p>}
     </section>
 
     <section className="ds-section" aria-labelledby="media-simple-improve">
       <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-improve" className="ds-sectionTitle">O que pode melhorar?</h2>
-        <p className="ds-caption">Campanhas marcadas pela análise atual para revisão ou otimização.</p></div></div>
-      {view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} showDecisionReason />)}</div>
+        <p className="ds-caption">{liveImprove.length ? "Da leitura da IA das campanhas no ar, em ordem de impacto." : "Campanhas marcadas pela análise atual para revisão ou otimização."}</p></div></div>
+      {liveImprove.length ? <LiveNotes notes={liveImprove} /> : view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} showDecisionReason />)}</div>
         : <p className="mediaSimpleLimitation">Nenhuma campanha foi marcada para revisão com os dados disponíveis.</p>}
     </section>
 
