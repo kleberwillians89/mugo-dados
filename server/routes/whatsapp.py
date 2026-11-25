@@ -388,6 +388,7 @@ class BulkCampaignDraftIn(BaseModel):
 
 class BulkSendIn(BaseModel):
     scheduled_at: Optional[str] = Field(default=None, max_length=40)
+    exclude_previous_template_recipients: bool = True
 
 
 @router.get("/campaigns/drafts")
@@ -433,7 +434,8 @@ async def whatsapp_campaign_send(client_id: str, draft_id: str, payload: Optiona
         raise HTTPException(status_code=404, detail="Campanha não encontrada.")
     from services.whatsapp_campaign_send import BulkSendError, start
     try:
-        return {"ok": True, **await start(cid, draft_id, (payload.scheduled_at if payload else None))}
+        return {"ok": True, **await start(cid, draft_id, payload.scheduled_at if payload else None,
+                                          payload.exclude_previous_template_recipients if payload else True)}
     except BulkSendError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from None
 

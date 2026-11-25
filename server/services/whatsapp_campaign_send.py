@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from .crypto import decrypt_secret
 from .ig_supabase import sb_insert, sb_select, sb_update
+from .whatsapp_insights import phone_key
 
 DRAFTS = "whatsapp_campaign_drafts"
 SENDS = "whatsapp_campaign_sends"
@@ -41,7 +42,7 @@ class BulkSendError(Exception):
 def normalize_phone(value: Any) -> Optional[str]:
     """Só dígitos, com 55 quando o número é brasileiro sem DDI. Inválido devolve None."""
     digits = re.sub(r"\D", "", str(value or ""))
-    if len(digits) in (10, 11) and not digits.startswith("55"):
+    if len(digits) in (10, 11) and not str(value or "").lstrip().startswith("+"):
         digits = "55" + digits
     return digits if 12 <= len(digits) <= 15 else None
 
@@ -82,8 +83,15 @@ async def recipients(client_id: str, provider: str, selection: Optional[List[str
 
     def add(phone: Any, name: Any) -> None:
         digits = normalize_phone(phone)
-        if digits and digits not in out:
-            out[digits] = {"phone": digits, "name": first_name(name)}
+        if not digits:
+            return
+        key = phone_key(digits, international=True)
+        candidate = {"phone": digits, "name": first_name(name)}
+        previous = out.setdefault(key, candidate)
+        if len(digits) > len(previous["phone"]):
+            previous["phone"] = digits
+        if previous["name"] == "cliente":
+            previous["name"] = candidate["name"]
 
     picked = [h for h in (selection or []) if re.fullmatch(r"[0-9a-f]{64}", str(h))] if provider == "planilha" else []
     if picked:
@@ -126,7 +134,8 @@ async def opted_out(client_id: str) -> Set[str]:
 async def count_sendable(client_id: str, provider: str) -> Dict[str, int]:
     people = await recipients(client_id, provider)
     blocked = await opted_out(client_id)
-    return {"sendable_count": sum(1 for p in people if p["phone"] not in blocked), "opted_out_count": len(blocked)}
+    blocked_keys = {phone_key(p, international=True) for p in blocked}
+    return {"sendable_count": sum(1 for p in people if phone_key(p["phone"], international=True) not in blocked_keys), "opted_out_count": len(blocked)}
 
 
 async def _draft(client_id: str, draft_id: str) -> Dict[str, Any]:
@@ -172,7 +181,8 @@ def _iso(value: Any) -> Optional[datetime]:
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
-async def start(client_id: str, draft_id: str, scheduled_at: Optional[str] = None) -> Dict[str, Any]:
+async def start(client_id: str, draft_id: str, scheduled_at: Optional[str] = None,
+                exclude_previous_template_recipients: bool = True) -> Dict[str, Any]:
     """Põe a campanha na fila (agora ou na data agendada). Quem envia é o job ``whatsapp-bulk-due``."""
     from .whatsapp_native import _active_number, WhatsAppNativeError
     draft = await _draft(client_id, draft_id)
@@ -200,7 +210,8 @@ async def start(client_id: str, draft_id: str, scheduled_at: Optional[str] = Non
         raise BulkSendError("Nenhum contato com telefone nesta origem. Importe os contatos antes.")
     await sb_update(DRAFTS, filters={"id": f"eq.{draft_id}", "client_id": f"eq.{client_id}"}, returning="minimal",
                     patch={"status": "queued", "scheduled_at": when.isoformat() if when else None, "finished_at": None,
-                           "recipients_count": len(people), "last_error": None})
+                           "recipients_count": len(people), "last_error": None,
+                           "exclude_previous_template_recipients": exclude_previous_template_recipients})
     return {"status": "queued", "scheduled_at": when.isoformat() if when else None, "recipients_count": len(people)}
 
 
@@ -247,15 +258,41 @@ async def process_due(now: Optional[datetime] = None) -> Dict[str, Any]:
     return {"campaigns": len(done), "results": done}
 
 
+async def _previous_template_phones(client_id: str, draft: Dict[str, Any], keys: List[str]) -> Set[str]:
+    """Somente envios aceitos em outras campanhas da mesma marca, modelo e idioma."""
+    seen: Set[str] = set()
+    for offset in range(0, len(keys), 100):
+        batch = ",".join(keys[offset:offset + 100])
+        rows = await _pages(SENDS, "phone_key,whatsapp_campaign_drafts!inner(id)", {
+            "client_id": f"eq.{client_id}", "draft_id": f"neq.{draft['id']}", "status": "eq.sent",
+            "phone_key": f"in.({batch})", "whatsapp_campaign_drafts.client_id": f"eq.{client_id}",
+            "whatsapp_campaign_drafts.template_name": f"eq.{draft['template_name']}",
+            "whatsapp_campaign_drafts.language": f"eq.{draft['language']}",
+        }, "id.asc")
+        seen.update(r["phone_key"] for r in rows if r.get("phone_key"))
+    return seen
+
+
 async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]], variables: int,
               header: Optional[Dict[str, str]] = None) -> Dict[str, int]:
     from .whatsapp_native import WhatsAppNativeError, send_template
     draft_id = str(draft["id"])
     try:
-        done_rows = await _pages(SENDS, "phone_hash,status", {"draft_id": f"eq.{draft_id}"}, "created_at.asc")
+        done_rows = await _pages(SENDS, "phone_hash,phone_key,status", {
+            "draft_id": f"eq.{draft_id}", "client_id": f"eq.{client_id}",
+        }, "created_at.asc,id.asc")
         done = {r["phone_hash"]: r["status"] for r in done_rows}
+        completed_keys = {r["phone_key"] for r in done_rows if r.get("phone_key") and r["status"] in ("sent", "skipped")}
+        unique_people = {}
+        for person in people:
+            digits = normalize_phone(person["phone"])
+            key = phone_key(digits, international=True) if digits else None
+            if key and key not in completed_keys:
+                unique_people.setdefault(key, {**person, "phone": digits})
+        previous = (await _previous_template_phones(client_id, draft, list(unique_people))
+                    if draft.get("exclude_previous_template_recipients") else set())
         counts = {s: sum(1 for v in done.values() if v == s) for s in ("sent", "failed", "skipped")}
-        blocked = await opted_out(client_id)
+        blocked = {phone_key(p, international=True) for p in await opted_out(client_id)}
         last_error: Optional[str] = None
         gate = asyncio.Semaphore(CONCURRENCY)
         progress = 0
@@ -268,20 +305,21 @@ async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]
                 patch["status"] = "sent" if counts["failed"] == 0 else "partial" if counts["sent"] else "failed"
             await sb_update(DRAFTS, filters={"id": f"eq.{draft_id}", "client_id": f"eq.{client_id}"}, patch=patch, returning="minimal")
 
-        async def one(person: Dict[str, str]) -> None:
+        async def one(canonical_key: str, person: Dict[str, str]) -> None:
             async with gate:  # envio e registro juntos: no máximo CONCURRENCY por vez
-                await deliver(person)
+                await deliver(canonical_key, person)
 
-        async def deliver(person: Dict[str, str]) -> None:
+        async def deliver(canonical_key: str, person: Dict[str, str]) -> None:
             nonlocal last_error, progress
             key = phone_hash(client_id, person["phone"])
             if done.get(key) in ("sent", "skipped"):
                 return
-            from .whatsapp_insights import phone_key
             row: Dict[str, Any] = {"client_id": client_id, "draft_id": draft_id, "phone_hash": key,
-                                   "phone_key": phone_key("+" + person["phone"], international=True)}
-            if person["phone"] in blocked:
+                                   "phone_key": canonical_key}
+            if canonical_key in blocked:
                 row["status"] = "skipped"; row["error"] = "Pediu para sair"
+            elif canonical_key in previous:
+                row["status"] = "skipped"; row["error"] = "Já recebeu este modelo"
             else:
                 try:
                     receipt: Dict[str, str] = {}
@@ -314,8 +352,9 @@ async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]
             if progress % SAVE_EVERY == 0:
                 await save()
 
-        for start_at in range(0, len(people), 200):  # em blocos: não abre 50 mil tarefas de uma vez
-            await asyncio.gather(*(one(p) for p in people[start_at:start_at + 200]))
+        targets = list(unique_people.items())
+        for start_at in range(0, len(targets), 200):
+            await asyncio.gather(*(one(key, person) for key, person in targets[start_at:start_at + 200]))
         await save(final=True)
         return counts
     except Exception as exc:  # noqa: BLE001
