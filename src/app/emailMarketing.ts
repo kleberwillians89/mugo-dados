@@ -183,3 +183,13 @@ export const FLOW_HELP: Record<FlowKind, { when: string; delay: string }> = {
   segunda_compra: { when: "Quem comprou 1 vez e não voltou", delay: "dias depois da primeira compra" },
   reativacao: { when: "Quem parou de comprar", delay: "dias sem comprar" },
 };
+
+export async function importEmailConsents(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return http<{ with_consent: number; recorded: number }>("/api/email/import-consents", {
+    method: "POST",
+    body: JSON.stringify({ filename: file.name, content_base64: btoa(binary), consent_confirmed: true }),
+  });
+}

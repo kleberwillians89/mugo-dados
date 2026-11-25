@@ -160,6 +160,20 @@ class UnifiedLeadAudienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["count"], 1)
 
 
+class ExcelConsentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_import_without_phone_and_conflicting_rows(self):
+        raw = ("Nome,E-mail,Aceita Novidades\nAna,ana@example.com,Sim\n"
+               "Bia,bia@example.com,Sim\nBia,bia@example.com,Não\n"
+               "Caio,caio@example.com,on\n").encode()
+        with patch("services.crypto.encrypt_secret", side_effect=lambda value: f"encrypted:{value}"), \
+             patch.object(em, "sb_upsert") as upsert:
+            result = await em.import_email_consents("roove", "leads.csv", raw, "operator")
+        self.assertEqual(result, {"with_consent": 1, "recorded": 2})
+        rows = upsert.await_args.args[1]
+        self.assertEqual([row["consent"] for row in rows], [True, False])
+        self.assertTrue(all(row["client_id"] == "roove" and row["confirmed_by"] == "operator" for row in rows))
+
+
 class CommerceConsentTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_shopify_unsubscribe_overrides_old_accepts_flag(self):
         from services import commerce_context as cc
@@ -168,7 +182,7 @@ class CommerceConsentTests(unittest.IsolatedAsyncioTestCase):
                   "phone": None, "first_name": "Ana", "last_name": "S",
                   "orders_count": 0, "consent": "unsubscribed", "accepts": "true"}
         with patch.object(cc, "resolve_commerce_provider", AsyncMock(return_value={"provider": "shopify"})), \
-             patch.object(sbo, "_paged", AsyncMock(side_effect=[([person], False), ([], False)])):
+             patch.object(sbo, "_paged", AsyncMock(side_effect=[([person], False), ([], False), ([], False)])):
             provider, contacts = await em.load_contacts("roove")
         self.assertEqual(provider, "shopify")
         self.assertEqual(len(contacts), 1)

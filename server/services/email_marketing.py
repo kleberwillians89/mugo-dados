@@ -173,6 +173,48 @@ async def suppressed(client_id: str) -> set:
 
 # ---------------------------------------------------------------- públicos
 
+async def import_email_consents(client_id: str, filename: str, raw: bytes, user_id: str) -> dict:
+    from .crypto import encrypt_secret
+    from .relationship_contacts import _EMAIL_HEADERS, _NAME_HEADERS, _norm, _pick, read_sheet
+
+    header, *rows = read_sheet(filename, raw) or [[]]
+    email_col, name_col = _pick(header, _EMAIL_HEADERS), _pick(header, _NAME_HEADERS)
+    headers = [_norm(cell) for cell in header]
+    consent_col = next((i for i, cell in enumerate(headers)
+                        if cell in ("aceita novidades", "aceite email", "consentimento email")), None)
+    if email_col is None or consent_col is None:
+        raise EmailError("INVALID_SHEET", "Inclua as colunas E-mail e Aceita Novidades ou Consentimento E-mail.")
+    entries = {}
+    for row in rows:
+        def cell(index):
+            return row[index] if index is not None and index < len(row) else ""
+        address = valid_email(cell(email_col))
+        answer = _norm(cell(consent_col))
+        if not address or answer not in ("sim", "nao"):
+            continue
+        previous = entries.get(address)
+        consent = answer == "sim" and (previous is None or previous["consent"])
+        name = _text(cell(name_col), 160)
+        entries[address] = {
+            "client_id": client_id, "email_hash": email_hash(address),
+            "email_ciphertext": encrypt_secret(address), "name_ciphertext": encrypt_secret(name) if name else None,
+            "consent": consent, "source_file": _text(filename, 200), "confirmed_by": user_id,
+            "recorded_at": _now().isoformat(),
+        }
+    records = list(entries.values())
+    for offset in range(0, len(records), 500):
+        await sb_upsert("email_imported_consents", records[offset:offset + 500], on_conflict="client_id,email_hash")
+    return {"with_consent": sum(item["consent"] for item in records), "recorded": len(records)}
+
+
+async def _imported_email_consents(client_id: str) -> list[dict]:
+    from .sales_by_origin import _paged
+
+    rows, _ = await _paged("email_imported_consents", select="email_hash,email_ciphertext,name_ciphertext,consent",
+                           filters={"client_id": f"eq.{client_id}"}, order="email_hash.asc", max_rows=120_000)
+    return rows
+
+
 async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
     """Clientes da loja com e-mail: {email, hash, first_name, name, consent, orders, last_order_at}."""
     from .commerce_context import FBITS, SHOPIFY, resolve_commerce_provider
@@ -223,6 +265,19 @@ async def load_contacts(client_id: str) -> Tuple[str, List[Dict[str, Any]]]:
             _merge(contacts, email, first=name.split(" ")[0] if name else "", name=name, consent=None,
                    orders=len(dates), last=max(dates) if dates else None, first_order=min(dates) if dates else None,
                    phone=_text(p.get("phone"), 40) or None)
+    from .crypto import decrypt_secret
+    for row in await _imported_email_consents(client_id):
+        if row["consent"] is not True:
+            continue
+        if row["email_hash"] in contacts:
+            contacts[row["email_hash"]]["imported_email"] = True
+            continue
+        address = valid_email(decrypt_secret(row["email_ciphertext"]))
+        if address:
+            name = _text(decrypt_secret(row["name_ciphertext"]), 160) if row.get("name_ciphertext") else ""
+            _merge(contacts, address, first=name.split()[0] if name else "", name=name,
+                   consent=True, orders=0, last=None)
+            contacts[email_hash(address)].update(imported_email=True, imported_email_only=True)
     return provider, list(contacts.values())
 
 
@@ -278,6 +333,8 @@ def select_audience(contacts: Iterable[Dict[str, Any]], audience: Dict[str, Any]
             continue
         if c.get("consent") is not True:
             continue
+        if c.get("imported_email_only") and audience["segment"] not in ("planilha", "leads_unificados"):
+            continue
         last = _dt(c.get("last_order_at"))
         segment = audience["segment"]
         if (segment == "lista" or segment in SHARED_ORIGINS) and (list_hashes is None or c["hash"] not in list_hashes):
@@ -311,7 +368,9 @@ async def _audience_members(client_id: str, audience: Dict[str, Any], contacts: 
         rows, _ = await _paged("relationship_contacts", select="email_hash",
                                filters={**filters, "provider": "eq.planilha", "email_hash": "not.is.null"},
                                order="identity_hash.asc", max_rows=120_000)
-        return {row["email_hash"] for row in rows if row.get("email_hash")}
+        return {row["email_hash"] for row in rows if row.get("email_hash")} | {
+            contact["hash"] for contact in contacts if contact.get("imported_email")
+        }
     if segment == "capture":
         from .crypto import decrypt_secret
         rows, _ = await _paged("lead_capture_events", select="email_ciphertext",
@@ -342,7 +401,7 @@ async def audience_preview(client_id: str, audience: Any) -> Dict[str, Any]:
     chosen = select_audience(contacts, cleaned, blocked=blocked, list_hashes=members)
     return {"provider": provider or None, "count": len(chosen), "base": len(contacts),
             "with_consent": sum(1 for c in contacts if c.get("consent") is True), "blocked": len(blocked),
-            "consent_known": provider != "fbits", "audience": cleaned,
+            "consent_known": provider != "fbits" or any(c.get("imported_email_only") for c in chosen), "audience": cleaned,
             "source_count": len(members) if cleaned["segment"] in SHARED_ORIGINS and members is not None else None}
 
 
