@@ -37,7 +37,7 @@ async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | Non
         raise StudioError("CRM_TEMPLATES_NOT_CONFIGURED", "A conexão entre o Mugô Dados e o CRM ainda não está configurada.")
     url, key = cfg
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=45 if mode == "reply" else TIMEOUT) as client:
             response = await client.request(
                 method, url,
                 headers={"X-Dados-Ops-Key": key},
@@ -46,9 +46,22 @@ async def _request(client_id: str, *, method: str, payload: Dict[str, Any] | Non
             )
         body = response.json() if response.content else {}
     except (httpx.HTTPError, ValueError):
+        if mode == "reply":
+            raise StudioError("SEND_OUTCOME_UNKNOWN", "O CRM não confirmou o envio. Confira o histórico antes de tentar novamente.") from None
         raise StudioError("CRM_TEMPLATES_UNREACHABLE", "O CRM não respondeu à consulta de modelos.") from None
     if not isinstance(body, dict):
         raise StudioError("CRM_TEMPLATES_FAILED")
+    if mode == "reply" and body.get("ok") is not True:
+        code = body.get("code")
+        if code == "CONVERSATION_NOT_FOUND":
+            raise StudioError("CONVERSATION_NOT_FOUND")
+        if code == "OUTSIDE_WINDOW":
+            raise StudioError("OUTSIDE_WINDOW", "A janela de atendimento encerrou. Use um modelo aprovado.")
+        if code == "REPLY_UNSUPPORTED" or response.status_code == 404:
+            raise StudioError("REPLY_UNSUPPORTED", "O envio por esta conexão ainda precisa ser configurado.")
+        if code == "SEND_OUTCOME_UNKNOWN":
+            raise StudioError("SEND_OUTCOME_UNKNOWN", "O CRM não confirmou o envio. Confira o histórico antes de tentar novamente.")
+        raise StudioError("SEND_FAILED", "O CRM não aceitou o envio.")
     if response.status_code == 403:
         raise StudioError("CRM_TEMPLATES_NOT_LINKED", "Esta empresa ainda não está vinculada à WABA correta no CRM.")
     if response.status_code == 404:
@@ -117,7 +130,7 @@ async def brand_conversations(client_id: str, limit: int = 60) -> Dict[str, Any]
     data = await _request(client_id, method="GET", mode="conversations",
                           options={"limit": max(1, min(int(limit), 200))})
     return {"available": True, "connected": bool(data.get("connected")), "channel_provider": "mugozap_crm",
-            "conversations": data.get("conversations") or []}
+            "reply_enabled": data.get("reply_enabled") is True, "conversations": data.get("conversations") or []}
 
 
 async def brand_messages(client_id: str, conversation_id: str, limit: int = 100) -> Dict[str, Any]:
@@ -133,3 +146,10 @@ async def brand_leads(client_id: str, start: str, end: str) -> Dict[str, Any]:
                           options={"period_start": start[:10], "period_end": end[:10]})
     return {"available": True, "connected": bool(data.get("connected")),
             "leads": data.get("leads") or [], "truncated": bool(data.get("truncated"))}
+
+async def reply(client_id: str, conversation_id: str, text: str, request_id: str) -> Dict[str, Any]:
+    if len(text) > 4000:
+        raise StudioError("INVALID_REPLY", "A mensagem pode ter até 4.000 caracteres.")
+    return await _request(client_id, method="POST", mode="reply", payload={
+        "conversation_id": conversation_id, "text": text, "request_id": request_id,
+    })

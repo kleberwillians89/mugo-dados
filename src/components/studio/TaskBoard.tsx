@@ -19,7 +19,7 @@ const MANUAL: TaskStatus[] = ["pending", "in_progress", "completed", "cancelled"
 type Draft = { id?: string; title: string; notes: string; status: TaskStatus; priority: string; due_date: string; due_time: string;
   category: string; assignee_name: string; assignee_user_id: string; assignee_user_ids: string[]; visible_to_client: boolean; needs_client_approval: boolean; send_whatsapp: boolean; deliverable_url: string };
 const emptyDraft = (isAgency: boolean): Draft => ({ title: "", notes: "", status: "pending", priority: "", due_date: "", due_time: "",
-  category: "", assignee_name: "", assignee_user_id: "", assignee_user_ids: [], visible_to_client: !isAgency, needs_client_approval: false, send_whatsapp: false, deliverable_url: "" });
+  category: "", assignee_name: "", assignee_user_id: "", assignee_user_ids: [], visible_to_client: !isAgency, needs_client_approval: false, send_whatsapp: true, deliverable_url: "" });
 const toDraft = (t: CrmTask): Draft => ({ id: t.id, title: t.title, notes: t.notes || "", status: t.status, priority: t.priority || "",
   due_date: t.due_date || "", due_time: t.due_time || "", category: t.category || "", assignee_name: t.assignee?.name || "", assignee_user_id: t.assignee?.user_id || "",
   assignee_user_ids: (t.assignees || (t.assignee ? [t.assignee] : [])).map((a) => a.user_id).filter((id): id is string => Boolean(id)),
@@ -136,7 +136,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
           ? { assignee_user_ids: draft.assignee_user_ids } : {}),
       } : {}),
       ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval && draft.visible_to_client } : {}),
-      ...(!draft.id ? { send_whatsapp: draft.send_whatsapp } : {}) };
+      ...(!draft.id ? { send_whatsapp: draft.assignee_user_ids.length > 0 && draft.send_whatsapp } : {}) };
     setBusy(true); setError(null);
     try {
       if (draft.id) {
@@ -144,9 +144,11 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         setNotice("Tarefa atualizada.");
       } else {
         await createTask(input);
-        setNotice(draft.send_whatsapp
-          ? "Tarefa criada. O sistema tentou avisar pelo WhatsApp os responsáveis autorizados. Confira o status individual em Meu chat de tarefas."
-          : "Tarefa criada. Os responsáveis receberam o aviso no chat de tarefas.");
+        setNotice(draft.assignee_user_ids.length === 0
+          ? "Tarefa criada."
+          : draft.send_whatsapp
+            ? "Tarefa criada. Os responsáveis podem conferir o aviso e o status do WhatsApp no chat de tarefas."
+            : "Tarefa criada com aviso no chat de tarefas.");
       }
       setDraft(null);
       await load();
@@ -388,8 +390,6 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
                       ...current, assignee_user_ids: e.target.checked
                         ? [...current.assignee_user_ids, p.user_id]
                         : current.assignee_user_ids.filter((id) => id !== p.user_id),
-                      send_whatsapp: e.target.checked ? current.send_whatsapp :
-                        current.assignee_user_ids.filter((id) => id !== p.user_id).length > 0 && current.send_whatsapp,
                     } : current)} />
                   <span>{p.name}</span>
                 </label>)}
@@ -406,7 +406,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
           <label className="ds-field">Observações<textarea rows={4} maxLength={4000} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
           <label className="ds-field">Link da entrega (Drive, Canva, Figma…)<input type="url" maxLength={1000} placeholder="https://" value={draft.deliverable_url} onChange={(e) => setDraft({ ...draft, deliverable_url: e.target.value })} /></label>
           {!draft.id ? <label className="taskCheck">
-            <input type="checkbox" checked={draft.send_whatsapp} disabled={!draft.assignee_user_ids.length}
+            <input type="checkbox" checked={draft.assignee_user_ids.length > 0 && draft.send_whatsapp} disabled={!draft.assignee_user_ids.length}
               onChange={(e) => setDraft({ ...draft, send_whatsapp: e.target.checked })} />
             Avisar responsáveis também pelo WhatsApp
           </label> : null}

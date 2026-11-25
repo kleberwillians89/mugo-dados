@@ -69,7 +69,7 @@ export type WaAiSuggestion = { reply: string; buttons: string[]; products: WaAiP
 export type WaMessage = CrmMessage & { by_ai?: boolean; payload?: { buttons?: string[]; products?: WaAiProduct[]; cards?: boolean } | null };
 export type WhatsAppInbox = {
   ok: true; status: "available" | "no_brand_number" | "crm_unavailable"; reason?: CrmUnavailable["reason"];
-  conversations: WaConversation[]; channel_provider?: "mugozap_crm" | null;
+  conversations: WaConversation[]; channel_provider?: "mugozap_crm" | null; reply_enabled?: boolean;
 };
 
 const base = (path = "") => clientClientPath(`/whatsapp${path}`);
@@ -182,9 +182,9 @@ export const replyInstagram = (senderId: string, text: string) =>
   http<{ status: string; at: string }>(base(`/instagram/${encodeURIComponent(senderId)}/reply`), { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });
 
 /** Equipe responde a conversa pelo número da marca (CRM da marca ou número ligado no MUGOVERSO). */
-export const replyWhatsApp = (conversationId: string, text: string) =>
+export const replyWhatsApp = (conversationId: string, text: string, requestId: string) =>
   http<{ status: string; at?: string; ai_paused_minutes?: number }>(base(`/conversations/${encodeURIComponent(conversationId)}/reply`),
-    { method: "POST", body: JSON.stringify({ text }), timeoutMs: 60_000 });
+    { method: "POST", body: JSON.stringify({ text, request_id: requestId }), timeoutMs: 60_000 });
 
 /** Planejamento de disparos em massa: APIs não têm envio real. */
 export type WaCampaignAudience = {

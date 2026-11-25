@@ -4,6 +4,7 @@ Números: qualquer membro da empresa (são da empresa ativa, revalidada no backe
 Caixa de entrada e mensagens: agência e admin da marca — é conversa com cliente final.
 """
 from __future__ import annotations
+from uuid import UUID, uuid4
 
 import re
 from datetime import date
@@ -64,11 +65,12 @@ async def read_whatsapp_messages(client_id: str, conversation_id: str, limit: in
 
 class WhatsAppReply(BaseModel):
     text: str = Field(min_length=1, max_length=4096)
+    request_id: UUID | None = None
 
 
 _REPLY_ERRORS = {
     "CONVERSATION_NOT_FOUND": 404, "EMPTY_MESSAGE": 422, "OUTSIDE_WINDOW": 409, "REPLY_UNSUPPORTED": 409,
-    "CRM_UNREACHABLE": 502, "SEND_FAILED": 502,
+    "CRM_UNREACHABLE": 502, "SEND_FAILED": 502, "SEND_OUTCOME_UNKNOWN": 502, "INVALID_REPLY": 422,
 }
 
 
@@ -80,7 +82,7 @@ async def reply_whatsapp_conversation(client_id: str, conversation_id: str, body
     cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
     author = "equipe Mugô" if await is_agency_user(authorization) else "equipe da marca"
     try:
-        return await brand_reply(cid, conversation_id, body.text, author=author)
+        return await brand_reply(cid, conversation_id, body.text, author=author, request_id=str(body.request_id or uuid4()))
     except StudioError as exc:
         status = _REPLY_ERRORS.get(exc.code, 502)
         detail = str(exc) if str(exc) and str(exc) != exc.code else "Não foi possível enviar agora."

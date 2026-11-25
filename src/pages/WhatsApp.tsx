@@ -63,6 +63,7 @@ export default function WhatsApp() {
   const [query, setQuery] = useState("");
   const [channel, setChannel] = useState<"whatsapp" | "instagram">("whatsapp");
   const [draft, setDraft] = useState("");
+  const replyAttempt = useRef<{ clientId: string; conversationId: string; text: string; id: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -144,10 +145,17 @@ export default function WhatsApp() {
 
   async function sendReply(event: FormEvent) {
     event.preventDefault();
-    if (!openId || !draft.trim()) return;
+    const text = draft.trim();
+    if (!openId || !text || sending) return;
+    let attempt = replyAttempt.current;
+    if (!attempt || attempt.clientId !== clientId || attempt.conversationId !== openId || attempt.text !== text) {
+      attempt = { clientId, conversationId: openId, text, id: crypto.randomUUID() };
+      replyAttempt.current = attempt;
+    }
     setSending(true); setSendNote(null);
     try {
-      const out = await replyWhatsApp(openId, draft.trim());
+      const out = await replyWhatsApp(openId, text, attempt.id);
+      replyAttempt.current = null;
       setDraft("");
       setSendNote({ ok: true, text: out.ai_paused_minutes ? `Enviada. A IA fica quieta nesta conversa por ${Math.round(out.ai_paused_minutes / 60)} h.` : "Enviada." });
       await openConversation(openId, true);
@@ -448,12 +456,12 @@ export default function WhatsApp() {
                     </div>
                   </div>
                 ) : null}
-                {inbox.data?.channel_provider === "mugozap_crm"
+                {inbox.data?.channel_provider === "mugozap_crm" && !inbox.data.reply_enabled
                   ? <p className="waMuted waPad">As conversas da Mugô já estão sincronizadas. Para responder, use o CRM Mugô por enquanto; o envio por esta tela ainda não foi habilitado.</p>
                   : windowOpen(open.service_window_expires_at) ? (
                   <form className="waComposer" onSubmit={sendReply}>
                     <label className="waSrOnly" htmlFor="wa-reply">Responder no WhatsApp</label>
-                    <textarea id="wa-reply" rows={2} maxLength={4096} value={draft} placeholder="Responder pelo WhatsApp da marca…" onChange={(e) => setDraft(e.target.value)}
+                    <textarea id="wa-reply" rows={2} maxLength={inbox.data?.channel_provider === "mugozap_crm" ? 4000 : 4096} value={draft} placeholder="Responder pelo WhatsApp da marca…" onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
                     <button type="submit" className="ds-button is-primary" disabled={sending || !draft.trim()}>{sending ? "Enviando…" : "Enviar"}</button>
                     {sendNote ? <p className="waMuted waSmall" role={sendNote.ok ? "status" : "alert"}>{sendNote.text}</p>
