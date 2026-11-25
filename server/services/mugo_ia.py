@@ -135,6 +135,9 @@ SCREENS: Dict[str, str] = {
     "redacao": "Redação: a pessoa está escrevendo textos (legenda, roteiro, artigo, copy) no editor",
     "campaigns": "Social Media: a pessoa está montando a matriz de conteúdo e as postagens das redes",
     "calendar": "Calendário editorial: a pessoa está planejando datas e pautas de posts",
+    "whatsapp": "WhatsApp: a pessoa está nos modelos e disparos do WhatsApp; 'criar a mensagem' aqui = modelo de WhatsApp para "
+                "aprovar na Meta (whatsapp_modelo em acoes), com botão de link quando fizer sentido",
+    "engagement": "Comentários: a pessoa está respondendo comentários do Instagram no tom da marca",
     "email_marketing": "E-mail Marketing: a pessoa está criando uma campanha de e-mail (assunto, texto, público)",
     "media": "Mídia On: a pessoa está criando e ajustando campanhas pagas na Meta e no Google",
     "planning": "Planejamento: a pessoa está montando o planejamento estratégico (objetivos, fases, ações)",
