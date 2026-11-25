@@ -54,14 +54,14 @@ async def _captured_audience(client_id: str) -> dict[str, Any]:
 
 
 async def audience_preview(client_id: str, provider: str = "all") -> dict[str, Any]:
-    if provider not in ("all", "shopify", "fbits", "whatsapp", "capture", "planilha"):
+    if provider not in ("all", "shopify", "fbits", "whatsapp", "capture", "planilha", "leads_unificados"):
         raise ValueError("Origem inválida.")
     if provider == "capture":
         return await _captured_audience(client_id)
 
     base = {"client_id": f"eq.{client_id}"}
     if provider != "all":
-        base["provider"] = f"eq.{provider}"
+        base["provider"] = "eq.planilha" if provider == "leads_unificados" else f"eq.{provider}"
     total = eligible = 0
     seen = set()
     truncated = False
@@ -85,7 +85,7 @@ async def audience_preview(client_id: str, provider: str = "all") -> dict[str, A
         truncated = True
 
     claimed = 0
-    if provider == "all":
+    if provider in ("all", "leads_unificados"):
         captured = await _captured_audience(client_id)
         # Count source records independently, not a falsely merged customer identity.
         total += captured["total_contacts"]

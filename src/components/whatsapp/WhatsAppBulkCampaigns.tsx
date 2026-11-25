@@ -11,9 +11,10 @@ import { uploadArt } from "../../app/artUpload";
 import SheetRecipientsPicker from "./SheetRecipientsPicker";
 import "./WhatsAppBulkCampaigns.css";
 
-type Provider = "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha";
+type Provider = "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha" | "leads_unificados";
 const SOURCES: { value: Provider; title: string }[] = [
   { value: "all", title: "Todas as origens" },
+  { value: "leads_unificados", title: "Leads unificados" },
   { value: "shopify", title: "Shopify" },
   { value: "fbits", title: "Wake / FBITS" },
   { value: "whatsapp", title: "Conversas WhatsApp" },
@@ -359,7 +360,7 @@ export default function WhatsAppBulkCampaigns() {
           {testResult ? <p role={testResult.ok ? "status" : "alert"}
             className={testResult.ok ? "waBulkSuccess" : "waBulkError"}>{testResult.message}</p> : null}
         </fieldset> : null}
-        {audience && (provider === "capture" || provider === "all") ? <p className="waBulkHelp" role="status">
+        {audience && (provider === "capture" || provider === "all" || provider === "leads_unificados") ? <p className="waBulkHelp" role="status">
           Captação / Landing Pages: {fmt(audience.consent_claimed_count || 0)} aceite(s) WhatsApp declarado(s).
           Esta contagem não confirma destinatários aptos. Confira a prévia antes de enviar.
         </p> : null}

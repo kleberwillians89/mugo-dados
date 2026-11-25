@@ -223,7 +223,7 @@ export type WaCampaignReport = {
 export function getWhatsAppCampaignReport(draftId: string) {
   return http<{ ok: true } & WaCampaignReport>(base(`/campaigns/drafts/${encodeURIComponent(draftId)}/report`), { timeoutMs: 60_000 });
 }
-export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha" = "all") {
+export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha" | "leads_unificados" = "all") {
   return http<WaCampaignAudience>(base(`/campaigns/audience-preview?provider=${encodeURIComponent(provider)}`));
 }
 export function listWhatsAppCampaignDrafts() {
@@ -239,7 +239,7 @@ export function preflightWhatsAppCampaignTemplate(template_name: string, languag
 }
 export function createWhatsAppCampaignDraft(input: {
   name: string; template_name: string; language: string;
-  provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha";
+  provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha" | "leads_unificados";
   header_media_url?: string | null;
   /** Só na planilha: os contatos escolhidos à mão (vazio = todos da planilha). */
   selected_contacts?: string[];

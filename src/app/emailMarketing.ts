@@ -5,7 +5,7 @@ import { http } from "./api";
 export type BlockType = "logo" | "titulo" | "texto" | "imagem" | "botao" | "produtos" | "divisor" | "espaco";
 export type EmailBlock = { type: BlockType; text?: string; url?: string; href?: string; alt?: string; label?: string; align?: "left" | "center" };
 export type EmailDesign = { blocks: EmailBlock[] };
-export type Segment = "consentimento" | "todos" | "compraram" | "sem_compra" | "recompra" | "primeira_compra" | "lista" | "planilha" | "capture" | "whatsapp";
+export type Segment = "consentimento" | "todos" | "compraram" | "sem_compra" | "recompra" | "primeira_compra" | "lista" | "planilha" | "capture" | "whatsapp" | "leads_unificados";
 export type Audience = { segment: Segment; days: number; only_consent: boolean; list_id?: string };
 export type CampaignStatus = "rascunho" | "agendada" | "enviando" | "enviada" | "falhou" | "cancelada";
 
@@ -27,7 +27,7 @@ export type CampaignSummary = {
 };
 export type Campaign = CampaignSummary & { preheader: string; design: EmailDesign; custom_html: string | null; audience: Audience };
 export type AudiencePreview = {
-  provider: string | null; count: number; base: number; with_consent: number; blocked: number; consent_known: boolean; audience: Audience;
+  provider: string | null; count: number; base: number; with_consent: number; blocked: number; source_count?: number | null; consent_known: boolean; audience: Audience;
 };
 
 export type CartStep = { channel: "email" | "whatsapp"; delay_minutes: number };
@@ -121,7 +121,8 @@ export const SEGMENT_LABEL: Record<Segment, string> = {
   recompra: "Compraram 2 vezes ou mais",
   primeira_compra: "Compraram somente uma vez",
   lista: "Lista de Relacionamento",
-  planilha: "Planilha importada (WhatsApp)",
+  leads_unificados: "Leads unificados",
+  planilha: "Leads do Excel/CSV",
   capture: "Captação / Landing Pages",
   whatsapp: "Conversas WhatsApp",
 };
