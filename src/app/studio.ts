@@ -468,6 +468,9 @@ export type TeachResult = { ok: true; document: BrandDocument; knowledge: string
   ocr?: { pages_read: number; pages_total: number; pages_limit: number; partial: boolean } };
 export type BrandKnowledge = { knowledge: string; sources: number; updated_at: string | null; documents: BrandDocument[] };
 export function getKnowledge() { return http<BrandKnowledge>(base("/knowledge")); }
+/** A IA lê os documentos da Biblioteca que ainda não viraram Conhecimento da marca (até 4 por rodada). */
+export type LibraryLearn = { running: boolean; read: { name: string; status: string }[]; skipped: { name: string; reason: string }[]; left: number | null };
+export function learnFromLibrary() { return http<LibraryLearn>(base("/library/learn"), { method: "POST", timeoutMs: 600_000 }); }
 export function saveKnowledge(knowledge: string) { return http<{ ok: true; knowledge: string; sources: number }>(base("/knowledge"), { method: "PUT", body: JSON.stringify({ knowledge }) }); }
 export const KNOWLEDGE_MAX_BYTES = 10 * 1024 * 1024;
 async function fileBase64(file: File): Promise<string> {
