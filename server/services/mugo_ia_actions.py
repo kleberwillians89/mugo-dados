@@ -30,13 +30,28 @@ OBJECTIVE_ALIASES = {"venda": "vendas", "vendas": "vendas", "conversao": "vendas
                      "whatsapp": "whatsapp", "mensagens": "whatsapp"}
 
 
-def email_body(action: Dict[str, Any]) -> Dict[str, Any]:
-    """Proposta de e-mail → campanha do E-mail Marketing (blocos do editor). Puro, para teste."""
-    blocks = [{"type": "logo", "align": "center"}]
+def email_body(action: Dict[str, Any], photos: Optional[list] = None) -> Dict[str, Any]:
+    """Proposta de e-mail → campanha do E-mail Marketing (blocos do editor), com espaço para as fotos. Puro, para teste.
+
+    Ordem: logo · foto de abertura · título · texto · (fotos de apoio entre os parágrafos) · botão. Espaço sem foto da
+    Biblioteca vai vazio, com a descrição em alt ("Foto: …"), para a equipe colar o link no editor."""
+    wanted = list(action.get("email_fotos") or [])
+    urls = list(photos or []) + [None] * len(wanted)
+
+    def image(index: int) -> Dict[str, Any]:
+        return {"type": "imagem", "url": urls[index] or "", "alt": f"Foto: {wanted[index]}", "href": "{{link_loja}}"}
+    paragraphs = [p.strip() for p in str(action.get("email_texto") or "").split("\n\n") if p.strip()][:12]
+    blocks: list = [{"type": "logo", "align": "center"}]
+    if wanted:
+        blocks.append(image(0))
     if action.get("email_titulo"):
         blocks.append({"type": "titulo", "text": action["email_titulo"]})
-    for paragraph in [p.strip() for p in str(action.get("email_texto") or "").split("\n\n") if p.strip()][:12]:
+    extra = list(range(1, len(wanted)))
+    for i, paragraph in enumerate(paragraphs):
         blocks.append({"type": "texto", "text": paragraph})
+        if extra and i in (0, 2):  # foto de apoio depois do 1º e do 3º parágrafo
+            blocks.append(image(extra.pop(0)))
+    blocks += [image(i) for i in extra]
     blocks.append({"type": "botao", "label": action.get("botao") or "Ver na loja", "href": "{{link_loja}}", "align": "center"})
     return {"name": action.get("titulo") or "Campanha da Mugô IA", "subject": action.get("assunto") or "",
             "preheader": action.get("preheader") or "", "design": {"blocks": blocks}}
@@ -53,9 +68,16 @@ async def _message(client_id: str, user_id: str, message_id: str) -> Dict[str, A
 async def _create(client_id: str, action: Dict[str, Any], *, user_id: str, author: str, team: bool) -> Dict[str, Any]:
     kind = action["tipo"]
     if kind == "email":
+        from .email_brand_look import ensure_brand_look, library_photos, pick_photos
         from .email_marketing import save_campaign
-        created = await save_campaign(client_id, email_body(action), user_id=user_id)
-        return {"id": created.get("id"), "name": created.get("name")}
+        look = await ensure_brand_look(client_id, user_id=user_id)
+        try:
+            photos = pick_photos(list(action.get("email_fotos") or []), await library_photos(client_id))
+        except Exception:  # noqa: BLE001 — sem foto, o espaço fica marcado para a equipe preencher
+            photos = []
+        created = await save_campaign(client_id, email_body(action, photos), user_id=user_id)
+        return {"id": created.get("id"), "name": created.get("name"), "fotos": sum(1 for p in photos if p),
+                "espacos": len(action.get("email_fotos") or []), "marca": sorted(look)}
     if kind == "campanha_meta":
         from .meta_ad_publisher import generate_draft
         objective = OBJECTIVE_ALIASES.get(str(action.get("objetivo") or "").lower(), "vendas")

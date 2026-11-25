@@ -507,7 +507,7 @@ export type MugoIAWebSource = { title: string; url: string; researched_at: strin
 export type MugoIAAction = { tipo: "email" | "campanha_meta" | "briefing" | "whatsapp_modelo"; status: "proposta" | "criado"; titulo: string; pedido: string;
   assunto?: string; preheader?: string; email_titulo?: string; email_texto?: string; botao?: string;
   objetivo?: string; verba_diaria?: number; dias?: number; wa_corpo?: string; wa_rodape?: string; wa_nome?: string; wa_botao_texto?: string; wa_botao_url?: string;
-  criado?: { id: string; name?: string; route: AppRoute; label: string; status?: string } };
+  criado?: { id: string; name?: string; route: AppRoute; label: string; status?: string; fotos?: number; espacos?: number } };
 export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction; acoes?: MugoIAAction[] };
 export type MugoIAMessage = { id: string | null; role: "user" | "assistant"; content: string; created_at?: string; meta?: MugoIAMeta };
 export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction; acoes?: MugoIAAction[] };

@@ -13,7 +13,7 @@ from services.studio_calendar import StudioError  # noqa: E402
 
 EMAIL = {"tipo": "email", "titulo": "BF Roove", "pedido": "E-mail de Black Friday para quem comprou", "assunto": "A Black Friday chegou",
          "preheader": "Só até domingo", "email_titulo": "{{primeiro_nome}}, é hoje", "email_texto": "Primeiro parágrafo.\n\nSegundo.",
-         "botao": "Quero ver", "objetivo": "", "verba_diaria": 0, "dias": 0, "wa_corpo": "", "wa_rodape": ""}
+         "botao": "Quero ver", "objetivo": "", "verba_diaria": 0, "dias": 0, "wa_corpo": "", "wa_rodape": "", "wa_botao_texto": "", "wa_botao_url": "", "email_fotos": []}
 NONE = {**EMAIL, "tipo": "nenhuma"}
 
 
@@ -36,7 +36,8 @@ class ProposalTests(unittest.TestCase):
     def test_email_becomes_editor_blocks(self):
         body = ma.email_body(mi.clean_action(EMAIL))
         types = [b["type"] for b in body["design"]["blocks"]]
-        self.assertEqual(types, ["logo", "titulo", "texto", "texto", "botao"])
+        self.assertEqual(types, ["logo", "imagem", "titulo", "texto", "texto", "botao"])  # sempre com foto de abertura
+        self.assertEqual(body["design"]["blocks"][1]["alt"], "Foto: Foto de abertura da campanha")
         self.assertEqual(body["design"]["blocks"][-1]["href"], "{{link_loja}}")
         self.assertEqual((body["subject"], body["preheader"]), ("A Black Friday chegou", "Só até domingo"))
 
@@ -69,11 +70,15 @@ class ExecuteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_email_draft_created_once(self):
         save = AsyncMock(return_value={"id": "c1", "name": "BF Roove"})
+        self.addCleanup(patch.stopall)
+        patch("services.email_brand_look.ensure_brand_look", AsyncMock(return_value={})).start()
+        patch("services.email_brand_look.library_photos", AsyncMock(return_value=[])).start()
         update = AsyncMock()
         with patch.object(ma, "sb_select", AsyncMock(return_value=self.message(mi.clean_action(EMAIL)))), \
                 patch.object(ma, "sb_update", update), patch("services.email_marketing.save_campaign", save):
             out = await ma.execute("roove", "m1", user_id="u1", team=True)
-        self.assertEqual(out["acao"]["criado"], {"id": "c1", "name": "BF Roove", "route": "email_marketing", "label": "E-mail Marketing"})
+        self.assertEqual(out["acao"]["criado"], {"id": "c1", "name": "BF Roove", "route": "email_marketing", "label": "E-mail Marketing",
+                                                 "fotos": 0, "espacos": 1, "marca": []})
         self.assertEqual(update.await_args.kwargs["patch"]["meta"]["acao"]["status"], "criado")
         with patch.object(ma, "sb_select", AsyncMock(return_value=self.message(out["acao"]))), patch("services.email_marketing.save_campaign", save):
             again = await ma.execute("roove", "m1", user_id="u1", team=True)
@@ -219,6 +224,45 @@ class LevelUpTests(unittest.IsolatedAsyncioTestCase):
             out = await mi.ask("roove", "u1", "Oi", team=True)
         self.assertEqual(out["answer"], "ok")
         self.assertEqual(calls, [mi.model(), mi.FALLBACK_MODEL])
+
+
+
+class EmailLookTests(unittest.IsolatedAsyncioTestCase):
+    def test_photos_match_by_title_without_repeating(self):
+        from services.email_brand_look import pick_photos
+        lib = [{"title": "Lifestyle praia", "category": "foto", "url": "u1"}, {"title": "Legging Sense preta", "category": "produto", "url": "u2"}]
+        self.assertEqual(pick_photos(["legging em destaque", "lifestyle", "extra"], lib), ["u2", "u1", None])
+
+    def test_email_layout_with_support_photos(self):
+        body = ma.email_body({"titulo": "x", "assunto": "a", "email_titulo": "T", "email_texto": "p1\n\np2\n\np3\n\np4",
+                              "email_fotos": ["hero", "produto", "lifestyle"]}, ["u1", None])
+        self.assertEqual([b["type"] for b in body["design"]["blocks"]],
+                         ["logo", "imagem", "titulo", "texto", "imagem", "texto", "texto", "imagem", "texto", "botao"])
+        self.assertEqual((body["design"]["blocks"][1]["url"], body["design"]["blocks"][4]["url"]), ("u1", ""))
+
+    def test_logo_color(self):
+        from PIL import Image
+        from services.email_brand_look import dominant_color
+        img = Image.new("RGBA", (40, 40), (255, 255, 255, 0))
+        for x in range(10, 30):
+            for y in range(10, 30):
+                img.putpixel((x, y), (20, 24, 27, 255))
+        buf = __import__("io").BytesIO()
+        img.save(buf, "PNG")
+        self.assertEqual(dominant_color(buf.getvalue()), "#181818")  # cor principal (quantizada), ignorando o fundo transparente
+        self.assertIsNone(dominant_color(b"nao e imagem"))
+
+    async def test_brand_look_fills_only_what_is_empty(self):
+        from services import email_brand_look as look
+        save = AsyncMock()
+        with patch("services.email_marketing.get_settings", AsyncMock(return_value={"logo_url": "https://x/logo.png", "brand_color": "#111111"})), \
+                patch("services.email_marketing.save_settings", save):
+            self.assertEqual(await look.ensure_brand_look("roove", user_id="u"), {})
+        save.assert_not_awaited()
+        with patch("services.email_marketing.get_settings", AsyncMock(return_value={"logo_url": None, "brand_color": "#111111"})), \
+                patch("services.email_marketing.save_settings", save), \
+                patch.object(look, "sb_select", AsyncMock(return_value=[{"url": "https://evil.com/l.png", "mime_type": "image/png"}])):
+            self.assertEqual(await look.ensure_brand_look("roove", user_id="u"), {})  # fora da pasta da empresa: ignora
 
 
 if __name__ == "__main__":
