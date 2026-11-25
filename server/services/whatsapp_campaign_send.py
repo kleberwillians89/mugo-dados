@@ -101,16 +101,19 @@ async def recipients(client_id: str, provider: str, selection: Optional[List[str
             for r in rows:
                 add(_plain(r.get("phone_ciphertext")), _plain(r.get("name_ciphertext")))
         return list(out.values())[:MAX_RECIPIENTS]
-    if provider in ("all", "shopify", "fbits", "planilha"):
+    if provider in ("all", "shopify", "fbits", "planilha", "leads_unificados"):
         filters = {"client_id": f"eq.{client_id}", "phone_ciphertext": "not.is.null"}
         if provider != "all":
-            filters["provider"] = f"eq.{provider}"
+            filters["provider"] = "eq.planilha" if provider == "leads_unificados" else f"eq.{provider}"
         for r in await _pages("relationship_contacts", "provider,phone_ciphertext,name_ciphertext", filters, "identity_hash.asc"):
             add(_plain(r.get("phone_ciphertext")), _plain(r.get("name_ciphertext")))
-    if provider in ("all", "whatsapp"):
-        for r in await _pages("whatsapp_threads", "wa_id,profile_name", {"client_id": f"eq.{client_id}"}, "first_seen_at.asc"):
+    if provider in ("all", "whatsapp", "leads_unificados"):
+        filters = {"client_id": f"eq.{client_id}"}
+        if provider == "leads_unificados":
+            filters["last_inbound_at"] = "not.is.null"
+        for r in await _pages("whatsapp_threads", "wa_id,profile_name", filters, "first_seen_at.asc"):
             add(r.get("wa_id"), r.get("profile_name"))
-    if provider in ("all", "capture"):
+    if provider in ("all", "capture", "leads_unificados"):
         for r in await _pages("lead_capture_events", "phone_ciphertext,name_ciphertext",
                               {"client_id": f"eq.{client_id}", "phone_ciphertext": "not.is.null"}, "id.asc"):
             add(_plain(r.get("phone_ciphertext")), _plain(r.get("name_ciphertext")))
@@ -135,7 +138,11 @@ async def count_sendable(client_id: str, provider: str) -> Dict[str, int]:
     people = await recipients(client_id, provider)
     blocked = await opted_out(client_id)
     blocked_keys = {phone_key(p, international=True) for p in blocked}
-    return {"sendable_count": sum(1 for p in people if phone_key(p["phone"], international=True) not in blocked_keys), "opted_out_count": len(blocked)}
+    counts = {"sendable_count": sum(1 for p in people if phone_key(p["phone"], international=True) not in blocked_keys),
+              "opted_out_count": len(blocked)}
+    if provider == "leads_unificados":
+        counts["total_contacts"] = len(people)
+    return counts
 
 
 async def _draft(client_id: str, draft_id: str) -> Dict[str, Any]:

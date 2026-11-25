@@ -25,7 +25,8 @@ SETTINGS = "email_settings"
 SUPPRESSIONS = "email_suppressions"
 CAMPAIGNS = "email_campaigns"
 SENDS = "email_sends"
-SHARED_ORIGINS = ("planilha", "capture", "whatsapp")
+LEAD_ORIGINS = ("planilha", "capture", "whatsapp")
+SHARED_ORIGINS = (*LEAD_ORIGINS, "leads_unificados")
 SEGMENTS = ("consentimento", "todos", "compraram", "sem_compra", "recompra", "primeira_compra", "lista", *SHARED_ORIGINS)
 SEND_PER_RUN = 1000
 _EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,24}$", re.I)
@@ -300,6 +301,11 @@ async def _audience_members(client_id: str, audience: Dict[str, Any], contacts: 
     if segment == "lista":
         from .relationship_lists import member_hashes
         return await member_hashes(client_id, audience["list_id"])
+    if segment == "leads_unificados":
+        members = set()
+        for origin in LEAD_ORIGINS:
+            members.update(await _audience_members(client_id, {"segment": origin}, contacts) or set())
+        return members
     filters = {"client_id": f"eq.{client_id}"}
     if segment == "planilha":
         rows, _ = await _paged("relationship_contacts", select="email_hash",
@@ -336,7 +342,8 @@ async def audience_preview(client_id: str, audience: Any) -> Dict[str, Any]:
     chosen = select_audience(contacts, cleaned, blocked=blocked, list_hashes=members)
     return {"provider": provider or None, "count": len(chosen), "base": len(contacts),
             "with_consent": sum(1 for c in contacts if c.get("consent") is True), "blocked": len(blocked),
-            "consent_known": provider != "fbits", "audience": cleaned}
+            "consent_known": provider != "fbits", "audience": cleaned,
+            "source_count": len(members) if cleaned["segment"] in SHARED_ORIGINS and members is not None else None}
 
 
 # ---------------------------------------------------------------- campanhas

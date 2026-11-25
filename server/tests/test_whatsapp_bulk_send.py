@@ -36,6 +36,24 @@ def test_recipients_junta_origens_sem_repetir():
     assert people[2]["name"] == "Mariana"
 
 
+def test_leads_unificados_usa_planilha_captacao_e_conversas_recebidas():
+    tables = {
+        "relationship_contacts": [{"phone_ciphertext": "sheet", "name_ciphertext": "name"}],
+        "whatsapp_threads": [{"wa_id": "5511988887777", "profile_name": "Ana"}],
+        "lead_capture_events": [{"phone_ciphertext": "capture"}],
+    }
+    plain = {"sheet": "5511988887777", "name": "Ana Souza", "capture": "5521977776666"}
+    with patch.object(send, "sb_select", AsyncMock(side_effect=_select_factory(tables))) as select, \
+            patch.object(send, "decrypt_secret", side_effect=lambda value: plain[value]):
+        people = asyncio.run(send.recipients("roove", "leads_unificados"))
+
+    assert [person["phone"] for person in people] == ["5511988887777", "5521977776666"]
+    filters = {call.args[0]: call.kwargs["filters"] for call in select.await_args_list}
+    assert all(item["client_id"] == "eq.roove" for item in filters.values())
+    assert filters["relationship_contacts"]["provider"] == "eq.planilha"
+    assert filters["whatsapp_threads"]["last_inbound_at"] == "not.is.null"
+
+
 def test_run_envia_pula_quem_saiu_e_conta():
     people = [{"phone": "5511988887777", "name": "Ana"}, {"phone": "5521977776666", "name": "Bia"},
               {"phone": "5531955554444", "name": "Caio"}]

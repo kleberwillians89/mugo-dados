@@ -125,6 +125,41 @@ class AudienceTests(unittest.TestCase):
         self.assertTrue(em.clean_audience({"segment": "todos"})["only_consent"])
 
 
+class UnifiedLeadAudienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_preview_unifies_origins_and_applies_email_eligibility(self):
+        from services.whatsapp_insights import phone_key
+
+        opted_in = em.email_hash("ana@example.com")
+        blocked = em.email_hash("bia@example.com")
+        spreadsheet_only = em.email_hash("caio@example.com")
+        no_consent = em.email_hash("davi@example.com")
+        phone = "5511999998888"
+        contacts = [
+            {"hash": opted_in, "consent": True, "phone": phone},
+            {"hash": blocked, "consent": True},
+            {"hash": no_consent, "consent": False},
+        ]
+        pages = {
+            "relationship_contacts": [{"email_hash": opted_in}, {"email_hash": spreadsheet_only}],
+            "lead_capture_events": [{"email_ciphertext": email} for email in
+                                    ("ana@example.com", "bia@example.com", "davi@example.com")],
+            "whatsapp_threads": [{"phone_key": phone_key(phone)}],
+        }
+
+        async def paged(table, **kwargs):
+            self.assertEqual(kwargs["filters"]["client_id"], "eq.roove")
+            return pages[table], False
+
+        with patch("services.sales_by_origin._paged", side_effect=paged), \
+             patch("services.crypto.decrypt_secret", side_effect=lambda address: address), \
+             patch.object(em, "load_contacts", return_value=("shopify", contacts)), \
+             patch.object(em, "suppressed", return_value={blocked}):
+            result = await em.audience_preview("roove", {"segment": "leads_unificados"})
+
+        self.assertEqual(result["source_count"], 4)
+        self.assertEqual(result["count"], 1)
+
+
 class CommerceConsentTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_shopify_unsubscribe_overrides_old_accepts_flag(self):
         from services import commerce_context as cc

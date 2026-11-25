@@ -380,7 +380,7 @@ class BulkCampaignDraftIn(BaseModel):
     name: str = Field(min_length=3, max_length=120)
     template_name: str = Field(min_length=3, max_length=81)
     language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
-    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp|capture|planilha)$")
+    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp|capture|planilha|leads_unificados)$")
     header_media_url: Optional[str] = Field(default=None, max_length=1000)
     # Só para a planilha: os contatos escolhidos à mão (ex.: testar com poucos antes de mandar para todos).
     selected_contacts: Optional[List[str]] = Field(default=None, max_length=5000)

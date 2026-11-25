@@ -130,6 +130,9 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                   {savedLists.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
                 </select>
               ) : null}
+              {campaign.audience.segment === "leads_unificados" ? (
+                <p className="emHint">Reúne Excel/CSV, captação e conversas do WhatsApp, com um envio por e-mail.</p>
+              ) : null}
               <p className="emHint">Segurança de marketing: somente contatos com aceite comprovado
                 na plataforma conectada. Importar uma lista não cria consentimento.</p>
               {canEdit ? (
@@ -139,9 +142,12 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
               ) : null}
             </div>
             {audience ? (
-              <p className="emAudienceCount"><strong>{int(audience.count)}</strong> pessoas recebem · base com e-mail {int(audience.base)}
-                {audience.consent_known ? ` · ${int(audience.with_consent)} aceitaram marketing` : " · a loja não informa consentimento"}
-                {audience.blocked ? ` · ${int(audience.blocked)} descadastrados/bounce ficam de fora` : ""}</p>
+              <p className="emAudienceCount"><strong>{int(audience.count)}</strong> {audience.count === 1 ? "pessoa recebe" : "pessoas recebem"}
+                {audience.source_count != null ? ` · ${int(audience.source_count)} e-mails identificados na origem` : (
+                  <> · base com e-mail {int(audience.base)}
+                    {audience.consent_known ? ` · ${int(audience.with_consent)} aceitaram marketing` : " · a loja não informa consentimento"}
+                    {audience.blocked ? ` · ${int(audience.blocked)} descadastrados/bounce ficam de fora` : ""}</>
+                )}</p>
             ) : null}
             {!audience?.consent_known && audience ? (
               <p className="emNotice">A fonte não informa consentimento de marketing.
