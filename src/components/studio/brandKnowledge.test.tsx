@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn(), retryKnowledgeDocument: vi.fn() }));
+const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn(), retryKnowledgeDocument: vi.fn(), learnFromLibrary: vi.fn() }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...state }));
 const upload = vi.hoisted(() => ({ teachAndKeepOriginal: vi.fn(), originalsByDocument: vi.fn() }));
 vi.mock("../../app/brandKnowledgeUpload", async (original) => ({ ...(await original<typeof import("../../app/brandKnowledgeUpload")>()), ...upload }));
@@ -21,10 +21,29 @@ beforeEach(() => {
     documents: [{ id: "d1", name: "horarios.pdf", kind: "produto", summary: "Horários de treino", facts_added: 2, truncated: false, created_at: "2026-11-05T10:00:00Z" }] });
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
-beforeEach(() => { upload.originalsByDocument.mockResolvedValue({ d1: "https://storage/plano.pdf" }); });
+beforeEach(() => {
+  upload.originalsByDocument.mockResolvedValue({ d1: "https://storage/plano.pdf" });
+  state.learnFromLibrary.mockResolvedValue({ running: false, read: [], skipped: [], left: 0 });
+});
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
 
 describe("BrandKnowledge", () => {
+  it("lê sozinha os documentos novos da Biblioteca e avisa o que leu", async () => {
+    state.learnFromLibrary.mockResolvedValueOnce({ running: false, read: [{ name: "Roove_plan.pdf", status: "aprendido" }],
+      skipped: [{ name: "Catalogo.pdf", reason: "maior que 10 MB" }], left: 0 });
+    await show(<BrandKnowledge canManage />);
+    await act(async () => {});
+    const line = host.querySelector('[data-testid="library-learn"]')!.textContent!;
+    expect(line).toContain("Li da Biblioteca: Roove_plan.pdf");
+    expect(line).toContain("Catalogo.pdf (maior que 10 MB)");
+    expect(state.getKnowledge).toHaveBeenCalledTimes(2);  // recarrega o conhecimento depois de ler
+  });
+
+  it("quem só lê não dispara a leitura da Biblioteca", async () => {
+    await show(<BrandKnowledge canManage={false} />);
+    expect(state.learnFromLibrary).not.toHaveBeenCalled();
+  });
+
   it("mostra o que a IA sabe e os materiais lidos", async () => {
     await show(<BrandKnowledge canManage />);
     expect(host.textContent).toContain("Treino sábado 6h");

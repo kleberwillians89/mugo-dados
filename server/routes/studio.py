@@ -2370,7 +2370,19 @@ async def add_library_item(client_id: str, body: LibraryItemInput, authorization
                               side="mugo" if team else "cliente")
     except StudioError as exc:
         raise _known(exc) from None
+    from services.library_knowledge import DOC_TYPES, schedule
+    if item.get("kind") == "arquivo" and str(item.get("mime_type") or "").lower() in DOC_TYPES:
+        schedule(cid, user_id=uid)  # a IA lê o documento em segundo plano (vira Conhecimento da marca)
     return {"item": {**item, "can_delete": True}}
+
+
+@router.post("/library/learn")
+async def learn_library(client_id: str, authorization: str | None = Header(default=None)):
+    """A IA lê os documentos da Biblioteca que ainda não viraram Conhecimento da marca (até 4 por rodada)."""
+    from services.library_knowledge import sync
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    return await sync(cid, user_id=uid)
 
 
 class LibraryCloudFileInput(CloudFileInput):
