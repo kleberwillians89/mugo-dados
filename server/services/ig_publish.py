@@ -322,7 +322,11 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         creds = creds_cache[client_id]
         if creds["scopes"] and PUBLISH_SCOPE not in creds["scopes"]:
             raise StudioError("IG_PUBLISH_FAILED", "A conexão do Instagram desta marca não tem a permissão de publicar. Reconecte em Integrações.")
+        from .ig_carousel_video import ensure_carousel_videos, resolve_drive_children
+        await resolve_drive_children(container)  # slide do Drive que é vídeo entra como vídeo
         converted = await ensure_jpeg(container, client_id)
+        # Vídeo no carrossel: a Meta só aceita 4:5 a 16:9, até 60 s, H.264 — converte sem cortar a cena.
+        videos_ready = await ensure_carousel_videos(container, client_id)
         if container["type"] == "reels":
             # Diagnóstico: quais opções foram no contêiner (nomes dos campos, sem token nem links).
             print(f"[ig_publish] reels item={item['id']} fields={sorted(container['fields'])} "
@@ -342,6 +346,10 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         from .studio_history import record
         if untagged:
             await record(item["client_id"], item["id"], f"publicou sem marcar os produtos da loja: {untagged}",
+                         actor_name="Publicação automática", side="sistema")
+        if videos_ready:
+            await record(item["client_id"], item["id"],
+                         f"ajustou {videos_ready} vídeo(s) do carrossel ao padrão da Meta (proporção do 1º slide, até 60 s, MP4)",
                          actor_name="Publicação automática", side="sistema")
         if converted:
             await record(item["client_id"], item["id"], f"converteu {converted} imagem(ns) para JPG (o Instagram só aceita JPG)",
