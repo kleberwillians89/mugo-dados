@@ -59,6 +59,7 @@ export default function WhatsAppBulkCampaigns() {
   const [confirming, setConfirming] = useState<WaCampaignDraft | null>(null);
   const [when, setWhen] = useState<"now" | "later">("now");
   const [scheduleAt, setScheduleAt] = useState("");
+  const [excludePrevious, setExcludePrevious] = useState(true);
   const [headerUrl, setHeaderUrl] = useState("");
   const [headerBusy, setHeaderBusy] = useState(false);
   const [reports, setReports] = useState<Record<string, WaCampaignReport | "loading" | string>>({});
@@ -107,13 +108,13 @@ export default function WhatsAppBulkCampaigns() {
 
   async function send(draft: WaCampaignDraft) {
     if (when === "later" && !scheduleAt) { setError("Escolha a data e a hora do envio."); return; }
-    setConfirming(null); setSendingId(draft.id); setError(""); setNotice("");
+    setConfirming(null); setExcludePrevious(true); setSendingId(draft.id); setError(""); setNotice("");
     try {
-      const r = await sendWhatsAppCampaign(draft.id, when === "later" ? new Date(scheduleAt).toISOString() : null);
+      const r = await sendWhatsAppCampaign(draft.id, when === "later" ? new Date(scheduleAt).toISOString() : null, excludePrevious);
       if (getActiveClientId() !== tenant) return;
       setNotice(r.scheduled_at
-        ? `Agendada para ${stamp(r.scheduled_at)} (${fmt(r.recipients_count)} contatos). Dá para cancelar até lá.`
-        : `Na fila para ${fmt(r.recipients_count)} contatos: o envio começa em até 5 minutos e segue mesmo com a tela fechada.`);
+        ? `Agendada para ${stamp(r.scheduled_at)} (até ${fmt(r.recipients_count)} contatos). Dá para cancelar até lá.`
+        : `Na fila para até ${fmt(r.recipients_count)} contatos: o envio começa em até 5 minutos e segue mesmo com a tela fechada.`);
       await refresh();
     } catch (cause) {
       if (getActiveClientId() === tenant) setError(cause instanceof Error ? cause.message : "Não foi possível começar o envio.");
@@ -361,8 +362,11 @@ export default function WhatsAppBulkCampaigns() {
     {confirming ? <div className="waBulkConfirm" role="dialog" aria-modal="true" aria-label="Confirmar envio">
       <div>
         <h3>Enviar "{confirming.name}"?</h3>
-        <p>Vai para <b>todos os contatos com telefone</b> da origem {SOURCES.find((s) => s.value === (confirming.audience_provider || "all"))?.title || "escolhida"},
-          {audience && provider === (confirming.audience_provider || "all") ? ` cerca de ${fmt(audience.sendable_count)} pessoas,` : ""} usando o modelo {confirming.template_name}.</p>
+        <p>O modelo {confirming.template_name} será enviado aos contatos selecionados, uma vez por número.</p>
+        <label>
+          <input type="checkbox" checked={excludePrevious} onChange={(e) => setExcludePrevious(e.target.checked)} />
+          Pular números que já receberam este modelo em outra campanha
+        </label>
         <div className="waBulkWhen" role="radiogroup" aria-label="Quando enviar">
           <label><input type="radio" checked={when === "now"} onChange={() => setWhen("now")} /> Enviar agora (começa em até 5 min)</label>
           <label><input type="radio" checked={when === "later"} onChange={() => setWhen("later")} /> Agendar</label>
@@ -371,7 +375,7 @@ export default function WhatsAppBulkCampaigns() {
         <p className="waBulkWarn">Quem não aceitou receber WhatsApp da marca pode denunciar a mensagem. Muitas denúncias derrubam a
           qualidade do número e a Meta pode limitar ou bloquear o WhatsApp da marca. Não dá para desfazer depois de enviado.</p>
         <div className="waBulkConfirmActions">
-          <button type="button" onClick={() => setConfirming(null)}>Cancelar</button>
+          <button type="button" onClick={() => { setConfirming(null); setExcludePrevious(true); }}>Cancelar</button>
           <button type="button" className="waBulkPrimary" onClick={() => void send(confirming)}>{when === "later" ? "Agendar envio" : "Enviar agora"}</button>
         </div>
       </div>

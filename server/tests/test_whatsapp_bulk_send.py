@@ -168,3 +168,37 @@ def test_relatorio_responderam_e_compraram():
             patch("services.whatsapp_insights._shopify_orders", AsyncMock(return_value=(orders, False))):
         out = asyncio.run(send.report("roove", "d1"))
     assert (out["replied"], out["buyers"], out["revenue"], out["reply_rate"]) == (1, 1, 199.9, 50.0)
+
+
+def test_disparo_filtra_numero_equivalente_e_quem_ja_recebeu_modelo():
+    people = [
+        {"phone": "5511988887777", "name": "Ana"},
+        {"phone": "(11) 8888-7777", "name": "Ana"},
+        {"phone": "5521977776666", "name": "Bia"},
+        {"phone": "5521966665555", "name": "Caio"},
+        {"phone": "5521966665555", "name": "Caio"},
+    ]
+    sent_before = send.phone_key("5521977776666", international=True)
+    sent_in_draft = send.phone_key("551188887777", international=True)
+    rows = []
+
+    async def select(table, **kw):
+        if "whatsapp_campaign_drafts!inner" in kw.get("select", ""):
+            assert kw["filters"]["whatsapp_campaign_drafts.template_name"] == "eq.bf"
+            assert kw["filters"]["whatsapp_campaign_drafts.language"] == "eq.pt_BR"
+            assert kw["filters"]["client_id"] == "eq.roove"
+            return [{"phone_key": sent_before}]
+        return [{"phone_hash": "existing", "phone_key": sent_in_draft, "status": "sent"}]
+
+    draft = {"id": "d1", "template_name": "bf", "language": "pt_BR", "exclude_previous_template_recipients": True}
+    sender = AsyncMock(return_value="wamid.1")
+    with patch.object(send, "sb_select", AsyncMock(side_effect=select)), \
+            patch.object(send, "opted_out", AsyncMock(return_value=set())), \
+            patch.object(send, "sb_insert", AsyncMock(side_effect=lambda t, row, **kw: rows.append(row))), \
+            patch.object(send, "sb_update", AsyncMock()), \
+            patch("services.whatsapp_native.send_template", sender):
+        counts = asyncio.run(send.run("roove", draft, people, 0))
+    sender.assert_awaited_once()
+    assert sender.await_args.kwargs["to"] == "5521966665555"
+    assert counts == {"sent": 2, "failed": 0, "skipped": 1}
+    assert any(row.get("error") == "Já recebeu este modelo" for row in rows)

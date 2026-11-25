@@ -201,10 +201,10 @@ export type WaCampaignDraft = {
   started_at?: string | null; finished_at?: string | null; last_error?: string | null;
 };
 /** Envia (ou retoma) a campanha para todos os contatos com telefone da origem, menos quem pediu para sair. */
-export function sendWhatsAppCampaign(draftId: string, scheduledAt?: string | null) {
+export function sendWhatsAppCampaign(draftId: string, scheduledAt?: string | null, excludePreviousTemplateRecipients = true) {
   return http<{ ok: true; status: "queued"; scheduled_at: string | null; recipients_count: number }>(
     base(`/campaigns/drafts/${encodeURIComponent(draftId)}/send`),
-    { method: "POST", body: JSON.stringify({ scheduled_at: scheduledAt || null }) });
+    { method: "POST", body: JSON.stringify({ scheduled_at: scheduledAt || null, exclude_previous_template_recipients: excludePreviousTemplateRecipients }) });
 }
 export function cancelWhatsAppCampaign(draftId: string) {
   return http<{ ok: true; status: "draft" }>(base(`/campaigns/drafts/${encodeURIComponent(draftId)}/cancel`), { method: "POST" });

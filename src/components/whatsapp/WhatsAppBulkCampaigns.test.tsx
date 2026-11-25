@@ -63,8 +63,8 @@ describe("Disparos em massa", () => {
     expect(host.querySelector('[role="dialog"]')?.textContent).toContain("bloquear o WhatsApp da marca");
     expect(api.sendWhatsAppCampaign).not.toHaveBeenCalled();
     await act(async () => { btn("Enviar agora").click(); });
-    expect(api.sendWhatsAppCampaign).toHaveBeenCalledWith(DRAFT.id, null);
-    expect(host.textContent).toContain("Na fila para 850 contatos");
+    expect(api.sendWhatsAppCampaign).toHaveBeenCalledWith(DRAFT.id, null, true);
+    expect(host.textContent).toContain("Na fila para até 850 contatos");
   });
 
   it("mostra o andamento de uma campanha enviada em parte e oferece retomar", async () => {
