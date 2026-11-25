@@ -1,5 +1,6 @@
 import { DataHealthProvider } from "./app/DataHealthContext";
 import { requestNewProject } from "./app/newProjectRequest";
+import { ASSIST_SCREENS, MugoIAAssistContext } from "./components/mugoIA/assist";
 import { PLANNING_TOOLS } from "./app/planningTools";
 import { DataHealthSummary } from "./components/data/DataFreshness";
 import { markReadStage } from "./app/readPerformance";
@@ -977,8 +978,13 @@ function PrivateApp() {
     );
   }
 
+  // Mugô IA à mão nas telas de criação (botão no cabeçalho). Criar rascunho segue a permissão da Mugô IA.
+  const assistRoute: AppRoute = route === "approval" ? "calendar" : route;
+  const assist = ASSIST_SCREENS[assistRoute] && canView("mugo_ia") ? { screen: assistRoute, canCreate: canEdit("brand_ai") } : null;
+
   return (
     <DashboardErrorBoundary>
+      <MugoIAAssistContext.Provider value={assist}>
       <DataHealthProvider clientId={activeClientId} enabled={!!activeClientId && (tenantReady || localMode) && (!!session || localMode)}>
       <DashboardDataProvider resources={route === "meta" || route === "google" ? "campaigns" : route === "ecommerce" ? "products" : "none"} clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
       <div className="appFrame">
@@ -1156,6 +1162,7 @@ function PrivateApp() {
       </div>
       </DashboardDataProvider>
       </DataHealthProvider>
+      </MugoIAAssistContext.Provider>
     </DashboardErrorBoundary>
   );
 }

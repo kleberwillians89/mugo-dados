@@ -515,8 +515,8 @@ export function createFromMugoIA(messageId: string) {
   return http<{ ok: true; acao: MugoIAAction; already: boolean }>(base(`/mugo-ia/${encodeURIComponent(messageId)}/criar`), { method: "POST", timeoutMs: 180_000 });
 }
 export function getMugoIA() { return http<{ messages: MugoIAMessage[] }>(base("/mugo-ia")); }
-export function askMugoIA(question: string) {
-  return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question }), timeoutMs: 120_000 });
+export function askMugoIA(question: string, screen?: string) {
+  return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question, ...(screen ? { screen } : {}) }), timeoutMs: 120_000 });
 }
 export function clearMugoIA() { return http<{ ok: true }>(base("/mugo-ia"), { method: "DELETE" }); }
 

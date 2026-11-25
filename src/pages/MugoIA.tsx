@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUp, BookmarkPlus, Check, CornerDownRight, Plus, Sparkles } from "lucide-react";
 import { getActiveClientName } from "../app/activeClient";
 import { addKnowledgeFacts, askMugoIA, clearMugoIA, getMugoIA, type MugoIAMessage } from "../app/studio";
@@ -35,41 +35,8 @@ const GAP_LABEL: Record<string, string> = {
   proximos_posts: "calendário", alertas: "alertas", briefings: "briefings", tarefas: "tarefas", pacote: "dados da marca",
 };
 const gapLabel = (gap: string) => GAP_LABEL[gap] || gap.replace(/_/g, " ");
-const ACTION_RE = /^(o que eu faria agora|próximo passo|recomendação)\s*:?/i;
-
-/** Texto da IA → parágrafos, listas e o bloco "O que eu faria agora" em destaque. Sem HTML vindo da IA. */
-export function AnswerBody({ text }: { text: string }) {
-  const blocks: ReactNode[] = [];
-  let list: string[] = [];
-  let action: string[] | null = null;
-  const flushList = () => {
-    if (list.length) blocks.push(<ul key={`l${blocks.length}`}>{list.map((item, i) => <li key={i}>{item}</li>)}</ul>);
-    list = [];
-  };
-  // "… O que eu faria agora: …" no meio do parágrafo também vira o bloco em destaque.
-  const normalized = text.replace(/\s+(o que eu faria agora\s*:)/i, "\n$1");
-  for (const raw of normalized.split("\n")) {
-    const line = raw.trim();
-    if (!line) { flushList(); continue; }
-    if (ACTION_RE.test(line)) {
-      flushList();
-      action = [];
-      const rest = line.replace(ACTION_RE, "").trim();
-      if (rest) action.push(rest.replace(/^[-•]\s*/, ""));
-      continue;
-    }
-    if (action) { action.push(line.replace(/^[-•]\s*/, "")); continue; }
-    if (/^[-•]\s+/.test(line)) { list.push(line.replace(/^[-•]\s+/, "")); continue; }
-    flushList();
-    blocks.push(<p key={`p${blocks.length}`}>{line}</p>);
-  }
-  flushList();
-  return <div className="miaAnswer">
-    {blocks}
-    {action && (action as string[]).length ? <div className="miaAction"><b>O que eu faria agora</b>
-      {(action as string[]).length > 1 ? <ul>{(action as string[]).map((a, i) => <li key={i}>{a}</li>)}</ul> : <p>{(action as string[])[0]}</p>}</div> : null}
-  </div>;
-}
+export { AnswerBody } from "../components/mugoIA/AnswerBody";
+import { AnswerBody } from "../components/mugoIA/AnswerBody";
 
 /**
  * Mugoverso IA: a pessoa pergunta qualquer coisa sobre o mundo do cliente e a IA responde lendo TODO o contexto dele

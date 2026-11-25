@@ -125,5 +125,15 @@ class AskTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("CRIAR (acao)", llm.await_args.kwargs["instructions"])
 
 
+
+class ScreenTests(unittest.TestCase):
+    def test_screen_focuses_the_help_and_unknown_screen_is_ignored(self):
+        ctx = {"package": {}, "live": {}, "gaps": []}
+        text = mi.build_prompt(context=ctx, chunks=[], past=[], question="Melhora este texto", screen="redacao")
+        self.assertIn("TELA ATUAL: Redação", text)
+        self.assertLess(text.index("TELA ATUAL"), text.index("ÚLTIMA MENSAGEM"))
+        self.assertNotIn("TELA ATUAL", mi.build_prompt(context=ctx, chunks=[], past=[], question="x", screen="<script>"))
+
+
 if __name__ == "__main__":
     unittest.main()
