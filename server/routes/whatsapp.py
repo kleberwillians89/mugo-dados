@@ -403,10 +403,10 @@ async def whatsapp_campaign_test(client_id: str, payload: BulkTestIn, authorizat
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
     from services.whatsapp_campaign_send import BulkSendError, send_test
     try:
-        await send_test(cid, **payload.model_dump())
+        recorded = await send_test(cid, **payload.model_dump())
     except BulkSendError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from None
-    return {"ok": True, "status": "accepted"}
+    return {"ok": True, "status": "accepted", "recorded": recorded}
 
 
 @router.get("/campaigns/drafts")

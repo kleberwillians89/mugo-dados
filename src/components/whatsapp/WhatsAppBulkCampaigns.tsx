@@ -130,12 +130,14 @@ export default function WhatsAppBulkCampaigns() {
     setTesting(true);
     setTestResult(null);
     try {
-      await testWhatsAppCampaign({
+      const result = await testWhatsAppCampaign({
         phone: testPhone.trim(), template_name: selected.name, language: selected.language,
         header_media_url: headerUrl || undefined,
       });
       if (getActiveClientId() === tenant) {
-        setTestResult({ ok: true, message: "A Meta aceitou o teste. Confira a entrega no WhatsApp desse número." });
+        setTestResult({ ok: true, message: result.recorded === false
+          ? "A Meta aceitou o teste, mas ele não foi salvo em Conversas. Confira a entrega no WhatsApp."
+          : "A Meta aceitou o teste. Veja o registro em Conversas → Campanhas e confira a entrega no WhatsApp." });
       }
     } catch (cause) {
       if (getActiveClientId() === tenant) {

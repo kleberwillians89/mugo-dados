@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from .crypto import decrypt_secret
-from .ig_supabase import sb_insert, sb_select, sb_update
+from .ig_supabase import sb_insert, sb_rpc, sb_select, sb_update
 from .whatsapp_insights import phone_key
 
 DRAFTS = "whatsapp_campaign_drafts"
@@ -174,7 +174,7 @@ def _check_template(template: Dict[str, Any], header_media_url: Optional[str]) -
 
 
 async def send_test(client_id: str, *, phone: str, template_name: str, language: str,
-                    header_media_url: Optional[str]) -> None:
+                    header_media_url: Optional[str]) -> bool:
     from .whatsapp_native import WhatsAppNativeError, send_template
 
     digits = normalize_phone(phone)
@@ -187,16 +187,31 @@ async def send_test(client_id: str, *, phone: str, template_name: str, language:
     _check_template(template, header_media_url)
     header = ({"type": HEADER_KINDS[template["header"]], "link": header_media_url}
               if template.get("header") in HEADER_KINDS else None)
+    receipt: Dict[str, str] = {}
+    params = ["cliente"] if int(template.get("variables") or 0) == 1 else []
     try:
         message_id = await send_template(
             client_id, number_id=None, to=digits, template=template_name, language=language,
-            params=["cliente"] if int(template.get("variables") or 0) == 1 else [],
-            header_media=header,
+            params=params, header_media=header, receipt=receipt,
         )
     except WhatsAppNativeError as exc:
         raise BulkSendError(exc.message, 502) from None
     if not message_id:
         raise BulkSendError("A Meta não confirmou que aceitou o teste.", 502)
+    body = str(template.get("body") or f"Modelo: {template_name}")
+    if params:
+        body = re.sub(r"\{\{\s*[^}\s]+\s*\}\}", lambda _: params[0], body)
+    try:
+        await sb_rpc("whatsapp_record_campaign_test", {
+            "p_client_id": client_id, "p_number_id": receipt["number_id"], "p_wa_id": receipt["wa_id"],
+            "p_phone_key": phone_key(receipt["wa_id"], international=True),
+            "p_provider_message_id": message_id, "p_text": body, "p_template_name": template_name,
+            "p_sent_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:  # The provider accepted the send; reporting failure would prompt a duplicate.
+        print(f"[whatsapp_campaign_test] history_failed client_id={client_id} error_type={type(exc).__name__}")
+        return False
+    return True
 
 
 def _iso(value: Any) -> Optional[datetime]:

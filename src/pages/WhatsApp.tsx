@@ -447,7 +447,7 @@ export default function WhatsApp() {
                     <li key={m.id} className={`waBubble${isOutbound(m.direction) ? " is-out" : ""}${m.by_ai ? " is-ai" : ""}${m.failed ? " is-failed" : ""}`}>
                       <p>{m.text || (m.template_name ? `Modelo: ${m.template_name}` : `[${m.type}]`)}</p>
                       {m.payload ? <AiExtras buttons={m.payload.buttons || []} products={m.payload.cards === false || !m.payload.products ? [] : m.payload.products} /> : null}
-                      <small>{m.payload?.campaign_id ? "Campanha · " : m.by_ai ? "IA · " : ""}{fullWhen(m.at)}{m.failed ? " · falhou" : isOutbound(m.direction) && (m.read_at || m.status === "read") ? " · lida" : m.payload?.campaign_id && m.status === "delivered" ? " · entregue" : m.payload?.campaign_id && m.status === "sent" ? " · enviada" : ""}</small>
+                      <small>{m.payload?.campaign_test ? "Teste de campanha · " : m.payload?.campaign_id ? "Campanha · " : m.by_ai ? "IA · " : ""}{fullWhen(m.at)}{m.failed ? " · falhou" : isOutbound(m.direction) && (m.read_at || m.status === "read") ? " · lida" : (m.payload?.campaign_id || m.payload?.campaign_test) && m.status === "delivered" ? " · entregue" : (m.payload?.campaign_id || m.payload?.campaign_test) && m.status === "sent" ? " · enviada" : ""}</small>
                     </li>
                   ))}
                   {open.purchase ? (
