@@ -53,6 +53,7 @@ export type WhatsAppInsights = {
 
 export type WaConversation = {
   id: string; status: string | null; attendance_mode: string | null; unread_count: number | null;
+  has_campaign?: boolean;
   last_message_at: string | null; service_window_expires_at: string | null;
   contact: { name: string | null; phone_masked: string; first_seen_at: string | null };
   origin: { bucket: WaOriginKey; label: string; ad_headline: string | null; entry_code: string | null; at: string | null };
@@ -66,7 +67,7 @@ export type WaConversation = {
 export type WaAiProduct = { handle: string; title: string; price: number; url: string; image: string | null };
 export type WaAiSuggestion = { reply: string; buttons: string[]; products: WaAiProduct[]; handoff: boolean; handoff_reason: string; created_at: string };
 /** Mensagem da conversa; by_ai/payload só nos números ligados no MUGOVERSO. */
-export type WaMessage = CrmMessage & { by_ai?: boolean; payload?: { buttons?: string[]; products?: WaAiProduct[]; cards?: boolean } | null };
+export type WaMessage = CrmMessage & { by_ai?: boolean; payload?: { campaign_id?: string; buttons?: string[]; products?: WaAiProduct[]; cards?: boolean } | null };
 export type WhatsAppInbox = {
   ok: true; status: "available" | "no_brand_number" | "crm_unavailable"; reason?: CrmUnavailable["reason"];
   conversations: WaConversation[]; channel_provider?: "mugozap_crm" | null; reply_enabled?: boolean;

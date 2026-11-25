@@ -236,7 +236,7 @@ async def process_due(now: Optional[datetime] = None) -> Dict[str, Any]:
             people = await recipients(client_id, draft.get("audience_provider") or "all", draft.get("audience_selection"))
             header = ({"type": HEADER_KINDS[template["header"]], "link": draft["header_media_url"]}
                       if template.get("header") in HEADER_KINDS else None)
-            counts = await run(client_id, {**draft, "started_at": now.isoformat()}, people, int(template.get("variables") or 0), header)
+            counts = await run(client_id, {**draft, "started_at": now.isoformat(), "template_body": template.get("body")}, people, int(template.get("variables") or 0), header)
             done.append({"draft_id": draft["id"], **counts})
         except Exception as exc:  # noqa: BLE001 - uma campanha com problema não para as outras
             await sb_update(DRAFTS, filters={"id": f"eq.{draft['id']}"}, returning="minimal",
@@ -284,9 +284,18 @@ async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]
                 row["status"] = "skipped"; row["error"] = "Pediu para sair"
             else:
                 try:
+                    receipt: Dict[str, str] = {}
                     row["provider_message_id"] = await send_template(
                         client_id, number_id=None, to=person["phone"], template=draft["template_name"],
-                        language=draft["language"], params=[person["name"]] if variables == 1 else [], header_media=header)
+                        language=draft["language"], params=[person["name"]] if variables == 1 else [], header_media=header, receipt=receipt)
+                    if not row["provider_message_id"]:
+                        raise WhatsAppNativeError("META", "A Meta não retornou o ID da mensagem.")
+                    if receipt:
+                        body = str(draft.get("template_body") or "")
+                        if variables == 1:
+                            body = re.sub(r"\{\{\s*[^}\s]+\s*\}\}", lambda _: person["name"], body)
+                        row["inbox_message"] = {**receipt, "name": person["name"], "text": body,
+                                                "sent_at": datetime.now(timezone.utc).isoformat()}
                     row["status"] = "sent"
                 except WhatsAppNativeError as exc:
                     row["status"] = "failed"; row["error"] = str(exc.message)[:300]
@@ -296,7 +305,7 @@ async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]
                     last_error = row["error"]
             if done.get(key) == "failed":
                 await sb_update(SENDS, filters={"draft_id": f"eq.{draft_id}", "phone_hash": f"eq.{key}"},
-                                patch={k: v for k, v in row.items() if k in ("status", "error", "provider_message_id", "phone_key")}, returning="minimal")
+                                patch={k: v for k, v in row.items() if k in ("status", "error", "provider_message_id", "phone_key", "inbox_message")}, returning="minimal")
                 counts["failed"] -= 1
             else:
                 await sb_insert(SENDS, row, returning="minimal")
