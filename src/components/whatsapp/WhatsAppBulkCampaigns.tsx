@@ -63,6 +63,7 @@ export default function WhatsAppBulkCampaigns() {
   const [headerUrl, setHeaderUrl] = useState("");
   const [headerBusy, setHeaderBusy] = useState(false);
   const [testPhone, setTestPhone] = useState("");
+  const [testName, setTestName] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [reports, setReports] = useState<Record<string, WaCampaignReport | "loading" | string>>({});
@@ -87,7 +88,7 @@ export default function WhatsAppBulkCampaigns() {
   useEffect(() => {
     let active = true;
     setTemplates([]); setDrafts([]); setTemplateKey(""); setName(""); setPreflight(null);
-    setTestPhone(""); setTestResult(null); setTesting(false);
+    setTestPhone(""); setTestName(""); setTestResult(null); setTesting(false);
     setError(""); setNotice(""); setLoading(true);
     setImportStatus(null); setImportNote(""); setImportError(""); setDraftsError("");
     Promise.allSettled([listWhatsAppTemplates(), listWhatsAppCampaignDrafts()]).then(([t, d]) => {
@@ -132,7 +133,7 @@ export default function WhatsAppBulkCampaigns() {
     try {
       const result = await testWhatsAppCampaign({
         phone: testPhone.trim(), template_name: selected.name, language: selected.language,
-        header_media_url: headerUrl || undefined,
+        header_media_url: headerUrl || undefined, recipient_name: testName.trim() || undefined,
       });
       if (getActiveClientId() === tenant) {
         setTestResult({ ok: true, message: result.recorded === false
@@ -347,7 +348,11 @@ export default function WhatsAppBulkCampaigns() {
             <input type="tel" autoComplete="off" maxLength={32} value={testPhone} placeholder="(11) 99999-9999"
               disabled={testing} onChange={(e) => { setTestPhone(e.target.value); setTestResult(null); }} />
           </label>
-          <button type="button" onClick={() => void sendTest()} disabled={testing || !testPhone.trim() || headerBusy
+          {selected.variables === 1 ? <label>Primeiro nome para o teste
+            <input value={testName} maxLength={100} disabled={testing}
+              onChange={(e) => { setTestName(e.target.value); setTestResult(null); }} />
+          </label> : null}
+          <button type="button" onClick={() => void sendTest()} disabled={testing || !testPhone.trim() || (selected.variables === 1 && !testName.trim()) || headerBusy
             || Boolean(selected.header && MEDIA_HEADERS.has(selected.header) && !headerUrl)}>
             {testing ? "Enviando teste…" : "Enviar teste"}
           </button>

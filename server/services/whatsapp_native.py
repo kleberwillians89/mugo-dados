@@ -114,6 +114,8 @@ async def _graph(method: str, path: str, token: str, params: Optional[Dict[str, 
             raise WhatsAppNativeError("TOKEN_INVALID", "A Meta recusou o token. Gere um token do usuário do sistema com acesso a esta WABA.")
         if code in {"100", "803"} or resp.status_code == 404:
             raise WhatsAppNativeError("NOT_FOUND", "A Meta não encontrou esse ID. Confira o ID da WABA e o ID do número.")
+        if code in {"131008", "131009"} and ((json_body or {}).get("interactive") or {}).get("type") == "cta_url":
+            raise WhatsAppNativeError("CTA_REJECTED", "A Meta recusou o botão de link.")
         if code == "131047":
             raise WhatsAppNativeError("OUTSIDE_WINDOW", "Passaram 24 horas desde a última mensagem da pessoa: o WhatsApp só aceita resposta livre dentro desse prazo.")
         if code in {"10", "200", "294"} or resp.status_code == 403:

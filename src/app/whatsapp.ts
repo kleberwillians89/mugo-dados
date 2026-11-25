@@ -207,7 +207,7 @@ export function sendWhatsAppCampaign(draftId: string, scheduledAt?: string | nul
     { method: "POST", body: JSON.stringify({ scheduled_at: scheduledAt || null, exclude_previous_template_recipients: excludePreviousTemplateRecipients }) });
 }
 export function testWhatsAppCampaign(input: {
-  phone: string; template_name: string; language: string; header_media_url?: string;
+  phone: string; template_name: string; language: string; header_media_url?: string; recipient_name?: string;
 }) {
   return http<{ ok: true; status: "accepted"; recorded?: boolean }>(base("/campaigns/test"), {
     method: "POST", body: JSON.stringify(input),

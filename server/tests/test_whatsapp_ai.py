@@ -318,5 +318,8 @@ class GroupQuickReplyTests(unittest.IsolatedAsyncioTestCase):
              patch.object(ai, "send_decision", AsyncMock(return_value=1)) as send, \
              patch.object(ai, "_save_insight", AsyncMock()):
             self.assertEqual(await ai.process_thread("roove", dict(ProcessThreadTests.thread), settings), "respondida")
-        self.assertEqual(send.await_args.args[3]["reply"], f"Convite: {invite}")
+        self.assertEqual(send.await_args.args[3]["url_button"], {"label": "Entrar no grupo", "url": invite})
+        self.assertEqual(send.await_args.args[3]["url_fallback"], f"Convite: {invite}")
+        payload, _, _ = ai.outgoing_payloads(send.await_args.args[3], meta=None, match=None)[0]
+        self.assertEqual(payload["interactive"]["type"], "cta_url")
         decide.assert_not_awaited()
