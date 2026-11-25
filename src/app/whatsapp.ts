@@ -206,6 +206,13 @@ export function sendWhatsAppCampaign(draftId: string, scheduledAt?: string | nul
     base(`/campaigns/drafts/${encodeURIComponent(draftId)}/send`),
     { method: "POST", body: JSON.stringify({ scheduled_at: scheduledAt || null, exclude_previous_template_recipients: excludePreviousTemplateRecipients }) });
 }
+export function testWhatsAppCampaign(input: {
+  phone: string; template_name: string; language: string; header_media_url?: string;
+}) {
+  return http<{ ok: true; status: "accepted" }>(base("/campaigns/test"), {
+    method: "POST", body: JSON.stringify(input),
+  });
+}
 export function cancelWhatsAppCampaign(draftId: string) {
   return http<{ ok: true; status: "draft" }>(base(`/campaigns/drafts/${encodeURIComponent(draftId)}/cancel`), { method: "POST" });
 }

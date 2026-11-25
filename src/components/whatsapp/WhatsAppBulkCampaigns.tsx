@@ -3,7 +3,7 @@ import { getActiveClientId } from "../../app/activeClient";
 import {
   createWhatsAppCampaignDraft, listWhatsAppCampaignDrafts, listWhatsAppTemplates,
   getWhatsAppContactImportStatus, importExistingCommerceContacts, importExistingWhatsAppConversations, importContactsSheet,
-  preflightWhatsAppCampaignTemplate, previewWhatsAppCampaignAudience, sendWhatsAppCampaign, cancelWhatsAppCampaign,
+  preflightWhatsAppCampaignTemplate, previewWhatsAppCampaignAudience, sendWhatsAppCampaign, cancelWhatsAppCampaign, testWhatsAppCampaign,
   getWhatsAppCampaignReport, type WaCampaignReport,
   type WaCampaignAudience, type WaCampaignDraft, type WaTemplate, type WaContactImportStatus,
 } from "../../app/whatsapp";
@@ -62,6 +62,9 @@ export default function WhatsAppBulkCampaigns() {
   const [excludePrevious, setExcludePrevious] = useState(true);
   const [headerUrl, setHeaderUrl] = useState("");
   const [headerBusy, setHeaderBusy] = useState(false);
+  const [testPhone, setTestPhone] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [reports, setReports] = useState<Record<string, WaCampaignReport | "loading" | string>>({});
 
   const approved = useMemo(() => templates.filter((t) => t.status.toUpperCase() === "APPROVED"), [templates]);
@@ -84,6 +87,7 @@ export default function WhatsAppBulkCampaigns() {
   useEffect(() => {
     let active = true;
     setTemplates([]); setDrafts([]); setTemplateKey(""); setName(""); setPreflight(null);
+    setTestPhone(""); setTestResult(null); setTesting(false);
     setError(""); setNotice(""); setLoading(true);
     setImportStatus(null); setImportNote(""); setImportError(""); setDraftsError("");
     Promise.allSettled([listWhatsAppTemplates(), listWhatsAppCampaignDrafts()]).then(([t, d]) => {
@@ -119,6 +123,27 @@ export default function WhatsAppBulkCampaigns() {
     } catch (cause) {
       if (getActiveClientId() === tenant) setError(cause instanceof Error ? cause.message : "Não foi possível começar o envio.");
     } finally { setSendingId(null); }
+  }
+
+  async function sendTest() {
+    if (!selected || testing || !testPhone.trim()) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      await testWhatsAppCampaign({
+        phone: testPhone.trim(), template_name: selected.name, language: selected.language,
+        header_media_url: headerUrl || undefined,
+      });
+      if (getActiveClientId() === tenant) {
+        setTestResult({ ok: true, message: "A Meta aceitou o teste. Confira a entrega no WhatsApp desse número." });
+      }
+    } catch (cause) {
+      if (getActiveClientId() === tenant) {
+        setTestResult({ ok: false, message: cause instanceof Error ? cause.message : "Não foi possível enviar o teste." });
+      }
+    } finally {
+      if (getActiveClientId() === tenant) setTesting(false);
+    }
   }
 
   async function cancelDraft(draft: WaCampaignDraft) {
@@ -314,6 +339,19 @@ export default function WhatsAppBulkCampaigns() {
             disabled={headerBusy} onChange={(e) => void uploadHeader(e.currentTarget.files?.[0])} />
           {headerBusy ? <small>Enviando…</small> : headerUrl ? (selected.header === "IMAGE" ? <img className="waBulkHeaderPreview" src={headerUrl} alt="" /> : <small>Arquivo pronto.</small>) : null}
         </label> : null}
+        {selected ? <fieldset>
+          <legend>Enviar teste pelo WhatsApp</legend>
+          <label>Número com DDD
+            <input type="tel" autoComplete="off" maxLength={32} value={testPhone} placeholder="(11) 99999-9999"
+              disabled={testing} onChange={(e) => { setTestPhone(e.target.value); setTestResult(null); }} />
+          </label>
+          <button type="button" onClick={() => void sendTest()} disabled={testing || !testPhone.trim() || headerBusy
+            || Boolean(selected.header && MEDIA_HEADERS.has(selected.header) && !headerUrl)}>
+            {testing ? "Enviando teste…" : "Enviar teste"}
+          </button>
+          {testResult ? <p role={testResult.ok ? "status" : "alert"}
+            className={testResult.ok ? "waBulkSuccess" : "waBulkError"}>{testResult.message}</p> : null}
+        </fieldset> : null}
         {audience && (provider === "capture" || provider === "all") ? <p className="waBulkHelp" role="status">
           Captação / Landing Pages: {fmt(audience.consent_claimed_count || 0)} aceite(s) WhatsApp declarado(s).
           Esta contagem não confirma destinatários aptos. Confira a prévia antes de enviar.
@@ -339,7 +377,7 @@ export default function WhatsAppBulkCampaigns() {
             <div><strong>{d.name}</strong><small>{d.template_name} · {d.language} · {new Date(d.created_at).toLocaleDateString("pt-BR")}</small>
               {d.status !== "draft" ? <small role="status">
                 {fmt(d.sent_count || 0)} enviadas{d.recipients_count ? ` de ${fmt(d.recipients_count)}` : ""}
-                {d.failed_count ? ` · ${fmt(d.failed_count)} falharam` : ""}{d.skipped_count ? ` · ${fmt(d.skipped_count)} pediram para sair` : ""}
+                {d.failed_count ? ` · ${fmt(d.failed_count)} falharam` : ""}{d.skipped_count ? ` · ${fmt(d.skipped_count)} foram puladas` : ""}
               </small> : null}
               {d.last_error && d.status !== "sent" ? <small className="waBulkError">Último erro: {d.last_error}</small> : null}</div>
             <span className={`waBulkStatus is-${d.status}`}>{statusLabel(d)}</span>

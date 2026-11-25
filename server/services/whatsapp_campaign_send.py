@@ -173,6 +173,32 @@ def _check_template(template: Dict[str, Any], header_media_url: Optional[str]) -
         raise BulkSendError("Este modelo tem imagem (ou vídeo) no topo. Envie o arquivo na campanha antes de disparar.")
 
 
+async def send_test(client_id: str, *, phone: str, template_name: str, language: str,
+                    header_media_url: Optional[str]) -> None:
+    from .whatsapp_native import WhatsAppNativeError, send_template
+
+    digits = normalize_phone(phone)
+    if not digits:
+        raise BulkSendError("Informe um número válido com DDD ou com DDI e +.")
+    key = phone_key(digits, international=True)
+    if any(phone_key(p, international=True) == key for p in await opted_out(client_id)):
+        raise BulkSendError("Este número pediu para sair dos envios.")
+    template = await _template(client_id, template_name, language)
+    _check_template(template, header_media_url)
+    header = ({"type": HEADER_KINDS[template["header"]], "link": header_media_url}
+              if template.get("header") in HEADER_KINDS else None)
+    try:
+        message_id = await send_template(
+            client_id, number_id=None, to=digits, template=template_name, language=language,
+            params=["cliente"] if int(template.get("variables") or 0) == 1 else [],
+            header_media=header,
+        )
+    except WhatsAppNativeError as exc:
+        raise BulkSendError(exc.message, 502) from None
+    if not message_id:
+        raise BulkSendError("A Meta não confirmou que aceitou o teste.", 502)
+
+
 def _iso(value: Any) -> Optional[datetime]:
     try:
         moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))

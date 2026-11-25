@@ -72,7 +72,7 @@ describe("Disparos em massa", () => {
       failed_count: 140, skipped_count: 10, last_error: "Número sem WhatsApp" }] });
     await act(async () => { root.render(<WhatsAppBulkCampaigns />); });
     await act(async () => {});
-    expect(host.textContent).toContain("700 enviadas de 850 · 140 falharam · 10 pediram para sair");
+    expect(host.textContent).toContain("700 enviadas de 850 · 140 falharam · 10 foram puladas");
     expect(btn("Retomar envio")).toBeTruthy();
   });
 
