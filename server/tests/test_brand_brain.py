@@ -18,7 +18,7 @@ SERVICES = Path(__file__).resolve().parent.parent / "services"
 COVERAGE = {
     "creators": "brand", "social_report": "brand", "monthly_report": "brand", "ai_actions": "brand", "ai_summary": "brand",
     "studio_campaigns": "brand", "studio_documents": "brand", "studio_projects": "brand", "media_strategy": "brand",
-    "studio_briefs": "brand", "studio_agents": "brand", "media_live_read": "brand",
+    "studio_briefs": "brand", "studio_agents": "brand", "media_live_read": "brand", "goal_ops": "brand",
     "whatsapp_ai": "propria", "ig_engagement": "propria", "ig_direct": "propria", "mugo_ia": "propria",
     "brand_agent": "propria", "studio_calendar": "propria", "studio_matrix": "propria", "studio_engines": "propria",
     "meta_ad_publisher": "propria", "benchmark_auto": "propria", "studio_brand_brain": "propria", "brand_import": "propria",
