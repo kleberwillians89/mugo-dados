@@ -151,3 +151,12 @@ describe("Tarefas com aprovação", () => {
     expect(sent.assignee_user_ids).toBeUndefined(); // legacy-safe for a single responsible person
   });
 });
+
+describe("estilo do quadro fora do Studio", () => {
+  it("o próprio TaskBoard carrega o CSS (no Início não há tela do Studio para trazê-lo)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(`${process.cwd()}/src/components/studio/TaskBoard.tsx`, "utf8");
+    expect(source).toContain('import "../../styles/studio.css"');
+    expect(readFileSync(`${process.cwd()}/src/styles/studio.css`, "utf8")).toContain(".taskBoard");
+  });
+});
