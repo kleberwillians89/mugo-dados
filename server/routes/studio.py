@@ -2086,15 +2086,24 @@ async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | No
         raise _known(exc) from None
 
 
+class MugoIACreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    wa_botao_texto: Optional[str] = Field(default=None, max_length=25)
+    wa_botao_url: Optional[str] = Field(default=None, max_length=1000)
+
+
 @router.post("/mugo-ia/{message_id}/criar")
-async def create_from_mugo_ia(client_id: str, message_id: UUID, authorization: str | None = Header(default=None)):
+async def create_from_mugo_ia(client_id: str, message_id: UUID, item: int = 0, body: Optional[MugoIACreateInput] = None,
+                              authorization: str | None = Header(default=None)):
     """Botão Criar da Mugô IA: a proposta da resposta vira rascunho na ferramenta (nunca envia nem publica)."""
     from services.mugo_ia_actions import execute
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
     team = await is_agency_user(authorization)
     try:
-        return {"ok": True, **await execute(cid, str(message_id), user_id=uid, author=_chat_author(authorization, uid) or "", team=team)}
+        return {"ok": True, **await execute(cid, str(message_id), user_id=uid, author=_chat_author(authorization, uid) or "",
+                                            team=team, item=max(0, min(item, 10)),
+                                            edits=body.model_dump(exclude_none=True) if body else None)}
     except StudioError as exc:
         raise _known(exc) from None
 

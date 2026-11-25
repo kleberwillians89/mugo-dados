@@ -216,6 +216,13 @@ export function navigateToAppRoute(route: AppRoute, options?: { replace?: boolea
   else window.history.pushState({ mugoDepth: appHistoryDepth() + 1 }, document.title, path);
 }
 
+/** Abre uma tela do Mugoverso de dentro de um componente (o App escuta o popstate). ``query`` vai na URL (ex.: campanha=id). */
+export function openAppRoute(route: AppRoute, query?: string) {
+  const path = `${getPathForRoute(route)}${query ? `?${query}` : ""}`;
+  window.history.pushState({ mugoDepth: appHistoryDepth() + 1 }, document.title, path);
+  window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+}
+
 /**
  * Botão "Voltar" das páginas internas: volta à tela anterior do Mugoverso (o navegador restaura a URL, com filtros
  * e período que estiverem nela). Sem histórico interno (link direto, nova aba), vai para um destino seguro: o Início.

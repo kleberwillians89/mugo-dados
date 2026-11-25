@@ -578,7 +578,7 @@ _TEMPLATE_PARAM = re.compile(r"\{\{(\d+)\}\}")
 
 
 def validate_template_input(*, name: str, category: str, language: str, body: str,
-                            examples: List[str], footer: str = "") -> Dict[str, Any]:
+                            examples: List[str], footer: str = "", buttons: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Whitelisted v1 template builder: body + optional footer, positional variables only.
     Sending or campaign automation is not triggered by creating a template.
     """
@@ -606,16 +606,28 @@ def validate_template_input(*, name: str, category: str, language: str, body: st
     components: List[Dict[str, Any]] = [component]
     if footer:
         components.append({"type": "FOOTER", "text": footer})
+    # Botões de link (ex.: "Entrar no grupo"): até 2, texto até 25 caracteres, só https e sem variável no link.
+    clean_buttons = []
+    for button in (buttons or [])[:2]:
+        text, url = str((button or {}).get("text") or "").strip(), str((button or {}).get("url") or "").strip()
+        if not text and not url:
+            continue
+        if not (1 <= len(text) <= 25) or not re.match(r"^https://[^\s{}]{4,1990}$", url):
+            raise WhatsAppNativeError("TEMPLATE_INVALID", "Botão: texto de até 25 caracteres e um link completo começando com https://.")
+        clean_buttons.append({"type": "URL", "text": text, "url": url})
+    if clean_buttons:
+        components.append({"type": "BUTTONS", "buttons": clean_buttons})
     return {"name": name, "category": category, "language": language,
             "allow_category_change": True, "components": components}
 
 
 async def create_template(client_id: str, *, number_id: Optional[str], name: str, category: str,
-                          language: str, body: str, examples: List[str], footer: str = "") -> Dict[str, Any]:
+                          language: str, body: str, examples: List[str], footer: str = "",
+                          buttons: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Submits to this tenant's own WABA; Meta decides approval state."""
     number = await _active_number(client_id, number_id)
     payload = validate_template_input(name=name, category=category, language=language,
-                                      body=body, examples=examples, footer=footer)
+                                      body=body, examples=examples, footer=footer, buttons=buttons)
     result = await _graph("POST", f"{number['waba_id']}/message_templates", number["access_token"],
                           json_body=payload)
     return {"id": str(result.get("id") or ""), "name": payload["name"],

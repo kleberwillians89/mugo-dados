@@ -5,7 +5,7 @@ import { askMugoIA, type MugoIAMessage } from "../../app/studio";
 import { navigateToAppRoute } from "../../app/routes";
 import { ASSIST_SCREENS, MugoIAAssistContext } from "./assist";
 import { AnswerBody } from "./AnswerBody";
-import MugoIAAction from "./MugoIAAction";
+import MugoIAActions from "./MugoIAActions";
 import "../../styles/mugoverso-ia.css";
 
 /**
@@ -32,7 +32,7 @@ export default function MugoIAAssist() {
     setMessages((m) => [...m, { id: null, role: "user", content: q }]);
     try {
       const res = await askMugoIA(q, screen);
-      setMessages((m) => [...m, { id: res.id, role: "assistant", content: res.answer, meta: { sources: res.sources, acao: res.acao } }]);
+      setMessages((m) => [...m, { id: res.id, role: "assistant", content: res.answer, meta: { sources: res.sources, acao: res.acao, acoes: res.acoes } }]);
     } catch (cause) {
       setMessages((m) => m.slice(0, -1)); setText(q);
       setError(cause instanceof Error && cause.message ? cause.message : "A Mugô IA não respondeu agora. Tente de novo.");
@@ -62,8 +62,8 @@ export default function MugoIAAssist() {
           ? <div key={`u${i}`} className="miaUser"><p>{m.content}</p></div>
           : <article key={m.id || `a${i}`} className="miaBot"><div className="miaBotBody">
             <AnswerBody text={m.content} />
-            {m.meta?.acao ? <MugoIAAction messageId={m.id} action={m.meta.acao} canCreate={assist.canCreate}
-              onChange={(acao) => setMessages((list) => list.map((x) => (x === m ? { ...x, meta: { ...x.meta, acao } } : x)))} /> : null}
+            <MugoIAActions messageId={m.id} meta={m.meta} canCreate={assist.canCreate}
+              onMeta={(meta) => setMessages((list) => list.map((x) => (x === m ? { ...x, meta } : x)))} />
             <div className="miaAssistTools">
               <button type="button" className="miaGhost" onClick={() => void copy(`a${i}`, m.content)}>
                 <Copy size={14} aria-hidden="true" /> {copied === `a${i}` ? "Copiado" : "Copiar texto"}</button>
