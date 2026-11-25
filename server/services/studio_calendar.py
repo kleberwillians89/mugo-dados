@@ -716,6 +716,9 @@ def clean_creative_direction(value: Any) -> Dict[str, Any]:
     return out
 
 
+ART_URL_MAX_LENGTH = 4000
+
+
 def clean_art_url(value: Any) -> Optional[str]:
     """Link(s) da arte (Canva, Google Drive ou outro https). Vazio limpa o campo; http, javascript: etc. são recusados."""
     # Um link por linha = um slide do carrossel, na ordem (até 12). Primeiro link é a capa.
@@ -725,7 +728,7 @@ def clean_art_url(value: Any) -> Optional[str]:
     if len(links) > 12 or any(not re.match(r"^https://\S+$", link) for link in links):
         raise StudioError("ART_URL_INVALID")
     text = "\n".join(links)
-    if len(text) > 4000:  # migração 000072 (antes 1000): cabe carrossel de arquivos enviados pelo modal
+    if len(text) > ART_URL_MAX_LENGTH:  # migração 000072 (antes 1000): cabe carrossel de arquivos enviados pelo modal
         raise StudioError("ART_URL_INVALID")
     return text
 

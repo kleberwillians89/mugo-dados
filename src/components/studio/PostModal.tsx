@@ -19,7 +19,7 @@ import ReelsOptions from "./ReelsOptions";
 import ReelsMusicPicker from "./ReelsMusicPicker";
 import { frameSrc } from "./reelsOptions.helpers";
 import AiSuggestionCard from "./AiSuggestionCard";
-import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
+import { ART_URL_MAX_LENGTH, artList, artSlides, isDriveFolder } from "../../app/artLinks";
 import ArtCarousel from "./ArtCarousel";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
@@ -354,7 +354,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
           {item && (draft.art_url || "") !== (initial.art_url || "") ? <small className="postArtHint is-pending">A arte mudou. Clique em <b>Salvar alterações</b>, aqui embaixo, para valer.</small> : null}
           <details className="postArtLink" open={Boolean(draft.art_url) && !artList(draft.art_url).every((u) => u.includes("/storage/v1/object/public/"))}>
             <summary>editar os links à mão</summary>
-            <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"
+            <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={ART_URL_MAX_LENGTH} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"
               value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} aria-label="Link da arte" />
           </details>
           {folderLink ? <p className="postArtWarn">Esse é o link de uma <b>pasta</b> do Drive: não aparece na prévia, o cliente não vê a arte e não publica sozinho. No Drive, clique com o botão direito no <b>arquivo</b> → Compartilhar → Copiar link (deixe como "qualquer pessoa com o link"). Ou baixe e envie o arquivo aqui em cima.</p> : null}
