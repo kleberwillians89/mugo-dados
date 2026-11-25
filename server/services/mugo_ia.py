@@ -176,7 +176,7 @@ SCHEMA = {
 def model() -> str:
     """O modelo mais forte disponível: a Mugô IA lê muito contexto, raciocina sobre ele e escreve peças de verdade.
     Troque por OPENAI_MUGO_IA_MODEL; se ele falhar (sem acesso na conta, fora do ar), a resposta cai para o gpt-4.1."""
-    return (os.getenv("OPENAI_MUGO_IA_MODEL") or "gpt-5.1").strip()
+    return (os.getenv("OPENAI_MUGO_IA_MODEL") or "gpt-5").strip()  # o mais forte da lista liberada (ai_runtime.ALLOWED_MODELS)
 
 
 def _short(value: Any, limit: int) -> str:
@@ -513,7 +513,7 @@ async def ask(client_id: str, user_id: str, question: str, *, team: bool, person
                                   temperature=0.5, timeout=150, model=chosen[0], guidance=False, max_output_tokens=tokens)
         except StudioError as exc:
             # Só cai para o modelo reserva quando o forte não respondeu (sem acesso na conta, fora do ar, demorou demais).
-            if exc.code not in ("AI_PROVIDER_ERROR", "AI_PROVIDER_TIMEOUT") or chosen[0] == FALLBACK_MODEL:
+            if exc.code not in ("AI_PROVIDER_ERROR", "AI_PROVIDER_TIMEOUT", "AI_MODEL_UNAVAILABLE") or chosen[0] == FALLBACK_MODEL:
                 raise
             print(f"[mugo_ia] model={chosen[0]} code={exc.code} fallback={FALLBACK_MODEL}")
             chosen[0] = FALLBACK_MODEL

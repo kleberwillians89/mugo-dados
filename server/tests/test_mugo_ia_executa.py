@@ -206,13 +206,19 @@ class LevelUpTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("até 14 linhas", text)
         self.assertGreaterEqual(mi.HISTORY_CHARS, 2000)
 
+    def test_default_model_is_on_the_allowed_list(self):
+        from services.ai_runtime import ALLOWED_MODELS
+        with patch.dict(os.environ, {"OPENAI_MUGO_IA_MODEL": ""}):
+            self.assertIn(mi.model(), ALLOWED_MODELS)  # "O modelo selecionado não está liberado" nunca mais
+        self.assertIn(mi.FALLBACK_MODEL, ALLOWED_MODELS)
+
     async def test_strong_model_falls_back_when_unavailable(self):
         calls = []
 
         async def llm(**kw):
             calls.append(kw["model"])
             if kw["model"] != mi.FALLBACK_MODEL:
-                raise StudioError("AI_PROVIDER_ERROR")
+                raise StudioError("AI_MODEL_UNAVAILABLE")  # modelo fora da lista liberada também cai para o reserva
             return {"answer": "ok", "on_topic": True, "sources": [], "used_chunks": [], "new_facts": [], "follow_ups": [], "acoes": []}
         with patch.object(mi, "history", AsyncMock(return_value=[])), \
                 patch.object(mi, "gather_context", AsyncMock(return_value={"package": {}, "live": {}, "gaps": []})), \
