@@ -67,8 +67,72 @@ class ReadTests(unittest.IsolatedAsyncioTestCase):
         llm.assert_not_awaited()
         self.assertIn("Nenhuma campanha", out["message"])
 
+    async def test_explanations_and_improvements_by_campaign(self):
+        campaigns = [{"id": "google:9", "canal": "Google", "campanha": "PMax", "objetivo": "Google Ads", "objetivo_id": "google",
+                      "desde_o_inicio": mlr.google_kpis({"cost": 300, "clicks": 200, "impressions": 9000, "conversions": 6, "conversion_value": 1800}),
+                      "ultimos_7_dias": {}, "sinais": []}]
+        llm = AsyncMock(return_value={"resumo": "r", "campanhas": [{"id": "google:9", "veredito": "manter", "leitura": "l", "acao": "a"}],
+                                      "explicacoes": [{"id": "google:9", "texto": "CPC de R$ 1,50 com 3% de conversão"}, {"id": "x", "texto": "inventada"}],
+                                      "melhorias": [{"id": "google:9", "texto": "negativar termos de busca sem venda"}], "proximos_passos": []})
+        with patch.object(mlr, "collect", AsyncMock(return_value=campaigns)), patch("services.studio_llm.llm_json", llm):
+            out = await mlr.read("roove")
+        self.assertEqual([e["campanha"] for e in out["explicacoes"]], ["PMax"])
+        self.assertEqual(out["melhorias"][0]["canal"], "Google")
+        self.assertEqual(out["campanhas"][0]["canal"], "Google")
+        self.assertIn("Google Ads", llm.await_args.kwargs["instructions"])
+
     def test_days(self):
         self.assertEqual(mlr._days("2026-11-24", "2026-12-03", date(2026, 11, 24)), (0, 9))
+
+
+class ChannelTests(unittest.IsolatedAsyncioTestCase):
+    def test_meta_totals_by_objective(self):
+        line = {"spend": "50", "impressions": "10000", "reach": "8000", "inline_link_clicks": "120",
+                "actions": [{"action_type": "onsite_conversion.messaging_conversation_started_7d", "value": "9"}]}
+        self.assertEqual(mlr.meta_totals(line, "whatsapp")["results"], 9)
+        self.assertEqual(mlr.meta_totals(line, "alcance")["results"], 8000)
+
+    def test_google_only_active_campaigns_with_7_days(self):
+        rows = [{"campaign_id": "1", "campaign_name": "Pesquisa marca", "stat_date": f"2026-11-{d:02d}", "cost": 20, "impressions": 1000,
+                 "clicks": 40, "conversions": 1, "conversion_value": 150} for d in range(1, 24)]
+        rows += [{"campaign_id": "2", "campaign_name": "Pausada", "stat_date": "2026-11-05", "cost": 80, "impressions": 3000, "clicks": 10,
+                  "conversions": 0, "conversion_value": 0}]
+        out = mlr.google_campaigns(rows, date(2026, 11, 24))
+        self.assertEqual([c["campanha"] for c in out], ["Pesquisa marca"])
+        self.assertEqual(out[0]["ultimos_7_dias"]["investido"], 140)
+        self.assertEqual(out[0]["desde_o_inicio"]["roas"], 7.5)
+        self.assertIn("sincronizados até 2026-11-23", out[0]["sinais"][0])
+
+    async def test_collect_joins_channels_and_survives_one_failing(self):
+        meta = [{"id": "meta:1", "ultimos_7_dias": {"investido": 10}}]
+        google = [{"id": "google:1", "ultimos_7_dias": {"investido": 90}}]
+        with patch.object(mlr, "_meta_campaigns", AsyncMock(return_value=meta)), patch.object(mlr, "_google_campaigns", AsyncMock(return_value=google)):
+            self.assertEqual([c["id"] for c in await mlr.collect("x", date(2026, 11, 24))], ["google:1", "meta:1"])
+        with patch.object(mlr, "_meta_campaigns", AsyncMock(side_effect=RuntimeError("sem conta"))), \
+                patch.object(mlr, "_google_campaigns", AsyncMock(return_value=google)):
+            self.assertEqual([c["id"] for c in await mlr.collect("x", date(2026, 11, 24))], ["google:1"])
+
+    async def test_meta_reads_whole_account_and_uses_draft_objective(self):
+        from services import meta_ad_publisher as pub
+
+        async def paged(path, token, params, pages=4):
+            if path.endswith("/campaigns"):
+                return [{"id": "11", "name": "Feita no Gerenciador", "objective": "OUTCOME_TRAFFIC", "start_time": "2026-11-01"},
+                        {"id": "22", "name": "Do Mugoverso", "objective": "OUTCOME_SALES", "daily_budget": "5000"}]
+            line = {"spend": "100", "impressions": "20000", "reach": "15000", "inline_link_clicks": "300",
+                    "actions": [{"action_type": "link_click", "value": "300"}, {"action_type": "purchase", "value": "3"}],
+                    "action_values": [{"action_type": "purchase", "value": "900"}]}
+            return [{**line, "campaign_id": "11"}, {**line, "campaign_id": "22"}]
+
+        drafts = [{"meta_ids": {"campaign_id": "22"}, "payload": {"objective": "remarketing", "name": "Remarketing BF", "daily_budget": 40}}]
+        with patch.object(pub, "_ad_account", AsyncMock(return_value={"act": "act_1", "token": "t"})), \
+                patch.object(pub, "list_drafts", AsyncMock(return_value=drafts)), patch("services.meta_live_insights._paged", paged):
+            out = await mlr._meta_campaigns("x", date(2026, 11, 24))
+        by = {c["id"]: c for c in out}
+        self.assertEqual(by["meta:11"]["objetivo_id"], "trafego")
+        self.assertFalse(by["meta:11"]["criada_no_mugoverso"])
+        self.assertEqual(by["meta:22"]["objetivo_id"], "remarketing")
+        self.assertEqual((by["meta:22"]["verba_diaria"], by["meta:22"]["desde_o_inicio"]["roas"]), (40, 9.0))
 
 
 if __name__ == "__main__":
