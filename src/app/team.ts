@@ -22,6 +22,10 @@ const json = (method: string, body?: unknown) => ({ method, body: body === undef
 export const getTeamCatalog = () => http<TeamCatalog>("/api/team/catalog");
 export const getMyAccess = () => http<MyAccess>("/api/team/me");
 export const listTeamMembers = () => http<{ items: TeamMember[] }>("/api/team/members");
+/** Áreas de cada integrante (Design, Social Media…): a Nova tarefa sugere os responsáveis da área escolhida. */
+export const getTeamDepartments = () => http<{ catalog: string[]; by_user: Record<string, string[]> }>("/api/team/departments");
+export const setMemberDepartments = (userId: string, departments: string[]) =>
+  http<{ user_id: string; departments: string[] }>(`/api/team/members/${encodeURIComponent(userId)}/departments`, json("PUT", { departments }));
 export const createTeamMember = (input: PermissionInput & { name: string; login: string; password: string }) =>
   http<{ user_id: string; login: string; account_created: boolean }>("/api/team/members", json("POST", input));
 export const updateTeamMember = (userId: string, input: PermissionInput) =>

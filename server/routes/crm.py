@@ -102,6 +102,11 @@ async def crm_tasks(client_id: str, status: Optional[str] = None, limit: int = 2
     scope = await _task_scope(authorization, cid)
     try:
         out = await studio_tasks.list_tasks(cid, status=status, limit=limit, client_view=scope["client_view"], only_user=scope["only_user"])
+        if out.get("available"):
+            # O card em Ajustes mostra o último pedido de ajuste (o que mudar), sem abrir a tarefa.
+            notes = await studio_tasks.change_notes(cid, [t["id"] for t in out["tasks"] if t.get("status") == "changes"],
+                                                    client_view=scope["client_view"])
+            out["tasks"] = [{**t, "change_note": notes[t["id"]]} if t["id"] in notes else t for t in out["tasks"]]
         return {**out, "scope": {"mine_only": bool(scope["only_user"]), "can_approve": scope["team"]}}
     except StudioError as exc:
         raise _http(exc) from None
@@ -205,8 +210,12 @@ async def crm_assignees(client_id: str, authorization: Optional[str] = Header(No
     except Exception as exc:  # noqa: BLE001 — sem a lista, a tela volta ao nome digitado
         print(f"[crm][assignees] client_id={cid} unavailable error_type={type(exc).__name__}")
         return {"available": False, "people": []}
+    from services.member_departments import departments_of
     people = [{"user_id": m["user_id"], "name": m.get("name") or m.get("login") or "Sem nome"}
               for m in members if m.get("user_id") and m.get("status") == "active"]
+    areas = await departments_of([p["user_id"] for p in people])
+    for person in people:
+        person["departments"] = areas.get(str(person["user_id"]), [])
     people.sort(key=lambda p: str(p["name"]).lower())
     return {"available": True, "people": people}
 

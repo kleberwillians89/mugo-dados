@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  OPT_IN_CODES, USERNAME_RE, createTeamMember, generatePassword, getTeamCatalog, listTeamMembers, removeTeamMember,
+  OPT_IN_CODES, USERNAME_RE, createTeamMember, generatePassword, getTeamCatalog, getTeamDepartments, listTeamMembers, removeTeamMember,
   resetTeamMemberPassword, setTeamMemberStatus, updateTeamMember,
   type PermissionInput, type TeamCatalog, type TeamMember, type TeamPreset,
 } from "../app/team";
@@ -10,6 +10,7 @@ import Shell from "../components/Shell";
 import StatusBadge from "../components/StatusBadge";
 import PageHeader from "../components/data/PageHeader";
 import SegmentedControl from "../components/data/SegmentedControl";
+import MemberDepartmentsEditor, { DepartmentChips } from "../components/team/MemberDepartments";
 import "../styles/users.css";
 
 function message(cause: unknown, fallback: string) {
@@ -34,12 +35,15 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<"active" | "inactive" | "all">("active");
+  const [areas, setAreas] = useState<{ catalog: string[]; by_user: Record<string, string[]> } | null>(null);
+  const [areasFor, setAreasFor] = useState<TeamMember | null>(null);
 
   const load = useCallback(async () => {
     try {
       const [cat, list] = await Promise.all([getTeamCatalog(), listTeamMembers()]);
       if (getActiveClientId() !== clientId) return;
       setCatalog(cat); setMembers(list.items);
+      getTeamDepartments().then((d) => { if (getActiveClientId() === clientId) setAreas(d); }).catch(() => setAreas(null));
     } catch (cause) { setError(message(cause, "Não foi possível carregar os usuários.")); }
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
@@ -158,10 +162,13 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
 
     {!members ? <p>Carregando…</p> : !shown.length ? <p className="usersMuted">Nenhum usuário {filter === "inactive" ? "inativo" : filter === "active" ? "ativo" : ""}.</p> :
       <div className="usersScroll"><table className="ds-table usersTable">
-        <thead><tr><th>Pessoa</th><th>Perfil</th><th>Acesso</th><th>Status</th><th>Último acesso</th><th aria-label="Ações" /></tr></thead>
+        <thead><tr><th>Pessoa</th><th>Perfil</th><th>Áreas</th><th>Acesso</th><th>Status</th><th>Último acesso</th><th aria-label="Ações" /></tr></thead>
         <tbody>{shown.map((m) => <tr key={m.user_id}>
           <td><b>{m.name || m.login}</b>{m.name ? <small>{m.login}</small> : null}</td>
           <td>{m.is_global_role ? "Equipe Mugô" : m.preset_label}</td>
+          <td><DepartmentChips areas={areas?.by_user[m.user_id] || []} />
+            {areas && canManage && (!m.is_global_role || isTeam) ? <button type="button" className="ds-link is-quiet usersAreasEdit"
+              onClick={() => setAreasFor(m)}>Editar áreas</button> : null}</td>
           <td><small>{m.is_global_role || m.access_total ? "Acesso total" : `${m.codes.length} permissões${m.view_all ? " · vê tudo" : ""}`}</small></td>
           <td><StatusBadge label={m.status === "active" ? "Ativo" : "Inativo"} tone={m.status === "active" ? "success" : "neutral"} /></td>
           <td><small>{m.last_sign_in_at ? new Date(m.last_sign_in_at).toLocaleString("pt-BR") : "Nunca"}</small></td>
@@ -174,6 +181,11 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
         </tr>)}</tbody>
       </table></div>}
 
+    {areasFor && areas ? <MemberDepartmentsEditor member={areasFor} catalog={areas.catalog} current={areas.by_user[areasFor.user_id] || []}
+      onClose={() => setAreasFor(null)} onSaved={(saved) => {
+        setAreas((cur) => cur && { ...cur, by_user: { ...cur.by_user, [areasFor.user_id]: saved } });
+        setNotice(`Áreas de ${areasFor.name || areasFor.login} salvas.`); setAreasFor(null);
+      }} /> : null}
     <Drawer open={Boolean(editing)} width="lg" title={editing?.member ? `Permissões de ${editing.member.name || editing.member.login}` : "Novo usuário"}
       description="Escolha um perfil pronto e ajuste tela por tela. Alterar exige ver." onClose={() => { if (!busy) setEditing(null); }}>
       {editing && catalog ? <form className="usersForm" onSubmit={submit}>
