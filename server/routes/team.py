@@ -34,7 +34,16 @@ class Permissions(Strict):
 class NewMember(Permissions):
     name: str = Field(default="", max_length=120)
     login: str = Field(min_length=3, max_length=200)
-    password: str = Field(min_length=8, max_length=200)
+    # Só usada se a conta for NOVA; conta que já existe é vinculada sem tocar na senha.
+    password: Optional[str] = Field(default=None, max_length=200)
+
+
+class LinkMember(Strict):
+    user_id: str = Field(min_length=36, max_length=36)
+    preset: Optional[str] = Field(default=None, max_length=40)
+    view_all: bool = False
+    access_total: bool = False
+    codes: Optional[List[str]] = Field(default=None, max_length=200)
 
 
 class StatusInput(Strict):
@@ -96,6 +105,31 @@ async def team_create(body: NewMember, client_id: Optional[str] = Query(default=
         return await team_admin.create_member(client_id=cid, actor=actor, name=body.name, login=body.login,
                                               password=body.password, preset=body.preset, view_all=body.view_all,
                                               access_total=body.access_total, codes=body.codes)
+    except AccessError as exc:
+        raise _fail(exc) from None
+
+
+@router.get("/linkable")
+async def team_linkable(q: str = Query(default="", max_length=80), client_id: Optional[str] = Query(default=None),
+                        x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+                        authorization: Optional[str] = Header(default=None)):
+    """Contas já existentes para vincular a esta empresa (só equipe Mugô)."""
+    cid, actor = await _manager(client_id or x_client_id, authorization)
+    try:
+        return await team_admin.search_linkable(client_id=cid, actor=actor, query=q)
+    except AccessError as exc:
+        raise _fail(exc) from None
+
+
+@router.post("/members/link", status_code=201)
+async def team_link(body: LinkMember, client_id: Optional[str] = Query(default=None),
+                    x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+                    authorization: Optional[str] = Header(default=None)):
+    """Vincula uma conta existente (sem senha, sem nova conta, sem mexer em papel global)."""
+    cid, actor = await _manager(client_id or x_client_id, authorization)
+    try:
+        return await team_admin.link_existing(client_id=cid, actor=actor, user_id=body.user_id, preset=body.preset,
+                                              view_all=body.view_all, access_total=body.access_total, codes=body.codes)
     except AccessError as exc:
         raise _fail(exc) from None
 

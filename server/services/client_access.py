@@ -254,7 +254,6 @@ async def create_client_access(
     safe_email = normalize_email(email)
     safe_role = normalize_client_role(role)
     safe_name = _text(name)[:120]
-    secret = validate_password(password, password_confirmation)
 
     existing = await find_auth_user_by_email(safe_email)
     created_now = False
@@ -273,6 +272,8 @@ async def create_client_access(
                 status_code=403,
             )
     else:
+        # A senha só vale para conta NOVA. Conta que já existe é só vinculada: credenciais intocadas.
+        secret = validate_password(password, password_confirmation)
         created = await _create_auth_user(email=safe_email, password=secret, name=safe_name)
         user_id = _text(created.get("id"))
         created_now = True
@@ -297,15 +298,8 @@ async def create_client_access(
             status_code=502,
         ) from None
 
-    if not created_now:
-        # Conta reaproveitada: o acesso precisa ser utilizável agora, com a
-        # senha que o administrador acabou de definir e sem e-mail pendente.
-        # Só depois do vínculo — um vínculo que falhasse não pode deixar a
-        # senha de alguém trocada. O nome existente não é sobrescrito.
-        await _admin_request(
-            "PUT", f"/users/{user_id}", json={"password": secret, "email_confirm": True},
-        )
-
+    # Conta reaproveitada: NUNCA troca senha nem estado de autenticação (a mesma conta pode ser usada em outras
+    # empresas; trocar a senha aqui seria tomar a conta de alguém). A pessoa entra com a senha que já tem.
     print(
         f"[access][create] client_id={cid} actor={actor_user_id} role={safe_role} "
         f"reused_account={str(not created_now).lower()} status=ok"
@@ -318,9 +312,8 @@ async def create_client_access(
             "user_id": user_id, "email": safe_email, "name": safe_name or None,
             "role": safe_role, "role_label": ROLE_LABELS[safe_role],
             "account_created": created_now,
-            # A senha informada vale para os dois caminhos; a interface
-            # precisa saber para instruir a pessoa corretamente.
-            "password_applied": True,
+            # Só a conta nova nasce com a senha informada; a existente segue com a dela.
+            "password_applied": created_now,
         },
     }
 
@@ -360,8 +353,24 @@ async def _require_membership(client_id: str, user_id: str) -> Dict[str, Any]:
     return membership
 
 
+SHARED_ACCOUNT_MESSAGE = ("Esta conta também é usada em outras empresas. A senha só pode ser trocada pela própria pessoa "
+                          "(Esqueci minha senha) ou pela equipe Mugô.")
+
+
+async def is_shared_account(user_id: str, client_id: str) -> bool:
+    """A conta tem acesso a alguma OUTRA empresa? Na dúvida (erro), trata como compartilhada (falha fechada)."""
+    try:
+        rows = await sb_select("client_memberships", select="client_id",
+                               filters={"user_id": f"eq.{_text(user_id)}"}, limit=50)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[access][shared_check] status=failed error_type={type(exc).__name__}")
+        return True
+    return any(_text(r.get("client_id")) and _text(r.get("client_id")) != _text(client_id) for r in rows)
+
+
 async def reset_client_access_password(
     *, client_id: str, actor_user_id: str, user_id: str, password: Any, password_confirmation: Any,
+    actor_is_team: bool = False,
 ) -> Dict[str, Any]:
     """Define uma senha NOVA. A antiga nunca é recuperada nem exibida."""
     membership = await _require_membership(client_id, user_id)
@@ -371,6 +380,8 @@ async def reset_client_access_password(
             "Contas da equipe Mugô não são administradas nesta tela.",
             status_code=403,
         )
+    if not actor_is_team and await is_shared_account(user_id, client_id):
+        raise AccessError("ACCESS_SHARED_ACCOUNT", SHARED_ACCOUNT_MESSAGE, status_code=403)
     secret = validate_password(password, password_confirmation)
     await _admin_request("PUT", f"/users/{_text(user_id)}", json={"password": secret})
     print(f"[access][reset_password] client_id={_text(client_id)} actor={actor_user_id} status=ok")
