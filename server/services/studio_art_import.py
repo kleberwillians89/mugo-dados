@@ -30,20 +30,36 @@ _OG_IMAGE = re.compile(r"""<meta[^>]+property=["']og:image(?::url)?["'][^>]+cont
 _OG_IMAGE_REV = re.compile(r"""<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::url)?["']""", re.I)
 
 
+# O Canva bloqueia leitores sem cara de navegador (403 do Cloudflare), mesmo com o design público.
+BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/131.0.0.0 Safari/537.36")
+CANVA_OEMBED = "https://www.canva.com/_oembed"
+_REDIRECTS = (301, 302, 303, 307, 308)
+
+
+def _is_canva(h: str) -> bool:
+    return h in ("canva.link", "canva.com", "canva.ai") or h.endswith(".canva.com") or h.endswith(".canva.ai")
+
+
 def _host_ok(url: str) -> bool:
     p = urlparse(url)
     if p.scheme != "https" or not p.hostname:
         return False
     h = p.hostname.lower()
-    return (h in DRIVE_HOSTS or h.endswith(".googleusercontent.com") or h == "canva.link"
-            or h == "canva.com" or h.endswith(".canva.com"))
+    return h in DRIVE_HOSTS or h.endswith(".googleusercontent.com") or _is_canva(h)
+
+
+def _headers(url: str) -> dict:
+    h = (urlparse(url).hostname or "").lower()
+    return {"User-Agent": BROWSER_UA if _is_canva(h) else "Mozilla/5.0 (MugoDados)",
+            "Accept": "text/html,application/json,image/*;q=0.9,*/*;q=0.8", "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8"}
 
 
 def kind_of(url: str) -> str:
     h = (urlparse(url).hostname or "").lower()
     if h in DRIVE_HOSTS:
         return "drive"
-    if h == "canva.link" or h == "canva.com" or h.endswith(".canva.com"):
+    if _is_canva(h):
         return "canva"
     return "outro"
 
@@ -66,9 +82,9 @@ async def _get(client: httpx.AsyncClient, url: str) -> httpx.Response:
     for _ in range(6):
         if not _host_ok(url):
             raise StudioError("ART_LINK_INVALID")
-        req = client.build_request("GET", url, headers={"User-Agent": "Mozilla/5.0 (MugoDados)"})
+        req = client.build_request("GET", url, headers=_headers(url))
         resp = await client.send(req, stream=True)
-        if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
+        if resp.status_code in _REDIRECTS and resp.headers.get("location"):
             url = urljoin(url, resp.headers["location"])
             await resp.aclose()
             continue
@@ -97,11 +113,46 @@ async def _download(client: httpx.AsyncClient, url: str) -> Tuple[tempfile.Spool
         await resp.aclose()
 
 
+async def _canva_design_url(client: httpx.AsyncClient, url: str) -> str:
+    """Link curto canva.link/… → link canva.com do design (segue só os redirecionamentos, sem baixar a página)."""
+    for _ in range(6):
+        if not _host_ok(url):
+            raise StudioError("ART_LINK_INVALID")
+        if (urlparse(url).hostname or "").lower() != "canva.link":
+            return url
+        resp = await client.send(client.build_request("GET", url, headers=_headers(url)), stream=True)
+        await resp.aclose()
+        if resp.status_code in _REDIRECTS and resp.headers.get("location"):
+            url = urljoin(url, resp.headers["location"])
+            continue
+        raise StudioError("ART_LINK_PRIVATE" if resp.status_code in (401, 403, 404) else "ART_LINK_UNREADABLE")
+    raise StudioError("ART_LINK_UNREADABLE")
+
+
+async def _canva_oembed(client: httpx.AsyncClient, design_url: str) -> Optional[str]:
+    """Imagem do design pelo oEmbed oficial do Canva (feito para leitura por servidor; não passa pelo bloqueio da página)."""
+    try:
+        resp = await client.get(CANVA_OEMBED, params={"url": design_url, "format": "json"}, headers=_headers(CANVA_OEMBED))
+        if resp.status_code >= 400:
+            return None
+        thumb = str((resp.json() or {}).get("thumbnail_url") or "").strip()
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None
+    return thumb if thumb and _host_ok(thumb) else None
+
+
 async def _canva_image(client: httpx.AsyncClient, url: str) -> str:
-    resp = await _get(client, url)
+    design = await _canva_design_url(client, url)
+    thumb = await _canva_oembed(client, design)
+    if thumb:
+        return thumb
+    resp = await _get(client, design)
     try:
         if resp.status_code >= 400:
-            raise StudioError("ART_LINK_PRIVATE")
+            # 403 do Cloudflare = o Canva bloqueou a leitura automática (o design pode estar público).
+            blocked = resp.status_code in (403, 429) and ("cloudflare" in resp.headers.get("server", "").lower()
+                                                          or "cf-mitigated" in resp.headers)
+            raise StudioError("ART_LINK_BLOCKED" if blocked else "ART_LINK_PRIVATE")
         body = b""
         async for chunk in resp.aiter_bytes(1024 * 64):
             body += chunk

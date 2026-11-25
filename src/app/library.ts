@@ -32,6 +32,17 @@ export function addLibraryLink(input: { url: string; title?: string; category: L
 }
 export function deleteLibraryItem(id: string) { return http<{ ok: true }>(base(`/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 
+/** Motivo legível de uma recusa do Storage (o "tente de novo" sozinho escondia a causa). */
+export function storageUploadError(status: number, body: string): string {
+  let detail = "";
+  try { const parsed = JSON.parse(body || "{}") as { error?: string; message?: string }; detail = `${parsed.error || ""} ${parsed.message || ""}`.toLowerCase(); }
+  catch { detail = String(body || "").toLowerCase(); }
+  if (status === 415 || detail.includes("mime")) return "O armazenamento do MUGOVERSO não está aceitando esse tipo de arquivo. Avise a equipe Mugô.";
+  if (status === 413 || detail.includes("too large") || detail.includes("size")) return "Arquivo maior que o limite do armazenamento. Envie uma versão menor ou um link do Drive.";
+  if (status === 403 || detail.includes("signature") || detail.includes("expired")) return "O link de envio expirou. Tente de novo.";
+  return `O envio do arquivo falhou (erro ${status}). Tente de novo.`;
+}
+
 /** Envia direto para o Storage (link assinado) com progresso e registra na Biblioteca. */
 export async function uploadLibraryFile(file: File, category: LibraryCategory, onProgress?: (pct: number) => void, title?: string, note?: string) {
   const type = (file.type || "").toLowerCase();
@@ -44,7 +55,7 @@ export async function uploadLibraryFile(file: File, category: LibraryCategory, o
     xhr.setRequestHeader("Content-Type", type);
     xhr.setRequestHeader("x-upsert", "false");
     xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100)); };
-    xhr.onload = () => (xhr.status < 400 ? resolve() : reject(new Error("O envio do arquivo falhou. Tente de novo.")));
+    xhr.onload = () => (xhr.status < 400 ? resolve() : reject(new Error(storageUploadError(xhr.status, xhr.responseText))));
     xhr.onerror = () => reject(new Error("O envio do arquivo falhou. Confira a conexão."));
     xhr.send(file);
   });
