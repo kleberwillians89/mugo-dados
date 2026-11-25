@@ -63,6 +63,8 @@ export default function WhatsApp() {
   const [query, setQuery] = useState("");
   const [channel, setChannel] = useState<"whatsapp" | "instagram">("whatsapp");
   const [draft, setDraft] = useState("");
+  const messageList = useRef<HTMLOListElement>(null);
+  const lastScrolled = useRef<{ conversation: string; message: string } | null>(null);
   const replyAttempt = useRef<{ clientId: string; conversationId: string; text: string; id: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -185,6 +187,21 @@ export default function WhatsApp() {
   }, [inbox.data, filter, query]);
   const open = (inbox.data?.conversations || []).find((conv) => conv.id === openId) || null;
   const messages = thread.id === openId ? thread.messages : [];
+  const latestMessageId = messages.at(-1)?.id;
+  useEffect(() => {
+    if (!openId || !latestMessageId || channel !== "whatsapp") return;
+    const list = messageList.current;
+    if (!list || !list.clientHeight) return;
+    const previous = lastScrolled.current;
+    if (previous?.conversation === openId && previous.message === latestMessageId) return;
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 150;
+    if (previous?.conversation !== openId || nearBottom) list.scrollTop = list.scrollHeight;
+    lastScrolled.current = { conversation: openId, message: latestMessageId };
+  }, [openId, latestMessageId, channel, mobileThread, journeyOpen]);
+  useEffect(() => {
+    if (!openId) lastScrolled.current = null;
+  }, [openId]);
+
 
   return (
     <Shell title="WhatsApp" variant="editorial">
@@ -418,7 +435,7 @@ export default function WhatsApp() {
                   <button type="button" className="waJourneyToggle" aria-expanded={journeyOpen} onClick={() => setJourneyOpen((v) => !v)}>
                     {journeyOpen ? "Fechar origem" : "Origem"}</button>
                 </header>
-                <ol className="waMessages">
+                <ol className="waMessages" ref={messageList}>
                   {open.origin.bucket === "ad" ? <li className="waEvent">Veio do anúncio{open.origin.ad_headline ? ` “${open.origin.ad_headline}”` : ""}</li> : null}
                   {open.origin.bucket === "link" ? <li className="waEvent">Veio do link {open.origin.entry_code}</li> : null}
                   {thread.loading ? <li className="waEvent is-plain">Carregando…</li> : null}
