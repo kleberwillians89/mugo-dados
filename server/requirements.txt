@@ -16,3 +16,4 @@ Pillow==12.3.0
 
 # SDK oficial, linha v1 com correções de segurança; transporte stateless.
 mcp==1.30.0
+openpyxl==3.1.5

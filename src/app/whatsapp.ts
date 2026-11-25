@@ -215,7 +215,7 @@ export type WaCampaignReport = {
 export function getWhatsAppCampaignReport(draftId: string) {
   return http<{ ok: true } & WaCampaignReport>(base(`/campaigns/drafts/${encodeURIComponent(draftId)}/report`), { timeoutMs: 60_000 });
 }
-export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" = "all") {
+export function previewWhatsAppCampaignAudience(provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha" = "all") {
   return http<WaCampaignAudience>(base(`/campaigns/audience-preview?provider=${encodeURIComponent(provider)}`));
 }
 export function listWhatsAppCampaignDrafts() {
@@ -231,8 +231,10 @@ export function preflightWhatsAppCampaignTemplate(template_name: string, languag
 }
 export function createWhatsAppCampaignDraft(input: {
   name: string; template_name: string; language: string;
-  provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture";
+  provider: "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha";
   header_media_url?: string | null;
+  /** Só na planilha: os contatos escolhidos à mão (vazio = todos da planilha). */
+  selected_contacts?: string[];
 }) {
   return http<{ ok: true; sending_enabled: boolean; draft: WaCampaignDraft; messages_sent: 0 }>(
     base("/campaigns/drafts"), {method: "POST", body: JSON.stringify(input)},
@@ -255,6 +257,23 @@ export function importExistingCommerceContacts() {
   return http<WaContactImportResult>("/api/relationship/contacts/sync", {
     method: "POST", timeoutMs: 90_000,
   });
+}
+/** Leads de uma planilha (Excel ou CSV) viram a origem "Planilha importada" do Disparo em massa. Não envia nada. */
+export type WaSheetImportResult = { ok: true; provider: "planilha"; rows: number; contacts_imported: number; invalid: number;
+  columns: { telefone: string; nome: string | null; email: string | null }; replaced: boolean };
+export async function importContactsSheet(file: File, options: { replace: boolean; consent: boolean }) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return http<WaSheetImportResult>("/api/relationship/contacts/import-sheet", {
+    method: "POST", timeoutMs: 120_000,
+    body: JSON.stringify({ filename: file.name, content_base64: btoa(binary), replace: options.replace, consent_confirmed: options.consent }),
+  });
+}
+export type WaSheetContact = { id: string; name: string; phone: string };
+export function listSheetContacts(q = "") {
+  return http<{ ok: true; total: number; matches: number; contacts: WaSheetContact[]; truncated: boolean }>(
+    `/api/relationship/contacts/sheet?limit=500&q=${encodeURIComponent(q)}`);
 }
 export function importExistingWhatsAppConversations(days: number = 365) {
   return http<WaContactImportResult>(`/api/relationship/contacts/sync-whatsapp?days=${encodeURIComponent(String(days))}`, {

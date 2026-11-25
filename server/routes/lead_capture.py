@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 from services import lead_capture, relationship_contacts
 from services.tenant import require_client_read, require_client_role
@@ -122,6 +123,44 @@ async def relationship_contacts_sync(client_id: str | None = Query(default=None)
         return {"ok": True, **await relationship_contacts.sync_existing_customers(cid)}
     except relationship_contacts.ContactSyncError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+
+
+class SheetImportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filename: str = Field(min_length=3, max_length=200)
+    content_base64: str = Field(min_length=4, max_length=15_000_000)
+    replace: bool = False
+    consent_confirmed: bool
+
+
+@router.post("/api/relationship/contacts/import-sheet")
+async def relationship_contacts_import_sheet(payload: SheetImportInput, client_id: str | None = Query(default=None),
+                                             x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                             authorization: str | None = Header(default=None)):
+    """Leads de Excel/CSV para o Disparo em massa (origem "planilha"). Quem importa confirma o aceite dos contatos."""
+    import base64
+    import binascii
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    if not payload.consent_confirmed:
+        raise HTTPException(status_code=422, detail="Confirme que esses contatos aceitaram receber mensagens da marca.")
+    try:
+        raw = base64.b64decode(payload.content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=422, detail="Arquivo inválido.") from None
+    try:
+        return {"ok": True, **await relationship_contacts.import_sheet(cid, filename=payload.filename, raw=raw, replace=payload.replace)}
+    except relationship_contacts.ContactSyncError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+
+
+@router.get("/api/relationship/contacts/sheet")
+async def relationship_contacts_sheet(q: str = Query(default="", max_length=80), limit: int = Query(default=500, ge=1, le=2000),
+                                      client_id: str | None = Query(default=None),
+                                      x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                      authorization: str | None = Header(default=None)):
+    """Contatos da planilha importada para escolher à mão quem recebe o disparo (telefone mascarado)."""
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    return {"ok": True, **await relationship_contacts.sheet_contacts_list(cid, q=q, limit=limit)}
 
 
 @router.post("/api/relationship/contacts/sync-whatsapp")
