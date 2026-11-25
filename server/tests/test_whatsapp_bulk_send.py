@@ -202,3 +202,16 @@ def test_disparo_filtra_numero_equivalente_e_quem_ja_recebeu_modelo():
     assert sender.await_args.kwargs["to"] == "5521966665555"
     assert counts == {"sent": 2, "failed": 0, "skipped": 1}
     assert any(row.get("error") == "Já recebeu este modelo" for row in rows)
+
+
+def test_envio_de_teste_faz_uma_chamada_para_o_numero_informado():
+    sender = AsyncMock(return_value="wamid.teste")
+    with patch.object(send, "_template", AsyncMock(return_value={"variables": 1})), \
+            patch.object(send, "opted_out", AsyncMock(return_value=set())), \
+            patch.object(send, "sb_insert", AsyncMock()) as insert, \
+            patch("services.whatsapp_native.send_template", sender):
+        asyncio.run(send.send_test("roove", phone="(11) 98888-7777", template_name="bf_roove",
+                                   language="pt_BR", header_media_url=None))
+    sender.assert_awaited_once_with("roove", number_id=None, to="5511988887777",
+                                   template="bf_roove", language="pt_BR", params=["cliente"], header_media=None)
+    insert.assert_not_awaited()

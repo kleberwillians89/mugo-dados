@@ -391,6 +391,24 @@ class BulkSendIn(BaseModel):
     exclude_previous_template_recipients: bool = True
 
 
+class BulkTestIn(BaseModel):
+    phone: str = Field(min_length=8, max_length=32, pattern=r"^[+0-9() .-]+$")
+    template_name: str = Field(min_length=3, max_length=81, pattern=r"^[a-z0-9_]+$")
+    language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
+    header_media_url: Optional[str] = Field(default=None, max_length=1000, pattern=r"^https://")
+
+
+@router.post("/campaigns/test")
+async def whatsapp_campaign_test(client_id: str, payload: BulkTestIn, authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_campaign_send import BulkSendError, send_test
+    try:
+        await send_test(cid, **payload.model_dump())
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+    return {"ok": True, "status": "accepted"}
+
+
 @router.get("/campaigns/drafts")
 async def whatsapp_campaign_draft_list(client_id: str, authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
