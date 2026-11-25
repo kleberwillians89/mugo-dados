@@ -6,7 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from services.tenant import require_client_read, require_client_role, require_user_id
 from typing import Any, Optional
 from services.ig_supabase import sb_insert, sb_select, sb_update, sb_delete
-from services.goals import DEFAULT_DIRECTION, goal_drivers, goal_history, list_goals, record_history, suggest_goal
+from services.goals import DEFAULT_DIRECTION, evaluate_goal, goal_drivers, goal_history, list_goals, record_history, resolve_goal_actual, suggest_goal
+from services.studio_calendar import StudioError
 
 router=APIRouter(prefix="/api/clients/{client_id}/goals", tags=["goals"])
 Metric=Literal["revenue","orders","average_ticket","ad_spend","roas","conversions","followers","reach","impressions","engagement",
@@ -123,3 +124,60 @@ async def delete_goal(client_id:str,goal_id:UUID,authorization:str|None=Header(d
     if not rows: raise HTTPException(404,"Meta não encontrada nesta empresa.")
     await record_history(cid, str(goal_id), "excluida", before, None, uid)
     return {"ok":True}
+
+
+# ---------------------------------------------------------------- metas conectadas à operação
+
+async def _evaluated(cid, goal_id):
+    goal = await _own_goal(cid, goal_id)
+    try: actual = await resolve_goal_actual(cid, goal["metric"], goal["period_start"], goal["period_end"])
+    except Exception: actual = {"available": False, "actual": None, "origin": None, "reason": "A fonte persistida não pôde ser lida agora."}
+    return evaluate_goal(goal, actual)
+
+class RecommendInput(BaseModel):
+    model_config=ConfigDict(extra="forbid", str_strip_whitespace=True)
+    constraints: Optional[str] = Field(default=None, max_length=1000)
+
+class TaskFromRecommendation(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    index: int = Field(ge=0, le=9)
+    assignee_user_ids: list[str] = Field(default_factory=list, max_length=10)
+    due_date: Optional[date] = None
+
+@router.get("/{goal_id}/diagnosis")
+async def goal_diagnosis(client_id:str, goal_id:UUID, authorization:str|None=Header(default=None)):
+    """Fatos e, quando sustentado, uma hipótese sobre o desvio (sem IA, sem afirmar causa)."""
+    from services.goal_ops import diagnosis
+    cid=await require_client_read(client_id,authorization)
+    return await diagnosis(cid, await _own_goal(cid, goal_id))
+
+@router.get("/{goal_id}/recommendations")
+async def goal_recommendations(client_id:str, goal_id:UUID, authorization:str|None=Header(default=None)):
+    from services.goal_ops import latest_recommendations
+    cid=await require_client_read(client_id,authorization)
+    await _own_goal(cid, goal_id)
+    return {"recommendations": await latest_recommendations(cid, str(goal_id))}
+
+@router.post("/{goal_id}/recommendations")
+async def goal_recommend(client_id:str, goal_id:UUID, body:RecommendInput, authorization:str|None=Header(default=None)):
+    """A IA analisa e recomenda (no clique); nada é executado. Fica registrado para rastrear a decisão."""
+    from services.goal_ops import recommend
+    cid=await require_client_read(client_id,authorization)
+    uid=await require_user_id(authorization)
+    try: return await recommend(cid, await _evaluated(cid, goal_id), body.constraints, user_id=uid)
+    except StudioError as exc: raise HTTPException(503 if exc.code.startswith("AI_") else 422, str(exc) if str(exc) != exc.code else "A IA não conseguiu analisar agora.") from None
+
+@router.post("/{goal_id}/recommendations/{rec_id}/task", status_code=201)
+async def goal_recommendation_task(client_id:str, goal_id:UUID, rec_id:UUID, body:TaskFromRecommendation, authorization:str|None=Header(default=None)):
+    """Item aprovado pela pessoa vira tarefa no Kanban (mesmo serviço e mesmas permissões de Tarefas). Não duplica."""
+    from routes.crm import TASK_MANAGERS, _task_scope
+    from services.goal_ops import to_task
+    cid=await require_client_role(client_id,authorization,allowed_roles=TASK_MANAGERS)
+    uid=await require_user_id(authorization)
+    scope=await _task_scope(authorization, cid)
+    try:
+        return await to_task(cid, await _own_goal(cid, goal_id), str(rec_id), body.index, assignee_user_ids=body.assignee_user_ids,
+                             due_date=body.due_date.isoformat() if body.due_date else None, user_id=uid,
+                             client_view=scope["client_view"], only_user=scope["only_user"])
+    except StudioError as exc:
+        raise HTTPException(404 if exc.code == "RECOMMENDATION_NOT_FOUND" else 422, str(exc) if str(exc) != exc.code else "Não foi possível criar a tarefa.") from None

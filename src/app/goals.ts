@@ -71,3 +71,31 @@ export function goalReading(goal: Goal): string {
   if (!goal.additive) return `Hoje está em ${n(goal.actual)}; o alvo é ${n(goal.target_value)}.`;
   return `Faltam ${n(goal.remaining)}.`;
 }
+
+// ---------------------------------------------------------------- metas conectadas à operação
+export type GoalAlert = { goal_id: string; label: string; status: string; kind: "desempenho" | "dado" | "atingida"; key: string; text: string };
+/** Alertas internos (sem WhatsApp/e-mail): desempenho, falha de dado e meta atingida, nessa ordem. */
+export function goalAlerts(goals: Goal[]): GoalAlert[] {
+  const order = { desempenho: 0, dado: 1, atingida: 2 } as const;
+  return goals.flatMap((g): GoalAlert[] => {
+    const kind = g.status === "INDISPONIVEL" ? "dado" : g.status === "META_ATINGIDA" ? "atingida"
+      : ["ABAIXO_DO_RITMO", "ABAIXO_DA_META", "ACIMA_DO_TETO", "RISCO_DE_PASSAR"].includes(g.status) ? "desempenho" : null;
+    if (!kind) return [];
+    const text = kind === "dado" ? `Dados indisponíveis: ${g.reason || "a fonte não respondeu"}` : kind === "atingida" ? "Meta atingida." : g.pace_note || goalReading(g);
+    return [{ goal_id: g.id, label: g.label, status: g.status, kind, key: `${g.id}:${g.status}`, text }];
+  }).sort((a, b) => order[a.kind] - order[b.kind]);
+}
+export type GoalDiagnosis = { available: boolean; reason?: string; relation?: string | null; periods?: [string, string][]; facts?: string[]; hypothesis?: string | null };
+export function getGoalDiagnosis(id: string) {
+  return http<GoalDiagnosis>(clientClientPath(`/goals/${encodeURIComponent(id)}/diagnosis`), { timeoutMs: 60_000 });
+}
+export type GoalRecommendationItem = { titulo: string; tipo: "recomendacao" | "estimativa" | "investigacao"; evidencia: string; justificativa: string; acao: string; task_id: string | null };
+export type GoalRecommendation = { id: string | null; saved: boolean; leitura: string; items: GoalRecommendationItem[]; diagnosis: GoalDiagnosis };
+export function recommendGoal(id: string, constraints: string) {
+  return http<GoalRecommendation>(clientClientPath(`/goals/${encodeURIComponent(id)}/recommendations`),
+    { method: "POST", body: JSON.stringify({ constraints: constraints.trim() || null }), timeoutMs: 150_000 });
+}
+export function taskFromRecommendation(goalId: string, recId: string, index: number, input: { assignee_user_ids: string[]; due_date: string | null }) {
+  return http<{ task_id: string; created: boolean }>(clientClientPath(`/goals/${encodeURIComponent(goalId)}/recommendations/${encodeURIComponent(recId)}/task`),
+    { method: "POST", body: JSON.stringify({ index, ...input }) });
+}

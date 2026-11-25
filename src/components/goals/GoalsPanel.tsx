@@ -10,6 +10,7 @@ import GoalCard from "../GoalCard";
 import GoalExplore from "./GoalExplore";
 import Premises from "./GoalPremises";
 import MainGoal from "./MainGoal";
+import GoalAlerts from "./GoalAlerts";
 import "../../styles/goals.css";
 
 type Editing = GoalInput & { id?: string };
@@ -83,6 +84,7 @@ export default function GoalsPanel({ canManage, header, intro = true }: { canMan
     <div className="goalFilters"><label>De <input type="date" value={period.start} onChange={(e) => setPeriod({ ...period, start: e.target.value })} /></label><label>Até <input type="date" value={period.end} onChange={(e) => setPeriod({ ...period, end: e.target.value })} /></label></div>
     {model.error || error ? <p role="alert">{error || model.error}</p> : null}
     {model.loading && !model.goals.length ? <p>Carregando metas…</p> : !model.error && !model.goals.length ? <p>Nenhuma meta neste período.</p> : null}
+    <GoalAlerts goals={model.goals} onOpen={(goal) => setExploring(goal)} />
     {main ? <MainGoal goal={main} owner={ownerName(main.owner_user_id)} onExplore={() => setExploring(main)} /> : null}
     {others.length ? <div className="goalsGrid">{others.map((goal) => <GoalCard key={goal.id} goal={goal} owner={ownerName(goal.owner_user_id)} parentLabel={labelOf(goal.parent_goal_id)}
       onExplore={() => setExploring(goal)}
@@ -91,7 +93,8 @@ export default function GoalsPanel({ canManage, header, intro = true }: { canMan
     {main && canManage ? <div className="goalActions"><button type="button" onClick={() => { setError(null); setSuggestion(null); setEditing(toInput(main)); }}>Editar minha meta</button>
       <button type="button" onClick={() => { setError(null); setRemoving(main); }}>Excluir minha meta</button></div> : null}
 
-    <GoalExplore goal={exploring} onClose={() => setExploring(null)} onCreateSubgoal={canManage ? fromDriver : undefined} ownerName={ownerName} />
+    <GoalExplore goal={exploring} onClose={() => setExploring(null)} onCreateSubgoal={canManage ? fromDriver : undefined} ownerName={ownerName}
+      people={people} canCreateTasks={canManage} />
 
     <Drawer open={Boolean(editing)} title={editing?.id ? "Editar meta" : editing?.parent_goal_id ? "Nova submeta" : "Nova meta"} onClose={() => { if (!busy) setEditing(null); }}>
       {editing ? <form onSubmit={submit} className="goalForm">
