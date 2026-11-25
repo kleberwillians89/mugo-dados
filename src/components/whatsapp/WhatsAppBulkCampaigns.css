@@ -17,7 +17,7 @@
 .waBulkPrimary{background:#00516d;border:0;border-radius:10px;color:white;padding:13px 20px;font-weight:700;cursor:pointer}
 .waBulkPrimary:disabled{opacity:.45;cursor:not-allowed}
 .waBulkSuccess{color:#246346;margin:0;font-size:13px}.waBulkError{color:#a62929;margin:0;font-size:13px}
-.waBulkHistoryHead{display:flex;align-items:center;justify-content:space-between;gap:12px}.waBulkHistoryHead button{background:none;border:1px solid #cbd4da;border-radius:9px;padding:8px 12px;cursor:pointer}
+.waBulkHistoryHead{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .waBulkHistory{display:flex;flex-direction:column;gap:0}.waBulkHistory article{display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid #e3e9eb;font-size:13px;justify-content:space-between}.waBulkHistory article div{display:flex;flex-direction:column;gap:4px;min-width:0}.waBulkHistory article strong{overflow-wrap:anywhere}.waBulkHistory article small{color:#68757d}.waBulkHistory article span{color:#64737d;background:#f1f3f5;border-radius:9px;padding:6px 10px}
 .waBulkEmpty{color:#6b777f;font-size:13px;margin:0;padding:24px 0}
 @media(max-width:960px){.waBulkStats{grid-template-columns:repeat(2,minmax(0,1fr))}.waBulkColumns{grid-template-columns:1fr}}
@@ -67,3 +67,34 @@
 .waBulkPickList input[type="search"]{min-height:38px;border-radius:10px;border:1px solid var(--border-subtle,#d9dde1);padding:0 10px;font:inherit}
 .waBulkPickList ul{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto;display:grid;gap:4px}
 .waBulkPickList li small,.waBulkPickList>small{color:var(--text-muted,#6b7075)}
+
+.waBulkTest {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid #e2e6e8;
+  border-radius: 12px;
+  background: #f8fafb;
+}
+.waBulkTest legend { padding: 0 5px; font-size: 14px; font-weight: 700; }
+.waBulkTest .waBulkPrimary { justify-self: start; }
+.waBulkSecondary {
+  appearance: none;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #cbd4da;
+  border-radius: 9px;
+  background: #fff;
+  color: #243a45;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.waBulkSecondary:hover:not(:disabled) { background: #f0f5f7; border-color: #9fb3bf; }
+.waBulkPrimary:hover:not(:disabled) { background: #003f55; }
+.waBulkSecondary:disabled { opacity: .55; cursor: not-allowed; }
+.waBulkPrimary:focus-visible, .waBulkSecondary:focus-visible { outline: 2px solid #00546e; outline-offset: 2px; }
+@media (max-width: 540px) { .waBulkTest .waBulkPrimary { justify-self: stretch; } }

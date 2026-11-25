@@ -342,7 +342,7 @@ export default function WhatsAppBulkCampaigns() {
             disabled={headerBusy} onChange={(e) => void uploadHeader(e.currentTarget.files?.[0])} />
           {headerBusy ? <small>Enviando…</small> : headerUrl ? (selected.header === "IMAGE" ? <img className="waBulkHeaderPreview" src={headerUrl} alt="" /> : <small>Arquivo pronto.</small>) : null}
         </label> : null}
-        {selected ? <fieldset>
+        {selected ? <fieldset className="waBulkTest">
           <legend>Enviar teste pelo WhatsApp</legend>
           <label>Número com DDD
             <input type="tel" autoComplete="off" maxLength={32} value={testPhone} placeholder="(11) 99999-9999"
@@ -352,7 +352,7 @@ export default function WhatsAppBulkCampaigns() {
             <input value={testName} maxLength={100} disabled={testing}
               onChange={(e) => { setTestName(e.target.value); setTestResult(null); }} />
           </label> : null}
-          <button type="button" onClick={() => void sendTest()} disabled={testing || !testPhone.trim() || (selected.variables === 1 && !testName.trim()) || headerBusy
+          <button type="button" className="waBulkPrimary" onClick={() => void sendTest()} disabled={testing || !testPhone.trim() || (selected.variables === 1 && !testName.trim()) || headerBusy
             || Boolean(selected.header && MEDIA_HEADERS.has(selected.header) && !headerUrl)}>
             {testing ? "Enviando teste…" : "Enviar teste"}
           </button>
@@ -377,7 +377,7 @@ export default function WhatsAppBulkCampaigns() {
       </form>
       <section className="waBulkPanel" aria-label="Histórico de campanhas">
         <div className="waBulkHistoryHead"><h3>Histórico de campanhas</h3>
-          <button type="button" onClick={() => void refresh()} disabled={busy || loading}>Atualizar</button></div>
+          <button type="button" className="waBulkSecondary" onClick={() => void refresh()} disabled={busy || loading}>Atualizar</button></div>
         {draftsError ? <p className="waBulkError" role="alert">{draftsError}</p> : null}
         {loading ? <p>Carregando…</p> : drafts.length ? <div className="waBulkHistory">
           {drafts.map((d) => <article key={d.id}>
@@ -392,8 +392,8 @@ export default function WhatsAppBulkCampaigns() {
             {["draft", "partial", "failed"].includes(d.status) ? <button type="button" className="waBulkPrimary"
               disabled={Boolean(sendingId)} onClick={() => { setWhen("now"); setScheduleAt(""); setConfirming(d); }}>
               {sendingId === d.id ? "Começando…" : d.status === "draft" ? "Enviar ou agendar" : "Retomar envio"}</button> : null}
-            {d.status === "queued" ? <button type="button" disabled={Boolean(sendingId)} onClick={() => void cancelDraft(d)}>Cancelar</button> : null}
-            {["sent", "partial"].includes(d.status) ? <button type="button" onClick={() => void loadReport(d)}
+            {d.status === "queued" ? <button type="button" className="waBulkSecondary" disabled={Boolean(sendingId)} onClick={() => void cancelDraft(d)}>Cancelar</button> : null}
+            {["sent", "partial"].includes(d.status) ? <button type="button" className="waBulkSecondary" onClick={() => void loadReport(d)}
               disabled={reports[d.id] === "loading"}>{reports[d.id] === "loading" ? "Calculando…" : "Ver resultado"}</button> : null}
             {typeof reports[d.id] === "object" ? (() => { const r = reports[d.id] as WaCampaignReport; return <div className="waBulkReport" role="status">
               <span><b>{fmt(r.sent)}</b> enviadas</span>
@@ -421,7 +421,7 @@ export default function WhatsAppBulkCampaigns() {
         <p className="waBulkWarn">Quem não aceitou receber WhatsApp da marca pode denunciar a mensagem. Muitas denúncias derrubam a
           qualidade do número e a Meta pode limitar ou bloquear o WhatsApp da marca. Não dá para desfazer depois de enviado.</p>
         <div className="waBulkConfirmActions">
-          <button type="button" onClick={() => { setConfirming(null); setExcludePrevious(true); }}>Cancelar</button>
+          <button type="button" className="waBulkSecondary" onClick={() => { setConfirming(null); setExcludePrevious(true); }}>Cancelar</button>
           <button type="button" className="waBulkPrimary" onClick={() => void send(confirming)}>{when === "later" ? "Agendar envio" : "Enviar agora"}</button>
         </div>
       </div>

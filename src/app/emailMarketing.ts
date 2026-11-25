@@ -5,7 +5,7 @@ import { http } from "./api";
 export type BlockType = "logo" | "titulo" | "texto" | "imagem" | "botao" | "produtos" | "divisor" | "espaco";
 export type EmailBlock = { type: BlockType; text?: string; url?: string; href?: string; alt?: string; label?: string; align?: "left" | "center" };
 export type EmailDesign = { blocks: EmailBlock[] };
-export type Segment = "consentimento" | "todos" | "compraram" | "sem_compra" | "recompra" | "primeira_compra" | "lista";
+export type Segment = "consentimento" | "todos" | "compraram" | "sem_compra" | "recompra" | "primeira_compra" | "lista" | "planilha" | "capture" | "whatsapp";
 export type Audience = { segment: Segment; days: number; only_consent: boolean; list_id?: string };
 export type CampaignStatus = "rascunho" | "agendada" | "enviando" | "enviada" | "falhou" | "cancelada";
 
@@ -121,6 +121,9 @@ export const SEGMENT_LABEL: Record<Segment, string> = {
   recompra: "Compraram 2 vezes ou mais",
   primeira_compra: "Compraram somente uma vez",
   lista: "Lista de Relacionamento",
+  planilha: "Planilha importada (WhatsApp)",
+  capture: "Captação / Landing Pages",
+  whatsapp: "Conversas WhatsApp",
 };
 export const STATUS_LABEL: Record<CampaignStatus, string> = {
   rascunho: "Rascunho", agendada: "Agendada", enviando: "Enviando", enviada: "Enviada", falhou: "Falhou", cancelada: "Cancelada",

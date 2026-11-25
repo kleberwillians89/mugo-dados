@@ -25,7 +25,8 @@ SETTINGS = "email_settings"
 SUPPRESSIONS = "email_suppressions"
 CAMPAIGNS = "email_campaigns"
 SENDS = "email_sends"
-SEGMENTS = ("consentimento", "todos", "compraram", "sem_compra", "recompra", "primeira_compra", "lista")
+SHARED_ORIGINS = ("planilha", "capture", "whatsapp")
+SEGMENTS = ("consentimento", "todos", "compraram", "sem_compra", "recompra", "primeira_compra", "lista", *SHARED_ORIGINS)
 SEND_PER_RUN = 1000
 _EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,24}$", re.I)
 _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -278,7 +279,7 @@ def select_audience(contacts: Iterable[Dict[str, Any]], audience: Dict[str, Any]
             continue
         last = _dt(c.get("last_order_at"))
         segment = audience["segment"]
-        if segment == "lista" and (list_hashes is None or c["hash"] not in list_hashes):
+        if (segment == "lista" or segment in SHARED_ORIGINS) and (list_hashes is None or c["hash"] not in list_hashes):
             continue
         if segment == "primeira_compra" and int(c.get("orders") or 0) != 1:
             continue
@@ -292,12 +293,46 @@ def select_audience(contacts: Iterable[Dict[str, Any]], audience: Dict[str, Any]
     return out
 
 
+async def _audience_members(client_id: str, audience: Dict[str, Any], contacts: List[Dict[str, Any]]) -> Optional[set]:
+    from .sales_by_origin import _paged
+
+    segment = audience["segment"]
+    if segment == "lista":
+        from .relationship_lists import member_hashes
+        return await member_hashes(client_id, audience["list_id"])
+    filters = {"client_id": f"eq.{client_id}"}
+    if segment == "planilha":
+        rows, _ = await _paged("relationship_contacts", select="email_hash",
+                               filters={**filters, "provider": "eq.planilha", "email_hash": "not.is.null"},
+                               order="identity_hash.asc", max_rows=120_000)
+        return {row["email_hash"] for row in rows if row.get("email_hash")}
+    if segment == "capture":
+        from .crypto import decrypt_secret
+        rows, _ = await _paged("lead_capture_events", select="email_ciphertext",
+                               filters={**filters, "email_ciphertext": "not.is.null"}, order="id.asc", max_rows=120_000)
+        members = set()
+        for row in rows:
+            try:
+                address = valid_email(decrypt_secret(row["email_ciphertext"]))
+            except (RuntimeError, ValueError):
+                continue
+            if address:
+                members.add(email_hash(address))
+        return members
+    if segment == "whatsapp":
+        from .whatsapp_insights import phone_key
+        rows, _ = await _paged("whatsapp_threads", select="phone_key",
+                               filters={**filters, "last_inbound_at": "not.is.null"}, order="id.asc", max_rows=120_000)
+        keys = {row["phone_key"] for row in rows if row.get("phone_key")}
+        return {contact["hash"] for contact in contacts if phone_key(contact.get("phone")) in keys}
+    return None
+
+
 async def audience_preview(client_id: str, audience: Any) -> Dict[str, Any]:
     provider, contacts = await load_contacts(client_id)
     blocked = await suppressed(client_id)
-    from . import relationship_lists
     cleaned = clean_audience(audience)
-    members = await relationship_lists.member_hashes(client_id, cleaned["list_id"]) if cleaned["segment"] == "lista" else None
+    members = await _audience_members(client_id, cleaned, contacts)
     chosen = select_audience(contacts, cleaned, blocked=blocked, list_hashes=members)
     return {"provider": provider or None, "count": len(chosen), "base": len(contacts),
             "with_consent": sum(1 for c in contacts if c.get("consent") is True), "blocked": len(blocked),
@@ -509,9 +544,8 @@ async def _process_campaign(campaign: Dict[str, Any], client_id: str) -> Dict[st
     _, contacts = await load_contacts(cid)
     by_hash = {c["hash"]: c for c in contacts}
     if campaign["status"] == "agendada":
-        from . import relationship_lists
         audience = clean_audience(campaign.get("audience") or {})
-        members = await relationship_lists.member_hashes(cid, audience["list_id"]) if audience["segment"] == "lista" else None
+        members = await _audience_members(cid, audience, contacts)
         chosen = select_audience(contacts, audience, blocked=await suppressed(cid), list_hashes=members)
         await _insert_ignore([{"client_id": cid, "kind": "campanha", "campaign_id": campaign_id, "email_hash": c["hash"],
                                "idem_key": f"campanha/{campaign_id}/{c['hash']}"} for c in chosen])
