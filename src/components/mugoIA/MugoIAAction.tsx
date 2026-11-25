@@ -53,10 +53,14 @@ export default function MugoIAAction({ messageId, action, canCreate, onChange, i
       {!buttonUrl.trim() ? <small>Sem link, o modelo vai sem botão.</small> : null}
     </div> : null}
     {action.tipo === "whatsapp_modelo" && action.status === "criado" && action.wa_botao_url ? <small className="miaHint">Botão: {action.wa_botao_texto} → {action.wa_botao_url}</small> : null}
-    {action.status === "criado" && action.criado ? <p className="miaCreateDone">
+    {action.status === "criado" && action.criado ? <><p className="miaCreateDone">
       <Check size={15} aria-hidden="true" /> {action.tipo === "whatsapp_modelo" ? "Enviado para aprovação da Meta" : "Rascunho criado"} em {action.criado.label}{action.criado.name ? `: ${action.criado.name}` : ""}.
       <button type="button" className="miaGhost" onClick={() => openCreated(action)}>Abrir <ArrowRight size={14} aria-hidden="true" /></button>
-    </p> : canCreate ? <div className="miaCreateRow">
+    </p>
+    {action.tipo === "email" && action.status === "criado" && action.criado?.espacos ? <small className="miaHint">
+      Fotos: {action.criado.fotos || 0} de {action.criado.espacos} vieram da Biblioteca (Produto e Fotos da marca).
+      {(action.criado.fotos || 0) < action.criado.espacos ? " Os espaços vazios estão marcados no editor para colar o link da foto." : ""}
+    </small> : null}</> : canCreate ? <div className="miaCreateRow">
       <button type="button" className="ds-button ds-button--primary" disabled={busy || !messageId} onClick={() => void create()}>
         {busy ? (action.tipo === "whatsapp_modelo" ? "Enviando para a Meta…" : "Criando o rascunho…") : kind.button}</button>
       <small>{action.tipo === "whatsapp_modelo" ? "A Meta aprova o modelo; o disparo para a base continua com vocês em Disparos em massa."

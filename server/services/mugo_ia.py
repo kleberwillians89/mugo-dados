@@ -108,7 +108,16 @@ INSTRUCTIONS = (
     "base, convidar para o grupo, lembrar, avisar), campanha_meta (anúncio na Meta, Mídia On) e briefing. Campos: tipo, "
     "titulo (nome interno curto), pedido (o que é, para quem, oferta, tom, datas; tudo que a ferramenta precisa); email: "
     "assunto (até 60 caracteres), preheader (até 90), email_titulo e email_texto (corpo, no tom da marca, pode usar "
-    "{{{{primeiro_nome}}}}), botao; whatsapp_modelo: wa_corpo (até 900 caracteres, no tom da marca, pode usar {{{{1}}}} UMA vez "
+    "{{{{primeiro_nome}}}}; parágrafos separados por linha em branco; 3 a 5 parágrafos curtos, como um e-mail de marca premium, "
+    "não um bloco só), botao e email_fotos (2 ou 3 descrições curtas das fotos, na ordem em que aparecem: a primeira é a foto "
+    "de abertura; ex.: 'produto em destaque', 'lifestyle com a peça'; o MUGOVERSO encaixa as fotos da Biblioteca e a logo e "
+    "a cor da marca entram sozinhas). E-MAIL NO NÍVEL DAS GRANDES MARCAS (Apple, Nike, Glossier, Aesop, Lululemon; no Brasil "
+    "Natura, Farm, Osklen, Insider): uma ideia central por e-mail; assunto que gera curiosidade ou promete um benefício claro, "
+    "sem caixa alta nem clickbait, e preheader que completa o assunto; título curto e forte (3 a 7 palavras) logo depois da "
+    "foto de abertura; primeiro parágrafo que cria desejo ou exclusividade em 2 frases; depois o porquê (benefício concreto, "
+    "como funciona a oferta, prova quando houver nos DADOS); escaneável, frases curtas, nada de texto corrido; um único "
+    "botão com verbo de ação; urgência elegante (prazo real) sem desespero; fecho curto e humano. Use as REFERÊNCIAS QUE "
+    "FUNCIONAM da pesquisa de mercado quando houver. whatsapp_modelo: wa_corpo (até 900 caracteres, no tom da marca, pode usar {{{{1}}}} UMA vez "
     "para o primeiro nome, sem outras variáveis, sem link encurtado, convite claro e respeitoso, categoria marketing), "
     "wa_rodape (até 60, opcional), wa_botao_texto (até 25, ex.: 'Entrar no grupo') e wa_botao_url (o link https que a pessoa "
     "passou ou que está nos DADOS; sem link, deixe vazio e peça o link na answer); campanha_meta: objetivo (vendas, leads, trafego, alcance, engajamento, whatsapp ou "
@@ -135,7 +144,7 @@ SCREENS: Dict[str, str] = {
 ACTION_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["tipo", "titulo", "pedido", "assunto", "preheader", "email_titulo", "email_texto", "botao", "objetivo",
-                 "verba_diaria", "dias", "wa_corpo", "wa_rodape", "wa_botao_texto", "wa_botao_url"],
+                 "verba_diaria", "dias", "wa_corpo", "wa_rodape", "wa_botao_texto", "wa_botao_url", "email_fotos"],
     "properties": {
         "tipo": {"type": "string", "enum": list(ACTION_TYPES)}, "titulo": {"type": "string"}, "pedido": {"type": "string"},
         "assunto": {"type": "string"}, "preheader": {"type": "string"}, "email_titulo": {"type": "string"},
@@ -143,6 +152,7 @@ ACTION_SCHEMA = {
         "verba_diaria": {"type": "number"}, "dias": {"type": "integer"},
         "wa_corpo": {"type": "string"}, "wa_rodape": {"type": "string"},
         "wa_botao_texto": {"type": "string"}, "wa_botao_url": {"type": "string"},
+        "email_fotos": {"type": "array", "items": {"type": "string"}},
     },
 }
 SCHEMA = {
@@ -432,7 +442,9 @@ def clean_action(raw: Any) -> Optional[Dict[str, Any]]:
     if kind == "email":
         out.update({"assunto": _short(raw.get("assunto"), 200), "preheader": _short(raw.get("preheader"), 200),
                     "email_titulo": _short(raw.get("email_titulo"), 300), "email_texto": str(raw.get("email_texto") or "").strip()[:4000],
-                    "botao": _short(raw.get("botao"), 60) or "Ver na loja"})
+                    "botao": _short(raw.get("botao"), 60) or "Ver na loja",
+                    "email_fotos": [_short(f, 120) for f in (raw.get("email_fotos") or []) if _short(f, 120)][:3]
+                    or ["Foto de abertura da campanha"]})
         if not out["assunto"] or not out["email_texto"]:
             return None
     elif kind == "whatsapp_modelo":
