@@ -1,6 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { ArrowRight, CheckCircle2, HeartHandshake, Megaphone, PenLine, Share2, ShoppingCart, Target } from "lucide-react";
 import WorkKanban from "../components/shell/WorkKanban";
+import MyTasksButton from "../components/shell/MyTasksButton";
 import { getActiveClientName } from "../app/activeClient";
 import { getPathForRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
@@ -35,6 +36,7 @@ export default function Home({ canView, onOpen }: Props) {
   return <Shell title="Início" variant="editorial"><div className="ds-page processHomePage">
     <PageHeader company={getActiveClientName() || "empresa"} title="O que vamos fazer hoje?" back={false} />
     <div className="processHomeWork">
+    <MyTasksButton onOpen={() => onOpen("my_tasks")} />
     <WorkKanban place="home" />
     {approvals.length ? <nav className="processApprovals" aria-label="Aprovações">
       <CheckCircle2 size={17} aria-hidden="true" />

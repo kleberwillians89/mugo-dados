@@ -17,6 +17,7 @@ import {
   getCurrentAppRoute,
   getPublicAppRouteFromPath,
   navigateToAppRoute,
+  openAppRoute,
   type AppRoute, approvalTokenFromPath,
 } from "./app/routes";
 import { routeAfterInvitationAccepted, shouldOpenHomeAfterSignIn } from "./app/authNavigation";
@@ -44,6 +45,7 @@ const ProcessEntry = lazy(() => import("./pages/ProcessEntry"));
 const ApprovalWorkspace = lazy(() => import("./pages/ApprovalWorkspace"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
+const MyTasks = lazy(() => import("./pages/MyTasks"));
 const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
 const BrandHealthPage = lazy(() => import("./pages/BrandHealthPage"));
@@ -1074,6 +1076,15 @@ function PrivateApp() {
           ? <Tasks key={`tasks:${activeClientId}`} canManage={teamHere || canEdit("tasks")} isAgency={teamHere}
               onOpenWhatsApp={canView("whatsapp") ? () => openRoute("whatsapp") : undefined} />
           : <ClientTasksPage key={`tasks:${activeClientId}`} />
+      ) : route === "my_tasks" ? (
+        <MyTasks onOpenTask={(clientId, taskId) => {
+          // Abre no quadro da empresa da tarefa: troca a empresa (se preciso) e o quadro abre o detalhe pelo ?task=.
+          if (clientId !== activeClientId) {
+            if (!clients.some((client) => client.client_id === canonicalizeClientId(clientId))) return;
+            handleClientChange(clientId);
+          }
+          openAppRoute("tasks", `task=${encodeURIComponent(taskId)}`);
+        }} />
       ) : route === "benchmark" ? (
         <Benchmark key={`benchmark:${activeClientId}`} />
       ) : route === "radar" || route === "clipping" ? (
