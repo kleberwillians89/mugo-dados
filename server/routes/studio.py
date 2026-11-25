@@ -738,6 +738,8 @@ async def new_art_upload_target(client_id: str, body: ArtUploadInput, authorizat
 ERRORS.update({
     "ART_LINK_INVALID": (422, "Cole um link de arquivo do Google Drive ou um link de visualização do Canva."),
     "ART_LINK_FOLDER": (422, "Esse é o link de uma pasta do Drive. Use o link do arquivo (botão direito no arquivo → Compartilhar → Copiar link)."),
+    "MUGO_IA_ACTION_NOT_FOUND": (404, "Proposta não encontrada."),
+    "MUGO_IA_ACTION_INVALID": (422, "Essa proposta não pode ser criada."),
     "ART_LINK_PRIVATE": (422, "O link não está público. No Drive/Canva, compartilhe como \"qualquer pessoa com o link pode ver\" e tente de novo."),
     "ART_LINK_UNREADABLE": (422, "Não deu para ler a arte desse link. Baixe o arquivo e arraste aqui."),
     "ART_LINK_BLOCKED": (422, "O Canva não liberou a leitura automática deste design. Baixe no Canva (Compartilhar → Baixar) e arraste o arquivo aqui."),
@@ -2058,7 +2060,9 @@ def _person_name(authorization: str | None, uid: str) -> str:
 async def read_mugo_ia(client_id: str, authorization: str | None = Header(default=None)):
     """Conversa desta pessoa com a Mugoverso IA desta empresa (privada de cada pessoa)."""
     from services.mugo_ia import history
+    from services.market_research import warm
     cid = await require_client_read(client_id, authorization)
+    warm(cid)  # começa a pesquisa de mercado do dia enquanto a pessoa escreve
     return {"messages": await history(cid, await require_user_id(authorization))}
 
 
@@ -2071,6 +2075,19 @@ async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | No
     team = await is_agency_user(authorization)
     try:
         return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid))}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.post("/mugo-ia/{message_id}/criar")
+async def create_from_mugo_ia(client_id: str, message_id: UUID, authorization: str | None = Header(default=None)):
+    """Botão Criar da Mugô IA: a proposta da resposta vira rascunho na ferramenta (nunca envia nem publica)."""
+    from services.mugo_ia_actions import execute
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    team = await is_agency_user(authorization)
+    try:
+        return {"ok": True, **await execute(cid, str(message_id), user_id=uid, author=_chat_author(authorization, uid) or "", team=team)}
     except StudioError as exc:
         raise _known(exc) from None
 
