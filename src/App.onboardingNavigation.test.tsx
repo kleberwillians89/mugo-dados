@@ -12,7 +12,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // nunca de um valor arbitrário do frontend.
 const authCalls = vi.hoisted(() => ({
   signOut: vi.fn(async () => ({ error: null })),
+  onChange: null as null | ((event: string, session: unknown) => void),
 }));
+const loginState = vi.hoisted(() => ({ props: null as null | { recoverySessionValid?: boolean; onPasswordRecoveryComplete?: () => Promise<void> } }));
 
 const backend = vi.hoisted(() => ({
   session: null as unknown,
@@ -53,7 +55,10 @@ vi.mock("./app/supabase", () => ({
   supabase: {
     auth: {
       getSession: async () => ({ data: { session: backend.session }, error: null }),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      onAuthStateChange: (callback: (event: string, session: unknown) => void) => {
+        authCalls.onChange = callback;
+        return { data: { subscription: { unsubscribe: () => {} } } };
+      },
       signOut: authCalls.signOut,
     },
     from: (table: string) => supabaseChain(table),
@@ -105,7 +110,10 @@ vi.mock("./app/connectionState", () => ({ setActiveConnectionId: vi.fn() }));
 vi.mock("./app/DashboardDataContext", () => ({
   DashboardDataProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
-vi.mock("./pages/Login", () => ({ default: () => React.createElement("div", { "data-testid": "login-stub" }) }));
+vi.mock("./pages/Login", () => ({ default: (props: { recoverySessionValid?: boolean; onPasswordRecoveryComplete?: () => Promise<void> }) => {
+  loginState.props = props;
+  return React.createElement("div", { "data-testid": "login-stub", "data-recovery": String(Boolean(props.recoverySessionValid)) });
+} }));
 // Expõe a query vista pelo Onboarding no momento em que ele renderiza — é ali
 // que o handoff do OAuth precisa estar disponível.
 vi.mock("./pages/Onboarding", () => ({
@@ -204,6 +212,33 @@ beforeEach(() => {
   ];
   backend.acceptedRole = "client_admin";
   backend.platformAdmin = false;
+  authCalls.onChange = null;
+  loginState.props = null;
+});
+
+describe("App — recuperação de senha", () => {
+  it("mantém a sessão de recuperação na tela de nova senha até a confirmação", async () => {
+    backend.pendingInvitations = [];
+    backend.memberships = [{ client_id: "amalie", role: "client_admin" }];
+    backend.clients = [{ id: "amalie", name: "Amalie", trade_name: "Amalie" }];
+    backend.session = null;
+    window.history.replaceState({}, "", "/?type=recovery");
+    await renderApp();
+    expect(container.querySelector('[data-testid="login-stub"]')?.getAttribute("data-recovery")).toBe("false");
+
+    const recoverySession = { access_token: "recovery-token-not-real", user: { id: "user-1", email: "cliente@empresa.com", user_metadata: {} } };
+    backend.session = recoverySession;
+    await act(async () => authCalls.onChange?.("PASSWORD_RECOVERY", recoverySession));
+    await flush();
+    expect(container.querySelector('[data-testid="login-stub"]')?.getAttribute("data-recovery")).toBe("true");
+    expect(container.querySelector('[data-testid="dashboard-stub"]')).toBeNull();
+
+    await act(async () => { await loginState.props?.onPasswordRecoveryComplete?.(); });
+    await flush();
+    expect(container.querySelector('[data-testid="login-stub"]')).toBeNull();
+    expect(window.location.pathname).toBe("/inicio");
+    expect(container.querySelector('nav[aria-label="Navegação principal"]')).toBeTruthy();
+  });
 });
 
 afterEach(async () => {

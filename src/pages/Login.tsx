@@ -45,6 +45,15 @@ function withEmailHint(message: string): string {
   return message;
 }
 
+export function recoveryLinkErrorFromLocation(search: string, hash: string): string | null {
+  const params = new URLSearchParams(`${search.replace(/^\?/, "")}&${hash.replace(/^#/, "")}`);
+  const code = String(params.get("error_code") || "").toLowerCase();
+  const description = String(params.get("error_description") || "").toLowerCase();
+  const recoveryRequest = params.get("type") === "recovery" || code === "otp_expired";
+  if (!recoveryRequest || (!params.has("error") && !code && !description)) return null;
+  return "Este link de recuperação é inválido, expirou ou já foi utilizado. Solicite um novo link.";
+}
+
 export type LoginMode = "login" | "recover" | "set-password";
 
 export type LoginViewProps = {
@@ -69,7 +78,7 @@ export type LoginViewProps = {
 const MODE_TITLE: Record<LoginMode, string> = {
   login: "Acesse sua conta",
   recover: "Redefinir senha",
-  "set-password": "Defina sua senha",
+  "set-password": "Definir nova senha",
 };
 
 const MODE_SUBMIT: Record<LoginMode, { idle: string; busy: string }> = {
@@ -194,6 +203,8 @@ type Props = {
   authChecking?: boolean;
   onPasswordLoginSuccess?: (session: Session | null) => Promise<void> | void;
   onLocalLogin?: () => void;
+  recoverySessionValid?: boolean;
+  onPasswordRecoveryComplete?: () => Promise<void> | void;
 };
 
 export default function Login({
@@ -201,6 +212,8 @@ export default function Login({
   authChecking = false,
   onPasswordLoginSuccess,
   onLocalLogin,
+  recoverySessionValid = false,
+  onPasswordRecoveryComplete,
 }: Props) {
   const authConfigError = getSupabaseBootstrapError();
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -209,12 +222,15 @@ export default function Login({
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [mode, setMode] = useState<LoginMode>(() => {
     const values = `${window.location.search}&${window.location.hash}`;
-    return values.includes("type=recovery") || values.includes("type=invite")
-      ? "set-password"
-      : "login";
+    if (recoverySessionValid || values.includes("type=invite")) return "set-password";
+    return values.includes("type=recovery") ? "recover" : "login";
   });
   const [info, setInfo] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(() => recoveryLinkErrorFromLocation(window.location.search, window.location.hash));
+
+  useEffect(() => {
+    if (recoverySessionValid) setMode("set-password");
+  }, [recoverySessionValid]);
 
   useEffect(() => {
     if (!initialError) return;
@@ -354,9 +370,13 @@ export default function Login({
       return;
     }
     window.history.replaceState({}, document.title, "/");
-    setInfo("Senha definida com sucesso. Você já pode entrar.");
+    setInfo("Senha definida com sucesso.");
     setPassword("");
     setPasswordConfirmation("");
+    if (recoverySessionValid) {
+      await onPasswordRecoveryComplete?.();
+      return;
+    }
     setMode("login");
   }
 

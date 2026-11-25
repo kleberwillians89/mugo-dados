@@ -18,7 +18,7 @@ import {
   navigateToAppRoute,
   type AppRoute, approvalTokenFromPath,
 } from "./app/routes";
-import { routeAfterInvitationAccepted, shouldOpenHomeAfterSignIn } from "./app/authNavigation";
+import { isValidPasswordRecoveryEvent, routeAfterInvitationAccepted, shouldOpenHomeAfterSignIn } from "./app/authNavigation";
 import { canonicalizeClientId, clearTenantBrowserState, getActiveClient, MUGO_APP_NAME, setActiveClient } from "./app/activeClient";
 import { setActiveConnectionId } from "./app/connectionState";
 import { canViewAppRoute, OPT_IN_CODES } from "./app/teamRules";
@@ -268,6 +268,7 @@ function PrivateApp() {
   const [route, setRoute] = useState<AppRoute>(openingRoute);
   const [bootError, setBootError] = useState<string | null>(authBootstrapError);
   const [authInitializing, setAuthInitializing] = useState(true);
+  const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
   const [localMode, setLocalMode] = useState(() => isLocalAuthEnabled());
   const [clients, setClients] = useState<ClientMembership[]>([]);
   const [platformAdmin, setPlatformAdmin] = useState(false);
@@ -278,6 +279,7 @@ function PrivateApp() {
   const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
   const authBootstrapCompletedRef = useRef(false);
+  const passwordRecoveryRef = useRef(false);
   const knownSessionUserRef = useRef<string | null>(null);
   const bootstrapRunRef = useRef<{ key: string; token: symbol; promise: Promise<void> } | null>(null);
   // Evita reabrir a tela de aceitação de convite depois que o usuário
@@ -624,6 +626,16 @@ function PrivateApp() {
       if (!mounted) return;
       const nextSession = next ?? null;
       const nextUserId = nextSession?.user.id ?? null;
+      const validRecovery = isValidPasswordRecoveryEvent(event, Boolean(nextSession));
+      if (validRecovery) {
+        passwordRecoveryRef.current = true;
+        setPasswordRecoveryActive(true);
+        setSession(nextSession);
+        setAuthInitializing(false);
+        setBootError(null);
+        setView("login");
+        return;
+      }
       const openHome = shouldOpenHomeAfterSignIn({
         event,
         bootstrapCompleted: authBootstrapCompletedRef.current,
@@ -645,6 +657,8 @@ function PrivateApp() {
         setRoute("home");
       }
       if (!nextSession) {
+        passwordRecoveryRef.current = false;
+        setPasswordRecoveryActive(false);
         clearTenantBrowserState();
       setClients([]);
       setActiveClientId("");
@@ -684,12 +698,16 @@ function PrivateApp() {
       setView("dashboard");
       return;
     }
+    if (passwordRecoveryActive || passwordRecoveryRef.current) {
+      setView("login");
+      return;
+    }
     if (!session) {
       setView("login");
       return;
     }
     void runAuthenticatedBootstrap(session, route);
-  }, [authInitializing, localMode, route, runAuthenticatedBootstrap, session]);
+  }, [authInitializing, localMode, passwordRecoveryActive, route, runAuthenticatedBootstrap, session]);
 
   useEffect(() => {
     if (view !== "dashboard" || (!session && !localMode)) return;
@@ -724,6 +742,8 @@ function PrivateApp() {
   );
 
   async function handleLogout() {
+    passwordRecoveryRef.current = false;
+    setPasswordRecoveryActive(false);
     clearTenantBrowserState();
     setActiveConnectionId(null);
     setResolvedUserId(null);
@@ -799,6 +819,16 @@ function PrivateApp() {
     },
     [route, runAuthenticatedBootstrap, session]
   );
+
+  const handlePasswordRecoveryComplete = useCallback(async () => {
+    passwordRecoveryRef.current = false;
+    setPasswordRecoveryActive(false);
+    setBootError(null);
+    navigateToAppRoute("home", { replace: true });
+    setRoute("home");
+    setView("loading");
+    await runAuthenticatedBootstrap(session, "home", true);
+  }, [runAuthenticatedBootstrap, session]);
 
   const handleBootstrapRetry = useCallback(() => {
     setView("loading");
@@ -919,12 +949,14 @@ function PrivateApp() {
     return <AppBootstrapError onRetry={handleBootstrapRetry} />;
   }
 
-  if (view === "login" || (!session && !localMode)) {
+  if (passwordRecoveryActive || view === "login" || (!session && !localMode)) {
     return (
       <Login
         initialError={bootError}
         authChecking={authInitializing}
         onPasswordLoginSuccess={handlePasswordLoginSuccess}
+        recoverySessionValid={passwordRecoveryActive}
+        onPasswordRecoveryComplete={handlePasswordRecoveryComplete}
         onLocalLogin={handleLocalLogin}
       />
     );

@@ -22,10 +22,14 @@ vi.mock("../app/supabase", () => ({
   enableLocalAuth: vi.fn(),
 }));
 
-import Login from "./Login";
+import Login, { recoveryLinkErrorFromLocation } from "./Login";
 import { LEGAL_CONTACT } from "../app/legalContact";
 
 describe("Login — produto, frase e formulário", () => {
+  it("reconhece link de recuperação expirado sem expor parâmetros sensíveis", () => {
+    expect(recoveryLinkErrorFromLocation("?type=recovery", "#error=access_denied&error_code=otp_expired")).toContain("expirou");
+    expect(recoveryLinkErrorFromLocation("?meta_oauth=error", "#error=access_denied")).toBeNull();
+  });
   it("não mostra clientes nem logos de terceiros", () => {
     const markup = renderToStaticMarkup(<Login />);
     expect(markup).toContain("Mugoverso");
@@ -124,5 +128,27 @@ describe("Login — fluxo preservado", () => {
       redirectTo: `${window.location.origin}/?type=recovery`,
     });
     expect(container.textContent).toContain("Se o e-mail estiver cadastrado, você receberá o link de redefinição.");
+  });
+
+  it("sessão oficial de recuperação exige nova senha antes de concluir", async () => {
+    auth.updateUser.mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
+    const onComplete = vi.fn();
+    await act(async () => root.render(<Login recoverySessionValid onPasswordRecoveryComplete={onComplete} />));
+    expect(container.querySelector("h1")?.textContent).toBe("Definir nova senha");
+    expect(container.querySelector("#email")).toBeNull();
+    await type("#password", "nova-senha-segura");
+    await type("#password-confirmation", "nova-senha-segura");
+    await submit();
+    expect(auth.updateUser).toHaveBeenCalledWith({ password: "nova-senha-segura" });
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("parâmetro recovery sem sessão válida oferece nova solicitação e não troca a senha", async () => {
+    window.history.replaceState({}, "", "/?type=recovery");
+    await act(async () => root.render(<Login />));
+    expect(container.querySelector("h1")?.textContent).toBe("Redefinir senha");
+    expect(container.querySelector("#password")).toBeNull();
+    expect(auth.updateUser).not.toHaveBeenCalled();
+    window.history.replaceState({}, "", "/");
   });
 });

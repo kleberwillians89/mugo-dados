@@ -16,6 +16,11 @@ export function shouldOpenHomeAfterSignIn({
   return event === "SIGNED_IN" && bootstrapCompleted && Boolean(nextUserId) && knownUserId !== nextUserId && requestedRoute === "home" && !hasSetupSignal;
 }
 
+/** Somente o evento oficial do Supabase acompanhado de sessão válida autoriza a troca de senha. */
+export function isValidPasswordRecoveryEvent(event: string, hasSession: boolean): boolean {
+  return event === "PASSWORD_RECOVERY" && hasSession;
+}
+
 // Papéis que administram integrações da empresa (mesma lista usada pelo guard
 // de rota e por Onboarding.tsx). viewer e qualquer papel desconhecido caem
 // fora — nunca ganham acesso de mutação por este caminho.

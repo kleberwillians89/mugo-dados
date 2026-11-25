@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canManageIntegrationsRole,
+  isValidPasswordRecoveryEvent,
   routeAfterInvitationAccepted,
   shouldOpenHomeAfterSignIn,
 } from "./authNavigation";
@@ -33,6 +34,12 @@ describe("auth navigation", () => {
   it("ignora INITIAL_SESSION e TOKEN_REFRESHED", () => {
     expect(decision({ event: "INITIAL_SESSION" })).toBe(false);
     expect(decision({ event: "TOKEN_REFRESHED", knownUserId: "user-1" })).toBe(false);
+  });
+
+  it("só aceita recuperação sinalizada pelo Supabase com sessão válida", () => {
+    expect(isValidPasswordRecoveryEvent("PASSWORD_RECOVERY", true)).toBe(true);
+    expect(isValidPasswordRecoveryEvent("PASSWORD_RECOVERY", false)).toBe(false);
+    expect(isValidPasswordRecoveryEvent("SIGNED_IN", true)).toBe(false);
   });
 });
 
