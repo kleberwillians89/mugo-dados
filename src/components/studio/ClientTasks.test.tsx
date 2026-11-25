@@ -33,7 +33,8 @@ describe("Tarefas do cliente ligadas ao Calendário", () => {
     expect(col("Aprovação do cliente").textContent).toContain("Post a");
     expect(col("Aprovada / concluída").textContent).toContain("Post b");
     expect(host.textContent).toContain("1 post esperando a sua aprovação.");
-    const open = [...host.querySelectorAll("button")].find((b) => b.textContent === "Aprovar / ajuste") as HTMLButtonElement;
+    expect(col("Aprovação do cliente").textContent).toContain("Esperando aprovação do cliente");
+    const open = [...host.querySelectorAll(".kanbanTitle")].find((b) => b.textContent === "Post a") as HTMLButtonElement;  // o card abre a revisão
     await act(async () => { open.click(); });
     expect(host.querySelector(".phoneFrame")).toBeTruthy();
     const approve = [...host.querySelectorAll(".postReviewActions button")].find((b) => b.textContent === "Aprovar") as HTMLButtonElement;

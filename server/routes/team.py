@@ -112,6 +112,40 @@ async def team_update(user_id: str, body: Permissions, client_id: Optional[str] 
         raise _fail(exc) from None
 
 
+class Departments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    departments: List[str] = Field(default_factory=list, max_length=20)
+
+
+@router.get("/departments")
+async def team_departments(client_id: Optional[str] = Query(default=None),
+                           x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+                           authorization: Optional[str] = Header(default=None)):
+    """Áreas de cada integrante desta empresa (para a Nova tarefa e para a tela de Usuários)."""
+    from services.member_departments import DEPARTMENTS, departments_of
+    cid = await require_client_read(client_id or x_client_id, authorization)
+    include_internal = await is_agency_user(authorization, cid)
+    members = (await team_admin.list_members(cid, include_internal=include_internal)).get("items") or []
+    return {"catalog": list(DEPARTMENTS), "by_user": await departments_of([str(m.get("user_id") or "") for m in members])}
+
+
+@router.put("/members/{user_id}/departments")
+async def team_set_departments(user_id: str, body: Departments, client_id: Optional[str] = Query(default=None),
+                               x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+                               authorization: Optional[str] = Header(default=None)):
+    """Define as áreas de um integrante desta empresa (só quem administra usuários)."""
+    from services.member_departments import set_departments
+    cid, actor = await _manager(client_id or x_client_id, authorization)
+    include_internal = await is_agency_user(authorization, cid)
+    members = (await team_admin.list_members(cid, include_internal=include_internal)).get("items") or []
+    if not any(str(m.get("user_id")) == user_id for m in members):
+        raise HTTPException(status_code=404, detail="Usuário não encontrado nesta empresa.")
+    try:
+        return {"user_id": user_id, "departments": await set_departments(user_id, body.departments, actor_id=actor.get("user_id"))}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 @router.post("/members/{user_id}/status")
 async def team_status(user_id: str, body: StatusInput, client_id: Optional[str] = Query(default=None),
                       x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),

@@ -137,6 +137,28 @@ async def list_tasks(client_id: str, *, status: Optional[str] = None, limit: int
     return {"available": True, "tasks": [task_view(r, client_view=client_view) for r in rows]}
 
 
+async def change_notes(client_id: str, task_ids: List[str], *, client_view: bool) -> Dict[str, str]:
+    """O último pedido de ajuste de cada tarefa em Ajustes, para o card mostrar o que mudar sem abrir.
+    O cliente só vê pedido não interno. Nunca levanta."""
+    if not task_ids:
+        return {}
+    filters = {"client_id": f"eq.{client_id}", "task_id": f"in.({','.join(task_ids[:200])})",
+               "kind": "in.(ajuste_interno,ajuste_cliente)", "comment": "not.is.null"}
+    if client_view:
+        filters["internal"] = "is.false"
+    try:
+        rows = await sb_select(EVENTS, select="task_id,comment,created_at", filters=filters, order="created_at.desc", limit=500)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[studio_tasks] change_notes_unavailable client_id={client_id} {type(exc).__name__}")
+        return {}
+    out: Dict[str, str] = {}
+    for r in rows:
+        key = str(r.get("task_id"))
+        if key not in out and str(r.get("comment") or "").strip():
+            out[key] = str(r["comment"]).strip()[:280]
+    return out
+
+
 async def list_client_tasks(client_id: str) -> Dict[str, Any]:
     """Visão do cliente: só visíveis, sem observações nem responsável."""
     out: List[Dict[str, Any]] = []
