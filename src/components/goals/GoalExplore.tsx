@@ -3,8 +3,8 @@ import Drawer from "../Drawer";
 import Premises from "./GoalPremises";
 import GoalActions from "./GoalActions";
 import type { Person } from "../../app/crm";
-import { GOAL_STATUS, getGoalDrivers, getGoalHistory, goalNumber, suggestGoal, type Goal, type GoalDriver, type GoalHistoryEvent,
-  type GoalMetric, type GoalSuggestion } from "../../app/goals";
+import { GOAL_STATUS, getGoalDrivers, getGoalEvaluation, getGoalHistory, goalNumber, suggestGoal, type Goal, type GoalDriver, type GoalHistoryEvent,
+  type GoalEvaluation, type GoalMetric, type GoalSuggestion } from "../../app/goals";
 
 type Tab = "indicadores" | "acoes" | "cenarios" | "fonte" | "historico";
 const TABS: [Tab, string][] = [["indicadores", "Indicadores relacionados"], ["acoes", "Diagnóstico e ações"], ["cenarios", "Cenários"], ["fonte", "Fonte e limitações"], ["historico", "Histórico"]];
@@ -21,6 +21,7 @@ export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName,
   const [drivers, setDrivers] = useState<{ relation: string | null; drivers: GoalDriver[]; note: string } | null>(null);
   const [suggestion, setSuggestion] = useState<GoalSuggestion | null>(null);
   const [history, setHistory] = useState<{ available: boolean; events: GoalHistoryEvent[] } | null>(null);
+  const [evaluation, setEvaluation] = useState<GoalEvaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const id = goal?.id;
 
@@ -28,7 +29,7 @@ export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName,
     if (!goal) return undefined;
     let alive = true;
     const t = window.setTimeout(() => {
-      setTab(initialTab); setDrivers(null); setSuggestion(null); setHistory(null); setError(null);
+      setTab(initialTab); setDrivers(null); setSuggestion(null); setHistory(null); setEvaluation(null); setError(null);
       getGoalDrivers(goal.id).then((r) => { if (alive) setDrivers(r); }).catch(() => { if (alive) setError("Não foi possível ler os indicadores relacionados."); });
     }, 0);
     return () => { alive = false; window.clearTimeout(t); };
@@ -38,7 +39,10 @@ export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName,
     setTab(next);
     if (!goal) return;
     if (next === "cenarios" && !suggestion) suggestGoal(goal.metric, goal.period_start, goal.period_end).then(setSuggestion).catch(() => setSuggestion({ available: false, reason: "Não foi possível ler o histórico agora." }));
-    if (next === "historico" && !history) getGoalHistory(goal.id).then(setHistory).catch(() => setHistory({ available: false, events: [] }));
+    if (next === "historico" && !history) {
+      getGoalHistory(goal.id).then(setHistory).catch(() => setHistory({ available: false, events: [] }));
+      getGoalEvaluation(goal.id).then(setEvaluation).catch(() => setEvaluation(null));
+    }
   }
 
   const n = (v: number | null | undefined, metric: GoalMetric = goal?.metric || "revenue") => goalNumber(v, metric);
@@ -76,7 +80,9 @@ export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName,
         <dt>Fonte</dt><dd>{goal.origin || "—"}</dd>
         <dt>Status</dt><dd>{GOAL_STATUS[goal.status] || "Dados indisponíveis"}</dd>
         <dt>Cobertura</dt><dd>{goal.covered_days != null && goal.days_total ? `${goal.covered_days} dia(s) com dado no período de ${goal.days_total}` : "Não informada pela fonte"}</dd>
-        <dt>Ritmo</dt><dd>{goal.additive ? "Linear: distribui o que falta igualmente pelos dias restantes, sem sazonalidade (Black Friday, fins de semana)." : "Indicador de razão ou nível: comparado ao alvo pelo valor do período, sem ritmo de calendário."}</dd>
+        <dt>Ritmo</dt><dd>{!goal.additive ? "Indicador de razão ou nível: comparado ao alvo pelo valor do período, sem ritmo de calendário."
+          : goal.pace_model === "sazonal" ? `Pelos dias da semana da própria marca (8 semanas antes do período): ${["seg", "ter", "qua", "qui", "sex", "sáb", "dom"].map((d, i) => `${d} ${(goal.curve?.[i] ?? 1).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`).join(" · ")}. Datas como Black Friday ainda não entram na curva.`
+          : "Linear: distribui o que falta igualmente pelos dias restantes. A curva dos dias da semana só entra com pelo menos 4 semanas de dado por dia e diferença relevante entre eles."}</dd>
         <dt>Projeção</dt><dd>{goal.projected_value != null ? n(goal.projected_value) : "Não exibida: precisa de cobertura completa da fonte e de parte do período já passada."}</dd>
         {goal.reason ? <><dt>Limitação</dt><dd>{goal.reason}</dd></> : null}
         {goal.suggestion ? <><dt>Origem do alvo</dt><dd>Cenário {goal.suggestion.label} ({n(goal.suggestion.value)}), escolhido na criação.</dd></> : null}
@@ -84,6 +90,13 @@ export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName,
       </dl> : null}
 
       {tab === "historico" ? <div>
+        {evaluation ? <dl className="goalSource goalEvaluation">
+          <dt>{evaluation.ended ? "Avaliação" : "Até agora"}</dt><dd>{evaluation.ended ? "Período encerrado" : "Período em andamento"} · {GOAL_STATUS[evaluation.result] || evaluation.result}</dd>
+          <dt>Alvo original</dt><dd>{evaluation.original_target != null ? n(evaluation.original_target) : "—"}{evaluation.target_changes ? ` · alterado ${evaluation.target_changes}x, hoje ${n(evaluation.current_target)}` : ""}</dd>
+          <dt>Realizado</dt><dd>{n(evaluation.actual)}{evaluation.deviation_percent != null ? ` (${evaluation.deviation_percent > 0 ? "+" : ""}${evaluation.deviation_percent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% do alvo)` : ""}</dd>
+          {evaluation.suggestion ? <><dt>Premissa</dt><dd>Cenário {evaluation.suggestion.label} da sugestão</dd></> : null}
+          <dt>Ações</dt><dd>{evaluation.tasks_created ? `${evaluation.tasks_created} tarefa(s) criada(s) a partir de recomendações` : "Nenhuma tarefa criada a partir de recomendações"}</dd>
+        </dl> : null}
         {!history ? <p className="libHint">Lendo o histórico…</p> : !history.available ? <p className="libHint">O histórico de alterações ainda não está ativo nesta instalação.</p>
           : !history.events.length ? <p className="libHint">Sem alterações registradas.</p>
           : <ol className="goalHistory">{history.events.map((e, i) => <li key={i}>
