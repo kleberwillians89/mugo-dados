@@ -9,6 +9,8 @@ import {
 } from "../../app/emailMarketing";
 import BlockEditor from "./BlockEditor";
 import EmailPreview from "./EmailPreview";
+import KanbanTaskStart from "../work/KanbanTaskStart";
+import { createEmailFromTask, type LinkedCampaign, type TaskContext } from "../../app/taskWork";
 import HtmlInput from "./HtmlInput";
 
 const pct = (value: number | null | undefined) => (value == null ? "—" : `${value.toLocaleString("pt-BR")}%`);
@@ -224,18 +226,59 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   );
 }
 
+/** Nova campanha a partir de uma tarefa: retomar o que já existe, gerar com a IA ou escrever. Sempre rascunho. */
+function EmailFromTaskActions({ ctx, deliverable, onOpen }: { ctx: TaskContext; deliverable: string; onOpen: (id: string) => void }) {
+  const [busy, setBusy] = useState<"" | "ia" | "branco">("");
+  const [error, setError] = useState("");
+  const [existing, setExisting] = useState<LinkedCampaign[]>(() => (ctx.existing || []).filter((c) => !deliverable || c.deliverable === deliverable));
+  useEffect(() => { setExisting((ctx.existing || []).filter((c) => !deliverable || c.deliverable === deliverable)); }, [ctx, deliverable]);
+  async function create(mode: "ia" | "branco", newVersion = false) {
+    setBusy(mode); setError("");
+    try {
+      const out = await createEmailFromTask(ctx.task.id, { deliverable, mode, new_version: newVersion });
+      if (out.created) onOpen(out.created.id);
+      else setExisting(out.existing);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível criar agora.");
+    } finally { setBusy(""); }
+  }
+  return <div className="kwActions" style={{ display: "grid", gap: 10 }}>
+    {existing.length ? <div className="kwExisting" role="status">
+      <p><b>Esta tarefa já tem {existing.length > 1 ? `${existing.length} campanhas de e-mail` : "uma campanha de e-mail"}{deliverable ? ` para “${deliverable}”` : ""}.</b></p>
+      <div className="kwActions">
+        {existing.map((c) => <button key={c.id} type="button" className="ds-button is-primary" onClick={() => onOpen(c.id)}>
+          Abrir “{c.name}” ({STATUS_LABEL[c.status as keyof typeof STATUS_LABEL] || c.status})</button>)}
+        <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void create("ia", true)}>
+          {busy === "ia" ? "Criando…" : "Criar outra versão com a IA"}</button>
+      </div>
+    </div> : <div className="kwActions">
+      <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !deliverable} onClick={() => void create("ia")}>
+        {busy === "ia" ? "Escrevendo o e-mail com o briefing…" : "Criar conteúdo com este briefing"}</button>
+      <button type="button" className="ds-button" disabled={Boolean(busy) || !deliverable} onClick={() => void create("branco")}>
+        {busy === "branco" ? "Abrindo…" : "Escrever eu mesmo"}</button>
+    </div>}
+    {!deliverable ? <small className="kwMuted">Escolha o que vai criar.</small> : null}
+    <small className="kwMuted">Sai como rascunho no editor: você revisa antes de qualquer envio. A tarefa não muda de etapa.</small>
+    {error ? <p className="kwError" role="alert">{error}</p> : null}
+  </div>;
+}
+
 export default function CampaignsPanel({ canEdit }: { canEdit: boolean }) {
   const [list, setList] = useState<CampaignSummary[] | null>(null);
   // ?campanha=<id>: abre direto a campanha (ex.: o "Abrir" de um rascunho criado pela Mugô IA).
   const [open, setOpen] = useState<string | null>(() => (typeof window === "undefined" ? null
     : new URLSearchParams(window.location.search).get("campanha")));
   const [error, setError] = useState("");
+  const [starting, setStarting] = useState<null | "escolher" | "tarefa">(null);
 
   const load = useCallback(() => listCampaigns().then((out) => setList(out.campaigns))
     .catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível ler as campanhas.")), []);
   useEffect(() => { if (!open) void load(); }, [open, load]);
 
   if (open) return <CampaignEditor id={open} canEdit={canEdit} onBack={() => setOpen(null)} />;
+  const blank = async () => {
+    try { setOpen((await createCampaign({})).campaign.id); setStarting(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar."); }
+  };
   return (
     <section className="emCard">
       <header className="emCardHead">
@@ -244,11 +287,18 @@ export default function CampaignsPanel({ canEdit }: { canEdit: boolean }) {
           <p className="emMuted">Monte o e-mail por blocos (ou cole seu HTML), escolha o público e envie pelo Resend.</p>
         </div>
         {canEdit ? (
-          <button type="button" className="ds-button is-primary" onClick={async () => {
-            try { setOpen((await createCampaign({})).campaign.id); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar."); }
-          }}><Plus size={15} aria-hidden="true" /> Nova campanha</button>
+          <button type="button" className="ds-button is-primary" onClick={() => setStarting("escolher")}><Plus size={15} aria-hidden="true" /> Nova campanha</button>
         ) : null}
       </header>
+      {starting === "escolher" ? <div className="kwStart" role="group" aria-label="Nova campanha">
+        <strong>Usar briefing de uma tarefa?</strong>
+        <div className="kwActions">
+          <button type="button" className="ds-button is-primary" onClick={() => setStarting("tarefa")}>Selecionar tarefa do Kanban</button>
+          <button type="button" className="ds-button" onClick={() => void blank()}>Criar sem tarefa</button>
+          <button type="button" className="ds-link is-quiet" onClick={() => setStarting(null)}>Cancelar</button>
+        </div>
+      </div> : starting === "tarefa" ? <KanbanTaskStart module="email_marketing" onCancel={() => setStarting(null)}
+        actions={(ctx, deliverable) => <EmailFromTaskActions ctx={ctx} deliverable={deliverable} onOpen={(id) => { setStarting(null); setOpen(id); }} />} /> : null}
       {error ? <p className="emError" role="alert">{error}</p> : null}
       {list && list.length === 0 ? <p className="emEmpty">Nenhuma campanha ainda.</p> : null}
       {list && list.length ? (
