@@ -740,6 +740,7 @@ ERRORS.update({
     "ART_LINK_FOLDER": (422, "Esse é o link de uma pasta do Drive. Use o link do arquivo (botão direito no arquivo → Compartilhar → Copiar link)."),
     "ART_LINK_PRIVATE": (422, "O link não está público. No Drive/Canva, compartilhe como \"qualquer pessoa com o link pode ver\" e tente de novo."),
     "ART_LINK_UNREADABLE": (422, "Não deu para ler a arte desse link. Baixe o arquivo e arraste aqui."),
+    "ART_LINK_BLOCKED": (422, "O Canva não liberou a leitura automática deste design. Baixe no Canva (Compartilhar → Baixar) e arraste o arquivo aqui."),
     "ART_LINK_TOO_LARGE": (413, "Arquivo maior que 200 MB."),
 })
 

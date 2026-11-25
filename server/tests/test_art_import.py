@@ -90,6 +90,33 @@ class ArtImportTests(unittest.TestCase):
         self.assertTrue(fake.put[2].startswith(b"\xff\xd8\xff"))
         self.assertIn("Canva", out["note"])
 
+    def test_canva_uses_official_oembed_before_the_page(self):
+        seen = []
+
+        def oembed(request=None):
+            return httpx.Response(200, json={"thumbnail_url": "https://document-export.canva.com/xyz/thumb.jpg"})
+
+        def page():
+            seen.append("page")
+            return httpx.Response(403, headers={"server": "cloudflare"})
+        fake = Fake({"https://canva.link/xap4pm": httpx.Response(301, headers={"location": "https://www.canva.com/design/DAG9/abc/view"}),
+                     "https://www.canva.com/_oembed": oembed, "https://www.canva.com/design/DAG9": page,
+                     "https://document-export.canva.com/xyz/thumb.jpg": httpx.Response(200, content=JPEG)})
+        out = self._run(fake, "https://canva.link/xap4pm")
+        self.assertEqual(fake.put[1], "image/jpeg")
+        self.assertEqual(seen, [])  # nem abriu a página bloqueada
+        self.assertIn("Canva", out["note"])
+
+    def test_canva_page_blocked_by_cloudflare_is_not_called_private(self):
+        fake = Fake({"https://www.canva.com/design/DAG9": httpx.Response(403, headers={"server": "cloudflare"})})
+        with self.assertRaises(StudioError) as ctx:
+            self._run(fake, "https://www.canva.com/design/DAG9/abc/view")
+        self.assertEqual(ctx.exception.code, "ART_LINK_BLOCKED")
+
+    def test_canva_gets_browser_user_agent(self):
+        self.assertIn("Chrome/", ai._headers("https://www.canva.com/design/x")["User-Agent"])
+        self.assertIn("MugoDados", ai._headers("https://drive.google.com/file/d/x")["User-Agent"])
+
     def test_redirect_to_foreign_host_is_blocked(self):
         fake = Fake({"https://canva.link/x": httpx.Response(302, headers={"location": "https://169.254.169.254/latest"})})
         with self.assertRaises(StudioError) as ctx:
