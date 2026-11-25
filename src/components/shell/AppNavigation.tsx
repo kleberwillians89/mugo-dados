@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
-  Activity, BrainCircuit, Building2, ChevronDown, Circle, ClipboardList, Cpu, CreditCard, Home, LayoutDashboard,
+  Activity, BrainCircuit, Building2, CheckCheck, ChevronDown, Circle, ClipboardCheck, ClipboardList, Cpu, CreditCard, Home, LayoutDashboard,
   Library, Menu, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Plug, Settings, UserCog, Workflow, X, type LucideIcon,
 } from "lucide-react";
 import type { ClientMembership } from "../../app/api";
@@ -41,6 +41,7 @@ const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 // Um ícone por página: com o menu recolhido sobra só o ícone (o nome aparece ao passar o mouse).
 const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
   home: Home, central: LayoutDashboard, library: Library,
+  internal_approval: ClipboardCheck, final_approval: CheckCheck,
   integrations: Plug, users: UserCog, companies: Building2, integration_health: Activity, plan: ClipboardList,
   plans_admin: CreditCard, ai_usage: Cpu, automations: Workflow, brand_ai: BrainCircuit, mugo_ia: MessageCircleQuestion,
 };
@@ -50,8 +51,9 @@ const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
 const PRIMARY_ITEMS: NavItem[] = [
   { route: "home", label: "Início" },
   { route: "central", label: "Dashboard" },
-  // Meu trabalho saiu do menu: o Kanban do Início é o acesso às tarefas (/tarefas continua existindo).
   { route: "mugo_ia", label: "Mugô IA", highlight: "gold" },
+  { route: "internal_approval", label: "Aprovação Interna" },
+  { route: "final_approval", label: "Aprovação Final" },
   { route: "library", label: "Biblioteca" },
 ];
 
