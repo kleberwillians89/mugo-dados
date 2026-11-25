@@ -75,8 +75,9 @@ async def _pages(table: str, select: str, filters: Dict[str, str], order: str) -
     return rows
 
 
-async def recipients(client_id: str, provider: str) -> List[Dict[str, str]]:
-    """Telefones (sem repetir) da origem escolhida, com o nome quando houver."""
+async def recipients(client_id: str, provider: str, selection: Optional[List[str]] = None) -> List[Dict[str, str]]:
+    """Telefones (sem repetir) da origem escolhida, com o nome quando houver.
+    ``selection`` (só na planilha): os contatos escolhidos à mão, por identity_hash; vazio = todos."""
     out: Dict[str, Dict[str, str]] = {}
 
     def add(phone: Any, name: Any) -> None:
@@ -84,7 +85,15 @@ async def recipients(client_id: str, provider: str) -> List[Dict[str, str]]:
         if digits and digits not in out:
             out[digits] = {"phone": digits, "name": first_name(name)}
 
-    if provider in ("all", "shopify", "fbits"):
+    picked = [h for h in (selection or []) if re.fullmatch(r"[0-9a-f]{64}", str(h))] if provider == "planilha" else []
+    if picked:
+        for start in range(0, len(picked), 100):
+            rows = await sb_select("relationship_contacts", select="phone_ciphertext,name_ciphertext", limit=100, filters={
+                "client_id": f"eq.{client_id}", "provider": "eq.planilha", "identity_hash": f"in.({','.join(picked[start:start + 100])})"})
+            for r in rows:
+                add(_plain(r.get("phone_ciphertext")), _plain(r.get("name_ciphertext")))
+        return list(out.values())[:MAX_RECIPIENTS]
+    if provider in ("all", "shopify", "fbits", "planilha"):
         filters = {"client_id": f"eq.{client_id}", "phone_ciphertext": "not.is.null"}
         if provider != "all":
             filters["provider"] = f"eq.{provider}"
@@ -186,7 +195,7 @@ async def start(client_id: str, draft_id: str, scheduled_at: Optional[str] = Non
     except WhatsAppNativeError:
         raise BulkSendError("Esta empresa não tem número de WhatsApp ativo no MUGOVERSO para disparar.", 409) from None
     _check_template(await _template(client_id, draft["template_name"], draft["language"]), draft.get("header_media_url"))
-    people = await recipients(client_id, draft.get("audience_provider") or "all")
+    people = await recipients(client_id, draft.get("audience_provider") or "all", draft.get("audience_selection"))
     if not people:
         raise BulkSendError("Nenhum contato com telefone nesta origem. Importe os contatos antes.")
     await sb_update(DRAFTS, filters={"id": f"eq.{draft_id}", "client_id": f"eq.{client_id}"}, returning="minimal",
@@ -224,7 +233,7 @@ async def process_due(now: Optional[datetime] = None) -> Dict[str, Any]:
         try:
             template = await _template(client_id, draft["template_name"], draft["language"])
             _check_template(template, draft.get("header_media_url"))
-            people = await recipients(client_id, draft.get("audience_provider") or "all")
+            people = await recipients(client_id, draft.get("audience_provider") or "all", draft.get("audience_selection"))
             header = ({"type": HEADER_KINDS[template["header"]], "link": draft["header_media_url"]}
                       if template.get("header") in HEADER_KINDS else None)
             counts = await run(client_id, {**draft, "started_at": now.isoformat()}, people, int(template.get("variables") or 0), header)

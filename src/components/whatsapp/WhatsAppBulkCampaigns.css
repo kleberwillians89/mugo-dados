@@ -51,3 +51,19 @@
 .waBulkReport{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 10px;border-radius:8px;background:#f3f7f5;font-size:13px}
 .waBulkReport small{flex-basis:100%;color:var(--text-secondary,#62717c)}
 .waBulkHeaderPreview{max-width:160px;border-radius:8px;margin-top:6px}
+
+/* Importar leads de planilha (Excel/CSV) */
+.waBulkSheet{display:grid;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border-subtle,#e3e6e9)}
+.waBulkSheetFile{display:grid;gap:6px}
+.waBulkSheetFile span{font-weight:600}
+.waBulkSheetFile small{color:var(--text-muted,#6b7075)}
+.waBulkCheck{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.waBulkSheet button{justify-self:start;border:1px solid #00516d;color:#fff;background:#00516d;border-radius:10px;padding:11px 16px;font-size:13px;font-weight:650;cursor:pointer}
+.waBulkSheet button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:540px){.waBulkSheet button{width:100%}}
+.waBulkPick{border:1px solid var(--border-subtle,#e3e6e9);border-radius:12px;padding:10px 14px;display:grid;gap:8px;margin:0}
+.waBulkPick legend{font-weight:650;padding:0 4px}
+.waBulkPickList{display:grid;gap:8px}
+.waBulkPickList input[type="search"]{min-height:38px;border-radius:10px;border:1px solid var(--border-subtle,#d9dde1);padding:0 10px;font:inherit}
+.waBulkPickList ul{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto;display:grid;gap:4px}
+.waBulkPickList li small,.waBulkPickList>small{color:var(--text-muted,#6b7075)}

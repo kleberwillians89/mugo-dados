@@ -2,21 +2,23 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { getActiveClientId } from "../../app/activeClient";
 import {
   createWhatsAppCampaignDraft, listWhatsAppCampaignDrafts, listWhatsAppTemplates,
-  getWhatsAppContactImportStatus, importExistingCommerceContacts, importExistingWhatsAppConversations,
+  getWhatsAppContactImportStatus, importExistingCommerceContacts, importExistingWhatsAppConversations, importContactsSheet,
   preflightWhatsAppCampaignTemplate, previewWhatsAppCampaignAudience, sendWhatsAppCampaign, cancelWhatsAppCampaign,
   getWhatsAppCampaignReport, type WaCampaignReport,
   type WaCampaignAudience, type WaCampaignDraft, type WaTemplate, type WaContactImportStatus,
 } from "../../app/whatsapp";
 import { uploadArt } from "../../app/artUpload";
+import SheetRecipientsPicker from "./SheetRecipientsPicker";
 import "./WhatsAppBulkCampaigns.css";
 
-type Provider = "all" | "shopify" | "fbits" | "whatsapp" | "capture";
+type Provider = "all" | "shopify" | "fbits" | "whatsapp" | "capture" | "planilha";
 const SOURCES: { value: Provider; title: string }[] = [
   { value: "all", title: "Todas as origens" },
   { value: "shopify", title: "Shopify" },
   { value: "fbits", title: "Wake / FBITS" },
   { value: "whatsapp", title: "Conversas WhatsApp" },
   { value: "capture", title: "Captação / Landing Pages" },
+  { value: "planilha", title: "Planilha importada (Excel/CSV)" },
 ];
 const fmt = (n: number) => new Intl.NumberFormat("pt-BR").format(n);
 const STATUS: Record<WaCampaignDraft["status"], string> = {
@@ -47,6 +49,11 @@ export default function WhatsAppBulkCampaigns() {
   const [importStatus, setImportStatus] = useState<WaContactImportStatus | null>(null);
   const [importNote, setImportNote] = useState("");
   const [importError, setImportError] = useState("");
+  const [sheet, setSheet] = useState<File | null>(null);
+  const [picked, setPicked] = useState<string[] | null>(null);  // null = todos da planilha
+  const [sheetConsent, setSheetConsent] = useState(false);
+  const [sheetReplace, setSheetReplace] = useState(false);
+  const [sheetBusy, setSheetBusy] = useState(false);
   const [draftsError, setDraftsError] = useState("");
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<WaCampaignDraft | null>(null);
@@ -148,6 +155,26 @@ export default function WhatsAppBulkCampaigns() {
     return () => { active = false; };
   }, [tenant]);
 
+  async function importSheet(event: FormEvent) {
+    event.preventDefault();
+    if (!sheet || !sheetConsent || sheetBusy) return;
+    setSheetBusy(true); setImportError(""); setImportNote("");
+    const selectedTenant = tenant;
+    try {
+      const r = await importContactsSheet(sheet, { replace: sheetReplace, consent: sheetConsent });
+      if (getActiveClientId() !== selectedTenant) return;
+      setImportNote(`${fmt(r.contacts_imported)} contato(s) importado(s) da planilha (coluna "${r.columns.telefone}"`
+        + `${r.columns.nome ? `, nomes de "${r.columns.nome}"` : ""})${r.invalid ? `; ${fmt(r.invalid)} linha(s) sem telefone válido ficaram de fora` : ""}.`
+        + " Escolha \"Planilha importada\" na origem para disparar para eles.");
+      setSheet(null); setProvider("planilha");
+      const [status, currentAudience] = await Promise.all([getWhatsAppContactImportStatus(), previewWhatsAppCampaignAudience("planilha")]);
+      if (getActiveClientId() !== selectedTenant) return;
+      setImportStatus(status); setAudience(currentAudience);
+    } catch (cause) {
+      if (getActiveClientId() === selectedTenant) setImportError(cause instanceof Error ? cause.message : "Não consegui importar a planilha.");
+    } finally { setSheetBusy(false); }
+  }
+
   async function importContacts(source: "commerce" | "whatsapp") {
     if (importBusy) return;
     setImportBusy(source); setImportError(""); setImportNote("");
@@ -195,6 +222,7 @@ export default function WhatsAppBulkCampaigns() {
       if (!t.template_approved) return;
       const response = await createWhatsAppCampaignDraft({
         name: name.trim(), template_name: selected.name, language: selected.language, provider,
+        ...(provider === "planilha" && picked ? { selected_contacts: picked } : {}),
         ...(selected.header && MEDIA_HEADERS.has(selected.header) && headerUrl ? { header_media_url: headerUrl } : {}),
       });
       if (getActiveClientId() !== tenant) return;
@@ -216,7 +244,7 @@ export default function WhatsAppBulkCampaigns() {
     <section className="waBulkPanel waBulkImport" aria-label="Importar contatos existentes">
       <div className="waBulkHistoryHead"><div>
         <h3>Importar contatos existentes</h3>
-        <p className="waBulkHelp">A importação aproveita dados já sincronizados da empresa selecionada, sem CSV nem token manual. Não envia mensagens nem presume consentimento.</p>
+        <p className="waBulkHelp">Traga a base da loja, as conversas do WhatsApp ou uma planilha de leads. Importar não envia nenhuma mensagem.</p>
       </div></div>
       <div className="waBulkImportActions">
         <button type="button" onClick={() => void importContacts("commerce")} disabled={!!importBusy}>
@@ -230,8 +258,22 @@ export default function WhatsAppBulkCampaigns() {
         Base atual: {fmt(importStatus.total)} perfis · Shopify: {fmt(importStatus.by_provider.shopify || 0)}
         {" · "}Wake/FBITS: {fmt(importStatus.by_provider.fbits || 0)}
         {" · "}WhatsApp: {fmt(importStatus.by_provider.whatsapp || 0)}
+        {" · "}Planilha: {fmt(importStatus.by_provider.planilha || 0)}
         {importStatus.truncated ? " · Contagem parcial" : ""}
       </p> : null}
+      <form className="waBulkSheet" onSubmit={(e) => void importSheet(e)} aria-label="Importar leads de planilha">
+        <label className="waBulkSheetFile">
+          <span>Leads de planilha (Excel .xlsx ou .csv)</span>
+          <input type="file" accept=".xlsx,.xlsm,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={(e) => setSheet(e.target.files?.[0] || null)} disabled={sheetBusy} />
+          <small>Precisa de uma coluna de telefone (Telefone, Celular ou WhatsApp) com DDD. Nome e e-mail são opcionais. Até 20 mil linhas.</small>
+        </label>
+        <label className="waBulkCheck"><input type="checkbox" checked={sheetConsent} onChange={(e) => setSheetConsent(e.target.checked)} />
+          Confirmo que esses contatos aceitaram receber mensagens da marca.</label>
+        <label className="waBulkCheck"><input type="checkbox" checked={sheetReplace} onChange={(e) => setSheetReplace(e.target.checked)} />
+          Substituir a planilha importada antes (senão, soma aos leads já importados).</label>
+        <button type="submit" disabled={!sheet || !sheetConsent || sheetBusy}>{sheetBusy ? "Importando planilha..." : "Importar planilha"}</button>
+      </form>
       {importNote ? <p className="waBulkSuccess" role="status">{importNote}</p> : null}
       {importError ? <p className="waBulkError" role="alert">{importError}</p> : null}
     </section>
@@ -249,10 +291,11 @@ export default function WhatsAppBulkCampaigns() {
             placeholder="Ex.: novidades de novembro" onChange={(e) => setName(e.target.value)} />
         </label>
         <label>Origem da base
-          <select value={provider} onChange={(e) => setProvider(e.target.value as Provider)}>
+          <select value={provider} onChange={(e) => { setProvider(e.target.value as Provider); setPicked(null); }}>
             {SOURCES.map((source) => <option key={source.value} value={source.value}>{source.title}</option>)}
           </select>
         </label>
+        {provider === "planilha" ? <SheetRecipientsPicker picked={picked} onChange={setPicked} /> : null}
         <label>Template aprovado pela Meta
           <select required value={templateKey} onChange={(e) => { setTemplateKey(e.target.value); setPreflight(null); }}>
             <option value="">Selecione um modelo aprovado</option>
@@ -279,8 +322,9 @@ export default function WhatsAppBulkCampaigns() {
         {notice ? <p role="status" className="waBulkSuccess">{notice}</p> : null}
         {error ? <p role="alert" className="waBulkError">{error}</p> : null}
         <button type="submit" className="waBulkPrimary" disabled={loading || busy || !selected || !name.trim() || !audience || audience.truncated
-          || Boolean(selected?.header && MEDIA_HEADERS.has(selected.header) && !headerUrl)}>
-          {busy ? "Verificando..." : "Salvar campanha"}
+          || Boolean(selected?.header && MEDIA_HEADERS.has(selected.header) && !headerUrl)
+          || (provider === "planilha" && picked !== null && !picked.length)}>
+          {busy ? "Verificando..." : provider === "planilha" && picked?.length ? `Salvar campanha para ${picked.length} contato(s)` : "Salvar campanha"}
         </button>
         <p className="waBulkHelp">Salvar não envia nada. O envio começa só quando você clica em Enviar no histórico.
           Vai para todos os contatos com telefone da origem, sem repetir, menos quem respondeu SAIR, PARAR ou STOP.</p>

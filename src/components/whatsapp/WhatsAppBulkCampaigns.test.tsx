@@ -7,7 +7,7 @@ const api = vi.hoisted(() => ({
   listWhatsAppTemplates: vi.fn(), listWhatsAppCampaignDrafts: vi.fn(), previewWhatsAppCampaignAudience: vi.fn(),
   getWhatsAppContactImportStatus: vi.fn(), sendWhatsAppCampaign: vi.fn(), createWhatsAppCampaignDraft: vi.fn(),
   preflightWhatsAppCampaignTemplate: vi.fn(), importExistingCommerceContacts: vi.fn(), importExistingWhatsAppConversations: vi.fn(),
-  cancelWhatsAppCampaign: vi.fn(), getWhatsAppCampaignReport: vi.fn(),
+  cancelWhatsAppCampaign: vi.fn(), getWhatsAppCampaignReport: vi.fn(), importContactsSheet: vi.fn(),
 }));
 vi.mock("../../app/whatsapp", () => api);
 vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "roove" }));
@@ -32,6 +32,27 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
 
 describe("Disparos em massa", () => {
+  it("importa leads de uma planilha só com o aceite confirmado e já seleciona a origem", async () => {
+    api.importContactsSheet.mockResolvedValue({ ok: true, provider: "planilha", rows: 120, contacts_imported: 118, invalid: 2,
+      columns: { telefone: "Celular", nome: "Nome", email: null }, replaced: false });
+    await act(async () => { root.render(<WhatsAppBulkCampaigns />); });
+    await act(async () => {});
+    const file = new File(["telefone\n11999998888"], "leads.xlsx");
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: [file] });
+    await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(btn("Importar planilha").disabled).toBe(true);  // sem confirmar o aceite, não importa
+    const consent = [...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      .find((c) => c.parentElement?.textContent?.includes("aceitaram receber"))!;
+    await act(async () => { consent.click(); });
+    await act(async () => { btn("Importar planilha").click(); });
+    expect(api.importContactsSheet).toHaveBeenCalledWith(file, { replace: false, consent: true });
+    expect(host.textContent).toContain("118 contato(s) importado(s) da planilha");
+    expect(host.textContent).toContain("2 linha(s) sem telefone válido");
+    expect(api.previewWhatsAppCampaignAudience).toHaveBeenLastCalledWith("planilha");
+    expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("planilha");
+  });
+
   it("mostra envio liberado, quantos recebem e envia depois de confirmar o risco", async () => {
     api.sendWhatsAppCampaign.mockResolvedValue({ ok: true, status: "queued", scheduled_at: null, recipients_count: 850 });
     await act(async () => { root.render(<WhatsAppBulkCampaigns />); });
