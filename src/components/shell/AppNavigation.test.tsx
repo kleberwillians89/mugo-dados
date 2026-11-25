@@ -86,7 +86,7 @@ describe("AppNavigation — sidebar global", () => {
     await render({ agencyAdmin: true });
     expect(groupNames()).toEqual(["Configurações"]);
     expect([...container.querySelectorAll(".appNavPrimaryList a")].map((item) => item.textContent?.trim())).toEqual([
-      "Início", "Dashboard", "Mugô IA", "Biblioteca",
+      "Início", "Dashboard", "Mugô IA", "Aprovação Interna","Aprovação Final", "Biblioteca",
     ]);
     expect(groupLinks("config")).toEqual([
       "Contexto da Marca", "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Plano e implantação", "Planos e cobrança", "Consumo de IA", "Automações",
