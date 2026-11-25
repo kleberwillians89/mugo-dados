@@ -9,6 +9,7 @@ import ProcessEntry, { type ProcessKind } from "./ProcessEntry";
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("../components/data/PageHeader", () => ({ default: ({ title }: { title: string }) => <h1>{title}</h1> }));
 vi.mock("../app/activeClient", () => ({ getActiveClientName: () => "Empresa de teste" }));
+vi.mock("../components/shell/MyTasksButton", () => ({ default: () => <a className="myTasksButton">Minhas Tarefas</a> }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
