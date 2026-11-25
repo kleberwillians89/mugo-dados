@@ -181,3 +181,12 @@ async def goal_recommendation_task(client_id:str, goal_id:UUID, rec_id:UUID, bod
                              client_view=scope["client_view"], only_user=scope["only_user"])
     except StudioError as exc:
         raise HTTPException(404 if exc.code == "RECOMMENDATION_NOT_FOUND" else 422, str(exc) if str(exc) != exc.code else "Não foi possível criar a tarefa.") from None
+
+
+@router.get("/{goal_id}/evaluation")
+async def evaluation(client_id:str, goal_id:UUID, authorization:str|None=Header(default=None)):
+    """Alvo original x alterações, resultado, desvio, premissas e tarefas criadas (para comparar períodos)."""
+    from services.goals import goal_evaluation
+    cid=await require_client_read(client_id,authorization)
+    goal=await _own_goal(cid, goal_id)
+    return await goal_evaluation(cid, goal, await _evaluated(cid, goal_id))

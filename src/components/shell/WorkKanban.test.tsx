@@ -24,7 +24,8 @@ const collapsed = (...users: string[]) => users.forEach((u) => window.localStora
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
 
 const TEAM: WorkValue = { route: "media", clientId: "ruah", userId: "u1", mode: "team", canManage: true, isAgency: false };
-const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+// Data local (não UTC): depois das 21h em São Paulo, o "ontem" em UTC já seria hoje e a tarefa não estaria atrasada.
+const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
 const btn = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim().startsWith(label));
 async function show(value: WorkValue | null, place: "shell" | "home" = "shell") {
   await act(async () => { root.render(value ? <WorkContext.Provider value={value}><WorkKanban place={place} /></WorkContext.Provider> : <WorkKanban place={place} />); });

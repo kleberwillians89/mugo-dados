@@ -17,7 +17,7 @@ export type GoalInput = { metric: GoalMetric; label: string; target_value: numbe
 export type Goal = Omit<GoalInput, "target_value"> & { target_value: number; id: string; client_id: string; actual: number | null; available: boolean; origin: string | null; reason: string | null;
   progress_percent: number | null; elapsed_percent: number; pace_delta: number | null; projected_value: number | null; remaining: number | null; status: string;
   direction: GoalDirection; additive?: boolean; days_total?: number; days_left?: number; required_daily?: number | null; observed_daily?: number | null;
-  covered_days?: number | null; pace_model?: "linear" | null; pace_note?: string | null };
+  covered_days?: number | null; pace_model?: "linear" | "sazonal" | null; pace_note?: string | null; required_today?: number | null; curve?: number[] };
 export async function getGoals(start?: string, end?: string, includeActuals = true): Promise<{ client_id: string; goals: Goal[] }> {
   const query = new URLSearchParams(); if (start) query.set("start", start); if (end) query.set("end", end);
   if (!includeActuals) query.set("include_actuals", "false");
@@ -40,7 +40,8 @@ export function getGoalHistory(id: string) {
 export type GoalSuggestion = { available: boolean; reason?: string; direction?: GoalDirection; uncertainty?: string; trend_percent?: number | null;
   scenarios?: { key: string; label: string; value: number }[];
   premises?: { history: { start: string; end: string; value: number | null; coverage: number; origin: string | null; reason: string | null }[];
-    model: string; commercial_dates: string[]; seasonality_note: string | null } };
+    model: string; commercial_dates: string[]; seasonality_note: string | null;
+    past_goals?: { goals: number; hit: number; average_deviation_percent: number } | null } };
 export function suggestGoal(metric: GoalMetric, start: string, end: string) {
   return http<GoalSuggestion>(clientClientPath(`/goals/suggest?${new URLSearchParams({ metric, start, end })}`), { timeoutMs: 60_000 });
 }
@@ -98,4 +99,10 @@ export function recommendGoal(id: string, constraints: string) {
 export function taskFromRecommendation(goalId: string, recId: string, index: number, input: { assignee_user_ids: string[]; due_date: string | null }) {
   return http<{ task_id: string; created: boolean }>(clientClientPath(`/goals/${encodeURIComponent(goalId)}/recommendations/${encodeURIComponent(recId)}/task`),
     { method: "POST", body: JSON.stringify({ index, ...input }) });
+}
+
+export type GoalEvaluation = { ended: boolean; original_target: number | null; current_target: number; target_changes: number; actual: number | null;
+  deviation_percent: number | null; result: string; direction: GoalDirection; suggestion: ScenarioChoice | null; tasks_created: number; history_available: boolean };
+export function getGoalEvaluation(id: string) {
+  return http<GoalEvaluation>(clientClientPath(`/goals/${encodeURIComponent(id)}/evaluation`));
 }

@@ -241,3 +241,45 @@ class GoalInputTests(unittest.TestCase):
         self.assertEqual(routes.GoalInput(**{**BODY,"metric":"cpa_meta"}).payload()["direction"],"max")
         p=routes.GoalInput(**{**BODY,"is_primary":True,"owner_user_id":"u2","direction":"min"}).payload()
         self.assertTrue(p["is_primary"]); self.assertEqual(p["owner_user_id"],"u2"); self.assertNotIn("direction",p)
+
+
+class SeasonalTests(unittest.TestCase):
+    def rows(self, weekend=2.0, weeks=8, start=date(2026, 9, 7)):
+        from datetime import timedelta
+        out = []
+        for i in range(weeks * 7):
+            d = start + timedelta(days=i)
+            out.append({"metric_date": d.isoformat(), "shopify_orders": 10 * (weekend if d.weekday() >= 5 else 1)})
+        return out
+
+    def test_curve_needs_data_and_relevant_difference(self):
+        curve = goals.weekday_curve(self.rows(), ["shopify_orders"])
+        self.assertAlmostEqual(sum(curve) / 7, 1)
+        self.assertGreater(curve[5], curve[0])
+        self.assertIsNone(goals.weekday_curve(self.rows(weekend=1.05), ["shopify_orders"]))   # diferença pequena: linear
+        self.assertIsNone(goals.weekday_curve(self.rows(weeks=3), ["shopify_orders"]))        # pouco histórico: linear
+
+    def test_apply_curve_changes_expected_pace_and_needed_today(self):
+        goal = {**BODY, "metric": "orders", "target_value": 1000, "period_start": "2026-11-02", "period_end": "2026-11-08"}  # seg a dom
+        base = goals.evaluate_goal(goal, goals.value(300, "t", True, covered_days=5), date(2026, 11, 6))  # sexta
+        curve = [1, 1, 1, 1, 1, 2, 2]
+        out = goals.apply_curve(base, curve, date(2026, 11, 6))
+        self.assertEqual(out["pace_model"], "sazonal")
+        self.assertAlmostEqual(out["elapsed_percent"], 5 / 9 * 100)       # 5 dias fracos de 9 pesos
+        self.assertAlmostEqual(out["required_today"], 700 * 1 / 5)         # sexta peso 1 de (1+2+2)
+        self.assertIs(goals.apply_curve(base, None), base)
+
+
+class EvaluationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_evaluation_keeps_original_target_and_actions(self):
+        goal = {**BODY, "id": GID, "target_value": 120000, "period_end": "2026-09-30", "suggestion": {"key": "referencia", "value": 100000}}
+        history = {"available": True, "events": [
+            {"action": "editada", "before": {"target_value": 100000}, "after": {"target_value": 120000}, "created_at": "2026-09-10"},
+            {"action": "criada", "before": None, "after": {"target_value": 100000}, "created_at": "2026-09-01"}]}
+        with patch.object(goals, "goal_history", AsyncMock(return_value=history)), \
+             patch.object(goals, "sb_select", AsyncMock(return_value=[{"client_id": CID, "items": [{"task_id": "t1"}, {"task_id": None}]}])):
+            out = await goals.goal_evaluation(CID, goal, {"actual": 108000, "status": "ABAIXO_DO_RITMO", "direction": "min"})
+        self.assertEqual((out["original_target"], out["current_target"], out["target_changes"]), (100000, 120000, 1))
+        self.assertAlmostEqual(out["deviation_percent"], -10)
+        self.assertEqual(out["tasks_created"], 1)
+        self.assertTrue(out["ended"])
