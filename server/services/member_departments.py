@@ -2,7 +2,7 @@
 
 - Uma pessoa pode ter várias áreas; vale em todos os clientes (é da pessoa, não do cliente).
 - Só quem administra usuários da empresa edita, e só de quem é integrante dessa empresa.
-- Nunca deduz área por nome, e-mail ou histórico. Sem a tabela (migração 000157), tudo segue sem áreas.
+- Nunca deduz área por nome, e-mail ou histórico. Sem a tabela (migração 000158), tudo segue sem áreas.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ async def departments_of(user_ids: List[str]) -> Dict[str, List[str]]:
                                    filters={"user_id": f"in.({','.join(ids[start:start + 100])})"})
             for r in rows:
                 out.setdefault(str(r["user_id"]), []).append(str(r["department"]))
-    except Exception as exc:  # noqa: BLE001 — migração 000157 pendente: sem áreas
+    except Exception as exc:  # noqa: BLE001 — migração 000158 pendente: sem áreas
         print(f"[member_departments] unavailable error_type={type(exc).__name__}")
     return {u: sorted(v) for u, v in out.items()}
 
