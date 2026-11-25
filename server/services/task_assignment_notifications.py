@@ -51,7 +51,7 @@ async def _verified_auth_phone(user_id: str) -> Optional[str]:
     return digits if 10 <= len(digits) <= 15 else None
 
 
-async def _whatsapp_dispatch(client_id: str, user_id: str, body: str) -> tuple[str, Optional[str]]:
+async def _whatsapp_dispatch(client_id: str, user_id: str, body: str, task_id: str = "") -> tuple[str, Optional[str]]:
     if client_id == "pace-sneakers-demo":
         return "skipped_demo", None
     sender_client_id = os.getenv("TASKS_WHATSAPP_SENDER_CLIENT_ID", "").strip()
@@ -66,9 +66,23 @@ async def _whatsapp_dispatch(client_id: str, user_id: str, body: str) -> tuple[s
     if not phone:
         return "not_opted_in", None
     from .whatsapp_native import send_template
+    # A template variable must be a single paragraph. The full card stays in the private inbox.
+    parameter = " ".join(body.split())[:950]
     try:
-        provider_id = await send_template(sender_client_id, number_id=None, to=phone, template=template,
-                                          language="pt_BR", params=[body[:950]])
+        if os.getenv("TASKS_WHATSAPP_TRANSPORT") == "mugozap":
+            from .studio_messages import idempotency, mugozap_config, mugozap_send
+            cfg = mugozap_config()
+            if not cfg:
+                return "not_configured", None
+            result = await mugozap_send(
+                cfg, phone=phone, template_name=template,
+                components=[{"type": "body", "parameters": [{"type": "text", "text": parameter}]}],
+                idempotency_key=idempotency("task-assignment", client_id, task_id, user_id),
+            )
+            provider_id = result.get("provider_message_id") if result.get("ok") else None
+        else:
+            provider_id = await send_template(sender_client_id, number_id=None, to=phone, template=template,
+                                              language="pt_BR", params=[parameter])
         return ("sent", provider_id) if provider_id else ("failed", None)
     except Exception as exc:  # noqa: BLE001 — notification is best-effort, task persists
         print(f"[task_notification] whatsapp_failed type={type(exc).__name__}")
@@ -94,7 +108,7 @@ async def notify_assignment(client_id: str, task: Dict[str, Any], *, send_whatsa
             })
             if not row:
                 continue
-            status, provider_id = (await _whatsapp_dispatch(client_id, user_id, body)
+            status, provider_id = (await _whatsapp_dispatch(client_id, user_id, body, task_id)
                                    if send_whatsapp else ("not_configured", None))
             await sb_update(NOTIFICATIONS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{row['id']}"},
                             patch={"whatsapp_status": status, "whatsapp_message_id": provider_id},
@@ -125,8 +139,11 @@ async def read_message(client_id: str, user_id: str, notification_id: str) -> bo
 async def preference(client_id: str, user_id: str) -> Dict[str, Any]:
     rows = await sb_select(PREFERENCES, select="opted_in", limit=1,
                            filters={"client_id": f"eq.{client_id}", "user_id": f"eq.{user_id}"})
-    return {"whatsapp_opt_in": bool(rows and rows[0].get("opted_in")),
-            "provider_configured": bool(os.getenv("TASKS_WHATSAPP_SENDER_CLIENT_ID") and os.getenv("TASKS_WHATSAPP_TEMPLATE"))}
+    configured = bool(os.getenv("TASKS_WHATSAPP_SENDER_CLIENT_ID") and os.getenv("TASKS_WHATSAPP_TEMPLATE"))
+    if configured and os.getenv("TASKS_WHATSAPP_TRANSPORT") == "mugozap":
+        from .studio_messages import mugozap_config
+        configured = bool(mugozap_config())
+    return {"whatsapp_opt_in": bool(rows and rows[0].get("opted_in")), "provider_configured": configured}
 
 
 async def set_preference(client_id: str, user_id: str, opted_in: bool) -> Dict[str, Any]:

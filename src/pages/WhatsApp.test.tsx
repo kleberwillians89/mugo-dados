@@ -147,7 +147,7 @@ describe("Página WhatsApp — troca rápida de conversa", () => {
     });
     await act(async () => (container.querySelector(".waComposer button") as HTMLButtonElement).click());
     await flush();
-    expect(api.replyWhatsApp).toHaveBeenCalledWith("c2", "Tem sim, 50 ml!");
+    expect(api.replyWhatsApp).toHaveBeenCalledWith("c2", "Tem sim, 50 ml!", expect.any(String));
     expect(container.textContent).toContain("A IA fica quieta nesta conversa por 4 h");
     expect(api.getWhatsAppMessages.mock.calls.length).toBeGreaterThanOrEqual(2);
     const other = [...container.querySelectorAll(".waConvList button")].find((b) => b.textContent?.includes("Mariana")) as HTMLButtonElement;

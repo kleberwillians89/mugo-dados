@@ -27,3 +27,19 @@
 - Review & apply new CRM schema/mapping and deploy the new CRM function (both not executed).
 - Review new API endpoint authorization, Meta permission `whatsapp_business_management`, and template moderation state.
 - Run authenticated end-to-end tests with an authorized Mugô account. Unit tests alone don't confirm real Meta approval.
+
+### Respostas a conversas e avisos de tarefas
+
+A resposta pelo Mugô Verso usa a conversa do CRM, a janela de atendimento de
+24 horas e o mesmo envio manual do `mugozap-api`. Para habilitar o campo de
+resposta, publique a versão atual da função `dados-whatsapp-templates` no CRM e
+configure `DADOS_WHATSAPP_REPLY_TEAM_MEMBER_ID` com um membro ativo da organização
+vinculada, cujo perfil ativo seja administrador ou gerente. A função usa o
+`TASK_COMMAND_WORKER_KEY` do projeto CRM e a conexão existente.
+
+Para avisar responsáveis por novas tarefas pelo número do MugôZap, configure no
+backend do Mugô Dados `TASKS_WHATSAPP_TRANSPORT=mugozap`,
+`TASKS_WHATSAPP_SENDER_CLIENT_ID` e `TASKS_WHATSAPP_TEMPLATE`. O template deve
+estar aprovado e ativo em pt_BR, com um parâmetro posicional de texto no corpo.
+O backend usa a configuração `MUGOZAP_*` existente. Cada responsável precisa
+confirmar seu telefone e ativar os avisos no chat de tarefas.
