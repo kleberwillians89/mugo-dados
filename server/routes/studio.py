@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from services.ig_supabase import sb_delete, sb_insert, sb_update
 
 from services.studio_calendar import (
-    StudioError, create_item, delete_approval_item, delete_item, generate_month, list_items, load_profile,
+    ART_URL_MAX_LENGTH, StudioError, create_item, delete_approval_item, delete_item, generate_month, list_items, load_profile,
     parse_month, save_profile, update_item,
 )
 from services.studio_approvals import (
@@ -137,7 +137,7 @@ class ItemCreate(BaseModel):
     hook: Optional[str] = Field(default=None, max_length=400)
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
-    art_url: Optional[str] = Field(default=None, max_length=1000)
+    art_url: Optional[str] = Field(default=None, max_length=ART_URL_MAX_LENGTH)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
@@ -179,7 +179,7 @@ class ItemPatch(BaseModel):
     rationale: Optional[str] = Field(default=None, max_length=1200)
     status: Optional[Status] = None
     review_note: Optional[str] = Field(default=None, max_length=1000)
-    art_url: Optional[str] = Field(default=None, max_length=1000)
+    art_url: Optional[str] = Field(default=None, max_length=ART_URL_MAX_LENGTH)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
@@ -369,7 +369,7 @@ class ImportRow(BaseModel):
     format: Format
     title: str = Field(min_length=1, max_length=200)
     caption: str = Field(default="", max_length=4000)
-    art_url: str = Field(default="", max_length=1000)
+    art_url: str = Field(default="", max_length=ART_URL_MAX_LENGTH)
 
 
 class ImportCommitInput(BaseModel):
