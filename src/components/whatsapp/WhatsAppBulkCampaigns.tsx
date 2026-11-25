@@ -382,6 +382,7 @@ export default function WhatsAppBulkCampaigns() {
         {loading ? <p>Carregando…</p> : drafts.length ? <div className="waBulkHistory">
           {drafts.map((d) => <article key={d.id}>
             <div><strong>{d.name}</strong><small>{d.template_name} · {d.language} · {new Date(d.created_at).toLocaleDateString("pt-BR")}</small>
+              <small>Base: {SOURCES.find((source) => source.value === d.audience_provider)?.title ?? "Origem não registrada"}</small>
               {d.status !== "draft" ? <small role="status">
                 {fmt(d.sent_count || 0)} enviadas{d.recipients_count ? ` de ${fmt(d.recipients_count)}` : ""}
                 {d.failed_count ? ` · ${fmt(d.failed_count)} falharam` : ""}{d.skipped_count ? ` · ${fmt(d.skipped_count)} foram puladas` : ""}
