@@ -100,3 +100,17 @@
   .miaName{height:auto;line-height:1.4;margin-bottom:-6px}
   .miaHint{display:none}
 }
+
+/* Proposta de criação (e-mail, campanha na Meta, briefing): vira rascunho na ferramenta com um clique. */
+.miaAction{margin-top:12px;border:1px solid var(--mia-line);border-left:3px solid #b79830;border-radius:12px;padding:12px 14px;background:rgba(183,152,48,.06);display:grid;gap:10px;font-size:14px}
+.miaAction header{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.miaAction header svg{color:#7a6420}
+.miaAction header small{color:var(--text-muted,#6b7075);text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+.miaAction header b{flex-basis:100%}
+.miaAction dl{display:grid;gap:4px;margin:0}
+.miaAction dl div{display:flex;gap:8px}
+.miaAction dt{color:var(--text-muted,#6b7075);min-width:84px}
+.miaAction dd{margin:0}
+.miaActionRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.miaActionRow small{color:var(--text-muted,#6b7075)}
+.miaActionDone{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;color:#1f6b45}

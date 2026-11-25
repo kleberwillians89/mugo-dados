@@ -3,10 +3,14 @@ import { ArrowUp, BookmarkPlus, Check, CornerDownRight, Plus, Sparkles } from "l
 import { getActiveClientName } from "../app/activeClient";
 import { addKnowledgeFacts, askMugoIA, clearMugoIA, getMugoIA, type MugoIAMessage } from "../app/studio";
 import Shell from "../components/Shell";
+import MugoIAAction from "../components/mugoIA/MugoIAAction";
 import "../styles/studio.css";
 import "../styles/mugoverso-ia.css";
 
 const TEAM_SUGGESTIONS = [
+  "Cria um e-mail marketing para a próxima data comercial, com base no que os concorrentes estão fazendo",
+  "Monta uma campanha de vendas na Meta com R$ 50 por dia por 14 dias",
+  "Faz o briefing da próxima campanha da marca",
   "Como está a saúde da marca e o que o público anda falando?",
   "O que os concorrentes fizeram nas últimas semanas?",
   "Quais produtos mais vendem e como usar isso no conteúdo?",
@@ -21,7 +25,7 @@ const CLIENT_SUGGESTIONS = [
   "Quais são os próximos posts do calendário?",
   "Resumo do mês: vendas, mídia e metas",
 ];
-const READS = ["Métricas", "Material enviado", "Saúde da marca", "Voz do público", "Concorrentes", "Clipping", "Produtos", "Calendário", "Mídia", "Metas"];
+const READS = ["Métricas", "Material enviado", "Saúde da marca", "Voz do público", "Concorrentes", "Clipping", "Produtos", "Calendário", "Mídia", "Metas", "Pesquisa de mercado na web"];
 
 /** Rótulos das lacunas que vêm do backend (fonte sem dado ou fora do ar). */
 const GAP_LABEL: Record<string, string> = {
@@ -102,7 +106,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
     try {
       const res = await askMugoIA(q);
       setMessages((m) => [...(m || []), { id: res.id, role: "assistant", content: res.answer,
-        meta: { on_topic: res.on_topic, sources: res.sources, new_facts: res.new_facts, follow_ups: res.follow_ups, coverage: res.coverage, web_sources: res.web_sources, web_status: res.web_status } }]);
+        meta: { on_topic: res.on_topic, sources: res.sources, new_facts: res.new_facts, follow_ups: res.follow_ups, coverage: res.coverage, web_sources: res.web_sources, web_status: res.web_status, acao: res.acao } }]);
     } catch (cause) {
       setMessages((m) => (m || []).slice(0, -1));
       setText(q);
@@ -129,7 +133,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
     <header className="miaTop">
       <div className="miaBrand">
         <span className="miaMark" aria-hidden="true"><Sparkles size={16} /></span>
-        <div><h1>Mugô IA</h1><small>{company} · lê tudo da marca antes de responder</small></div>
+        <div><h1>Mugô IA</h1><small>{company} · lê tudo da marca, pesquisa o mercado e cria e-mail, campanha e briefing</small></div>
       </div>
       {messages?.length ? (confirmClear
         ? <div className="miaConfirm"><span>Apagar esta conversa?</span>
@@ -162,6 +166,8 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
             <div className="miaBotBody">
               <small className="miaName">Mugô IA</small>
               <AnswerBody text={m.content} />
+              {m.meta?.acao ? <MugoIAAction messageId={m.id} action={m.meta.acao} canCreate={canManage}
+                onChange={(acao) => setMessages((list) => (list || []).map((x) => (x === m ? { ...x, meta: { ...x.meta, acao } } : x)))} /> : null}
               {m.meta?.sources?.length || (isLast && m.meta?.coverage?.gaps?.length) ? <div className="miaMeta">
                 {m.meta?.sources?.length ? <div className="miaChips"><span className="miaChipsLabel">Com base em</span>
                   {m.meta.sources.map((s) => <span key={s} className="miaChip">{s}</span>)}</div> : null}

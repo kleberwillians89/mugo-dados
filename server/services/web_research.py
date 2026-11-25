@@ -35,7 +35,8 @@ def research_model() -> str:
     return (os.getenv("OPENAI_RESEARCH_MODEL") or profile_model()).strip()
 
 
-async def research(client_id: str, question: str, *, feature: str, timeout: float = 60) -> str:
+async def research(client_id: str, question: str, *, feature: str, timeout: float = 60, depth: str = "low",
+                   max_output_tokens: int = 1800) -> str:
     """Texto com o que a web diz sobre ``question`` (com URLs). "" quando desligado, sem crédito ou com erro."""
     if not enabled() or not str(question or "").strip():
         return ""
@@ -51,9 +52,9 @@ async def research(client_id: str, question: str, *, feature: str, timeout: floa
     except AiRuntimeError:
         return ""
     payload = {"model": runtime.model, "instructions": INSTRUCTIONS, "input": question.strip()[:2000],
-               "tools": [{"type": "web_search", "search_context_size": "low",
+               "tools": [{"type": "web_search", "search_context_size": depth if depth in ("low", "medium", "high") else "low",
                           "user_location": {"type": "approximate", "country": "BR"}}],
-               "max_output_tokens": 1800}
+               "max_output_tokens": max_output_tokens}
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post("https://api.openai.com/v1/responses",
