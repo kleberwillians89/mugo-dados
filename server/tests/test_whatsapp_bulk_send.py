@@ -205,13 +205,22 @@ def test_disparo_filtra_numero_equivalente_e_quem_ja_recebeu_modelo():
 
 
 def test_envio_de_teste_faz_uma_chamada_para_o_numero_informado():
-    sender = AsyncMock(return_value="wamid.teste")
-    with patch.object(send, "_template", AsyncMock(return_value={"variables": 1})), \
+    async def accepted(*args, **kwargs):
+        kwargs["receipt"].update(number_id="sender", wa_id="5511988887777")
+        return "wamid.teste"
+
+    sender = AsyncMock(side_effect=accepted)
+    with patch.object(send, "_template", AsyncMock(return_value={"variables": 1, "body": "Oi, {{1}}!"})), \
             patch.object(send, "opted_out", AsyncMock(return_value=set())), \
             patch.object(send, "sb_insert", AsyncMock()) as insert, \
+            patch.object(send, "sb_rpc", AsyncMock()) as record, \
             patch("services.whatsapp_native.send_template", sender):
-        asyncio.run(send.send_test("roove", phone="(11) 98888-7777", template_name="bf_roove",
-                                   language="pt_BR", header_media_url=None))
-    sender.assert_awaited_once_with("roove", number_id=None, to="5511988887777",
-                                   template="bf_roove", language="pt_BR", params=["cliente"], header_media=None)
+        saved = asyncio.run(send.send_test("roove", phone="(11) 98888-7777", template_name="bf_roove",
+                                           language="pt_BR", header_media_url=None))
+    assert saved is True
+    sender.assert_awaited_once()
+    assert sender.await_args.kwargs["to"] == "5511988887777"
+    assert sender.await_args.kwargs["params"] == ["cliente"]
+    record.assert_awaited_once()
+    assert record.await_args.args[1]["p_text"] == "Oi, cliente!"
     insert.assert_not_awaited()

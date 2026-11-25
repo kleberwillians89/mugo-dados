@@ -67,7 +67,7 @@ export type WaConversation = {
 export type WaAiProduct = { handle: string; title: string; price: number; url: string; image: string | null };
 export type WaAiSuggestion = { reply: string; buttons: string[]; products: WaAiProduct[]; handoff: boolean; handoff_reason: string; created_at: string };
 /** Mensagem da conversa; by_ai/payload só nos números ligados no MUGOVERSO. */
-export type WaMessage = CrmMessage & { by_ai?: boolean; payload?: { campaign_id?: string; buttons?: string[]; products?: WaAiProduct[]; cards?: boolean } | null };
+export type WaMessage = CrmMessage & { by_ai?: boolean; payload?: { campaign_id?: string; campaign_test?: boolean; buttons?: string[]; products?: WaAiProduct[]; cards?: boolean } | null };
 export type WhatsAppInbox = {
   ok: true; status: "available" | "no_brand_number" | "crm_unavailable"; reason?: CrmUnavailable["reason"];
   conversations: WaConversation[]; channel_provider?: "mugozap_crm" | null; reply_enabled?: boolean;
@@ -209,7 +209,7 @@ export function sendWhatsAppCampaign(draftId: string, scheduledAt?: string | nul
 export function testWhatsAppCampaign(input: {
   phone: string; template_name: string; language: string; header_media_url?: string;
 }) {
-  return http<{ ok: true; status: "accepted" }>(base("/campaigns/test"), {
+  return http<{ ok: true; status: "accepted"; recorded?: boolean }>(base("/campaigns/test"), {
     method: "POST", body: JSON.stringify(input),
   });
 }
