@@ -919,11 +919,11 @@ async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[
     if settings["mode"] == "auto" and _norm(last) in {"entrar no grupo", "quero entrar no grupo", "link do grupo", "quero o link do grupo"}:
         invite = group_invite_text(settings)
         if invite:
-            link = str(settings["ad_group_link"]).strip()
-            label = "Entrar no grupo"
-            copy = invite.replace(link, "").strip().rstrip(":").strip() or "Aqui está o convite da Roove."
-            decision = {"reply": copy, "buttons": [], "products": [], "handoff": False,
-                        "url_button": {"label": label, "url": link}, "url_fallback": invite}
+            decision = {"reply": invite, "buttons": [], "products": [], "handoff": False}
+            if client_id != "roove":
+                link = str(settings["ad_group_link"]).strip()
+                copy = invite.replace(link, "").strip().rstrip(":").strip() or "Aqui está o convite."
+                decision.update(reply=copy, url_button={"label": "Entrar no grupo", "url": link}, url_fallback=invite)
             await send_decision(client_id, thread, number, decision, meta=None, match=None)
             await _save_insight(client_id, thread["id"], decision, {
                 "ai_group_sent_at": now.isoformat(), "ai_suggestion": None,
