@@ -392,7 +392,7 @@ def build_preview(parts: List[Dict[str, Any]], chunks: List[str], current: Dict[
         if kind == "frequency" and value:
             notes.append("Os canais precisam estar nas Plataformas do perfil para a frequência valer.")
         if key == "competitors" and value:
-            notes.append("Ao aplicar, entram no Benchmarking e no monitoramento do Clipping (se estiver configurado). A IA passa a considerá-los nas análises e no Tira-dúvidas.")
+            notes.append("Ao aplicar, entram no Benchmarking e no monitoramento do Clipping (se estiver configurado). A IA passa a considerá-los nas análises e na Mugô IA.")
         evidence = f["evidence"]
         out.append({
             "key": key, "label": label, "group": group, "kind": kind, "targets": list(targets),

@@ -1,15 +1,15 @@
 import type { AppRoute } from "../../app/routes";
 
 /**
- * Telas dos quatro processos (Planejar, Criar conteúdo, Lançar campanha, Analisar resultados) e das ferramentas
+ * Telas dos seis processos (Planejar, Criar conteúdo, Lançar campanha, Relacionamento, CRM, Redes sociais) e das ferramentas
  * abertas a partir deles. Fora daqui (Início, Tarefas, Aprovações, Configurações, páginas públicas) o Kanban não aparece.
  */
 export const KANBAN_ROUTES: ReadonlySet<AppRoute> = new Set<AppRoute>([
-  "process_planning", "process_content", "process_campaign", "process_analysis",
+  "process_planning", "process_content", "process_campaign", "process_analysis", "process_relationship", "process_social",
   "radar", "benchmark", "planning", "goals", "campaigns", "calendar",
   "redacao", "production", "briefing", "creators", "email_marketing", "capture",
   "media",
-  "brand_health", "meta", "google", "channels", "origins", "ecommerce", "customers", "clipping", "social_report", "whatsapp", "engagement",
+  "brand_health", "meta", "google", "channels", "tiktok", "pinterest", "linkedin", "origins", "ecommerce", "customers", "clipping", "social_report", "whatsapp", "engagement", "ai_actions",
 ]);
 
 export type KanbanCounts = { progress: number; approval: number; late: number };

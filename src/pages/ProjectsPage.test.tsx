@@ -138,7 +138,7 @@ describe("Planejamento com Metas", () => {
 });
 
 describe("Planejamento: ferramentas abaixo de Metas", () => {
-  it("mostra só as seis ferramentas permitidas, depois de Metas, sem esconder o formulário", async () => {
+  it("mostra só as ferramentas de pesquisa permitidas, depois de Metas, sem esconder o formulário", async () => {
     api.listProjects.mockResolvedValue({ projects: [], formats: [] });
     window.sessionStorage.setItem("mugo:projects:new", "planejamento");
     const open = vi.fn();
@@ -147,11 +147,12 @@ describe("Planejamento: ferramentas abaixo de Metas", () => {
     await act(async () => {});
     expect(host.querySelector(".projNew")).not.toBeNull();  // formulário aberto
     const labels = [...host.querySelectorAll(".projTools .planningToolCard strong")].map((s) => s.textContent);
-    expect(labels).toEqual(["Saúde da Marca", "Radar", "Benchmarking", "Clipping", "Comentários", "Redes Sociais"]);
+    expect(labels).toEqual(["Radar", "Benchmarking"]);
+    expect(host.querySelectorAll(".projTools .planningToolIcon")).toHaveLength(2);  // ícone separa título e descrição
     const goals = host.querySelector("#metas")!; const tools = host.querySelector(".projTools")!;
     expect(goals.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => { (host.querySelector(".projTools a") as HTMLAnchorElement).click(); });
-    expect(open).toHaveBeenCalledWith("brand_health");
+    expect(open).toHaveBeenCalledWith("radar");
     window.sessionStorage.clear();
   });
 

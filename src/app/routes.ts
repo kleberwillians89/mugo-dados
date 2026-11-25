@@ -4,6 +4,8 @@ export type AppRoute =
   | "process_content"
   | "process_campaign"
   | "process_analysis"
+  | "process_relationship"
+  | "process_social"
   | "meta"
   | "google"
   | "ecommerce"
@@ -74,6 +76,8 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/criar-conteudo" || normalized.startsWith("/criar-conteudo/")) return "process_content";
   if (normalized === "/lancar-campanha" || normalized.startsWith("/lancar-campanha/")) return "process_campaign";
   if (normalized === "/analisar-resultados" || normalized.startsWith("/analisar-resultados/")) return "process_analysis";
+  if (normalized === "/relacionamento" || normalized.startsWith("/relacionamento/")) return "process_relationship";
+  if (normalized === "/redes-sociais" || normalized.startsWith("/redes-sociais/")) return "process_social";
   if (normalized.startsWith("/empresas")) return "companies";
   if (normalized === "/consumo-ia" || normalized.startsWith("/consumo-ia/")) return "ai_usage";
   if (normalized === "/saude-integracoes" || normalized.startsWith("/saude-integracoes/")) return "integration_health";
@@ -148,6 +152,8 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "process_content") return "/criar-conteudo";
   if (route === "process_campaign") return "/lancar-campanha";
   if (route === "process_analysis") return "/analisar-resultados";
+  if (route === "process_relationship") return "/relacionamento";
+  if (route === "process_social") return "/redes-sociais";
   if (route === "companies") return "/empresas";
   if (route === "ai_usage") return "/consumo-ia";
   if (route === "integration_health") return "/saude-integracoes";

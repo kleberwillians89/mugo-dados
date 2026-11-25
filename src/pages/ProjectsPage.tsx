@@ -126,6 +126,7 @@ export default function ProjectsPage({ kind, goals = null, tools = [], onOpen }:
             if (!onOpen || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault(); onOpen(tool.route);
           }}>
+          <span className="planningToolIcon"><tool.icon size={21} aria-hidden="true" /></span>
           <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
           <ArrowRight size={18} aria-hidden="true" className="planningToolArrow" />
         </a>)}

@@ -79,7 +79,7 @@ const privacyPT: Section[] = [
     "TikTok (anúncios e orgânico, somente leitura), Pinterest, LinkedIn, Microsoft Clarity (métricas agregadas) e WhatsApp (mensagens da equipe e do canal conectado).",
   ]},
   {title:"5. Inteligência artificial e pesquisa pública", paragraphs:[
-    "As funções de IA (Tira-dúvidas, criação de conteúdo, briefing, esteira de agentes, clipping) enviam à API da OpenAI a pergunta e o contexto de negócio autorizado daquela empresa. Antes do envio, aplicamos minimização: textos com padrão de e-mail, telefone, CPF ou CNPJ são removidos, dados de compradores vão apenas agregados (totais, nunca a pessoa) e telefone, e-mail e nome de contato de fornecedores não são enviados.",
+    "As funções de IA (Mugô IA, criação de conteúdo, briefing, esteira de agentes, clipping) enviam à API da OpenAI a pergunta e o contexto de negócio autorizado daquela empresa. Antes do envio, aplicamos minimização: textos com padrão de e-mail, telefone, CPF ou CNPJ são removidos, dados de compradores vão apenas agregados (totais, nunca a pessoa) e telefone, e-mail e nome de contato de fornecedores não são enviados.",
     "A pesquisa pública na web (Brave Search) recebe apenas termos públicos, como o nome da marca, o segmento e os concorrentes monitorados; nunca perguntas, métricas, documentos ou dados pessoais.",
     "Conteúdo gerado por IA é uma sugestão e passa por revisão humana da equipe antes de ser publicado ou enviado ao cliente.",
   ]},

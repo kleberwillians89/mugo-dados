@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { ArrowRight, BarChart3, CalendarDays, FileText, HeartPulse, Mail, Megaphone, MessageCircle, MessageSquare, PenLine, Search, ShoppingCart, Sparkles, Target, UserPlus, Users } from "lucide-react";
+import { ArrowRight, BarChart3, CalendarDays, FileText, HeartPulse, Instagram, Linkedin, Mail, Megaphone, MessageCircle, MessageSquare, Music2, Newspaper, PenLine, Pin, Search, ShoppingCart, Sparkles, Target, UserPlus, Users } from "lucide-react";
 import { getActiveClientName } from "../app/activeClient";
 import { getPathForRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
@@ -7,7 +7,7 @@ import PageHeader from "../components/data/PageHeader";
 import { requestGoalsSection, requestNewProject, requestWhatsAppArea } from "../app/newProjectRequest";
 import "../styles/process-entry.css";
 
-export type ProcessKind = "planning" | "content" | "campaign" | "analysis";
+export type ProcessKind = "planning" | "content" | "campaign" | "relationship" | "analysis" | "social";
 
 type Tool = {
   label: string;
@@ -15,8 +15,11 @@ type Tool = {
   route: AppRoute;
   icon: typeof Sparkles;
   permission?: string;
+  /** Abre direto uma área do WhatsApp (Disparos em massa, Modelos). */
+  whatsappArea?: "bulk" | "models";
 };
 
+// Cada ferramenta mora em um card só. A Mugô IA fica no menu lateral, abaixo de Meu trabalho.
 const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[] }> = {
   planning: {
     title: "Planejar",
@@ -39,49 +42,53 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
       { label: "Redação", description: "Produza e refine textos no editor profissional.", route: "redacao", icon: PenLine },
       { label: "Criadores", description: "Consulte e organize criadores para as ações.", route: "creators", icon: Users },
       { label: "Eventos", description: "Planeje produções e eventos da marca.", route: "production", icon: CalendarDays },
+      { label: "Clipping", description: "Notícias, alertas e menções da marca para pautar conteúdo.", route: "clipping", icon: Newspaper },
     ],
   },
   campaign: {
     title: "Lançar campanha",
-    lead: "Ative os canais da campanha. Os resultados detalhados de cada um ficam em Analisar resultados.",
+    lead: "Crie e acompanhe a mídia paga. A IA lê as campanhas ativas da Meta e do Google.",
     tools: [
-      { label: "Mídia On", description: "Campanhas, criativos, verba e indicadores de mídia.", route: "media", icon: Target },
+      { label: "Mídia On", description: "Campanhas, criativos, verba e leitura da IA.", route: "media", icon: Target },
+      { label: "Meta", description: "Resultados de mídia e presença nos canais Meta.", route: "meta", icon: Megaphone },
+      { label: "Google", description: "Resultados de mídia e dados do Google.", route: "google", icon: Search },
+    ],
+  },
+  relationship: {
+    title: "Relacionamento",
+    lead: "Fale com a base: e-mail, WhatsApp, captação e comentários.",
+    tools: [
       { label: "E-mail Marketing", description: "Crie e envie campanhas de e-mail para a base.", route: "email_marketing", icon: Mail },
       { label: "Captação", description: "Capte e organize os contatos da operação.", route: "capture", icon: UserPlus },
+      { label: "Comentários", description: "Responda comentários e interações das redes.", route: "engagement", icon: MessageSquare },
+      { label: "Disparos em massa", description: "Envie campanhas pelo WhatsApp para listas da base.", route: "whatsapp", icon: MessageCircle, whatsappArea: "bulk" },
+      { label: "Modelos de campanha", description: "Consulte e envie modelos de mensagem para aprovação.", route: "whatsapp", icon: MessageCircle, whatsappArea: "models" },
+      { label: "WhatsApp", description: "Conversas, atendimentos e resultados.", route: "whatsapp", icon: MessageCircle },
     ],
   },
   analysis: {
-    title: "Analisar resultados",
-    lead: "Leia os resultados da marca, dos canais e do negócio nas telas já disponíveis.",
+    title: "CRM",
+    lead: "Vendas, clientes e saúde da marca: o resultado do negócio.",
     tools: [
-      { label: "Saúde da Marca", description: "Acompanhe os indicadores de presença e consistência.", route: "brand_health", icon: HeartPulse },
-      { label: "Meta", description: "Consulte mídia e presença nos canais Meta.", route: "meta", icon: Megaphone },
-      { label: "Google", description: "Consulte mídia e dados disponíveis do Google.", route: "google", icon: Search },
-      { label: "Redes sociais", description: "Acompanhe os demais canais sociais conectados.", route: "channels", icon: Users },
       { label: "Vendas", description: "Entenda a origem das vendas registradas.", route: "origins", icon: ShoppingCart },
       { label: "E-commerce", description: "Acompanhe loja, pedidos e produtos.", route: "ecommerce", icon: ShoppingCart },
-      { label: "CRM", description: "Consulte clientes e relacionamento.", route: "customers", icon: Users },
-      { label: "Clipping", description: "Veja notícias, alertas e sinais da marca.", route: "clipping", icon: Search },
+      { label: "Clientes", description: "Consulte clientes, recorrência e relacionamento.", route: "customers", icon: Users },
       { label: "Relatórios", description: "Abra os relatórios consolidados disponíveis.", route: "social_report", icon: FileText },
-      // Antes ficavam em "Ferramentas complementares" no Início.
-      { label: "Tira-dúvidas", description: "Pergunte à IA sobre os dados e a marca.", route: "mugo_ia", icon: Sparkles },
+      { label: "Saúde da Marca", description: "Acompanhe os indicadores de presença e consistência.", route: "brand_health", icon: HeartPulse },
       { label: "O que a IA fez", description: "Propostas e ações da IA na base de clientes.", route: "ai_actions", icon: Sparkles },
     ],
   },
+  social: {
+    title: "Redes sociais",
+    lead: "Desempenho de cada rede conectada.",
+    tools: [
+      { label: "Instagram e Facebook", description: "Seguidores, alcance e publicações dos canais Meta.", route: "channels", icon: Instagram },
+      { label: "TikTok", description: "Vídeos, visualizações e crescimento.", route: "tiktok", icon: Music2 },
+      { label: "Pinterest", description: "Pins, impressões e salvamentos.", route: "pinterest", icon: Pin },
+      { label: "LinkedIn", description: "Página da empresa, seguidores e engajamento.", route: "linkedin", icon: Linkedin },
+    ],
+  },
 };
-
-// E-mail Marketing e Captação têm o acesso operacional em Lançar campanha; os resultados deles seguem nas próprias telas.
-// O WhatsApp aparece aqui pelos resultados e em Meu trabalho pela operação (a mesma ferramenta).
-const RELATIONSHIP_TOOLS: Tool[] = [
-  { label: "WhatsApp", description: "Resultados das conversas, atendimentos e disparos.", route: "whatsapp", icon: MessageCircle },
-  { label: "Comentários", description: "Acompanhe comentários e interações disponíveis.", route: "engagement", icon: MessageSquare },
-];
-
-// Lançar campanha: atalhos para áreas do WhatsApp (a ferramenta continua uma só, em Meu trabalho).
-const WHATSAPP_SHORTCUTS = [
-  { label: "Disparos em massa", description: "Envie campanhas pelo WhatsApp para listas da base.", area: "bulk" },
-  { label: "Modelos de campanha", description: "Consulte e envie modelos de mensagem para aprovação.", area: "models" },
-] as const;
 
 type Props = {
   kind: ProcessKind;
@@ -93,7 +100,6 @@ type Props = {
 export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
   const process = PROCESSES[kind];
   const tools = process.tools.filter((tool) => canView(tool.route) && (!tool.permission || canUse(tool.permission)));
-  const relationshipTools = kind === "analysis" ? RELATIONSHIP_TOOLS.filter((tool) => canView(tool.route)) : [];
 
   function open(event: ReactMouseEvent<HTMLAnchorElement>, route: AppRoute) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -163,39 +169,16 @@ export default function ProcessEntry({ kind, canView, canUse, onOpen }: Props) {
     {tools.length ? <div className="processToolGrid" aria-label={`Ferramentas de ${process.title}`}>
       {tools.map((tool, index) => {
         const Icon = tool.icon;
-        return <a key={`${tool.label}:${tool.route}`} className="processToolCard" data-accent={index % 6} href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
+        const href = `${getPathForRoute(tool.route)}${tool.whatsappArea ? `?area=${tool.whatsappArea}` : ""}`;
+        return <a key={`${tool.label}:${tool.route}`} className="processToolCard" data-accent={index % 6} href={href} onClick={(event) => {
+          if (tool.whatsappArea && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) requestWhatsAppArea(tool.whatsappArea);
+          open(event, tool.route);
+        }}>
           <span className="processToolIcon"><Icon size={20} aria-hidden="true" /></span>
           <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
           <ArrowRight size={18} aria-hidden="true" className="processToolArrow" />
         </a>;
       })}
     </div> : null}
-    {kind === "campaign" && canView("whatsapp") ? <section className="processToolSection" aria-labelledby="process-whatsapp-title">
-      <h2 id="process-whatsapp-title">WhatsApp</h2>
-      <div className="processToolGrid">
-        {WHATSAPP_SHORTCUTS.map((item, index) => <a key={item.area} className="processToolCard" data-accent={(index + 3) % 6}
-          href={`${getPathForRoute("whatsapp")}?area=${item.area}`} onClick={(event) => {
-            if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) requestWhatsAppArea(item.area);
-            open(event, "whatsapp");
-          }}>
-          <span className="processToolIcon"><MessageCircle size={20} aria-hidden="true" /></span>
-          <span><strong>{item.label}</strong><small>{item.description}</small></span>
-          <ArrowRight size={18} aria-hidden="true" className="processToolArrow" />
-        </a>)}
-      </div>
-    </section> : null}
-    {relationshipTools.length ? <section className="processToolSection" aria-labelledby="process-relationship-title">
-      <h2 id="process-relationship-title">Relacionamento</h2>
-      <div className="processToolGrid">
-        {relationshipTools.map((tool, index) => {
-          const Icon = tool.icon;
-          return <a key={`${tool.label}:${tool.route}`} className="processToolCard" data-accent={(index + 3) % 6} href={getPathForRoute(tool.route)} onClick={(event) => open(event, tool.route)}>
-            <span className="processToolIcon"><Icon size={20} aria-hidden="true" /></span>
-            <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
-            <ArrowRight size={18} aria-hidden="true" className="processToolArrow" />
-          </a>;
-        })}
-      </div>
-    </section> : null}
   </div></Shell>;
 }

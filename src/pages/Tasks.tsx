@@ -48,7 +48,7 @@ function TasksSummary() {
 
 /** Tarefas da empresa ativa, em quadro, guardadas no Mugoverso. Quem gerencia cria, edita e move. */
 export default function Tasks({ canManage = true, isAgency = true, onOpenWhatsApp }: { canManage?: boolean; isAgency?: boolean;
-  /** Atendimento no WhatsApp (mesma ferramenta de Analisar resultados): atalho operacional, separado das tarefas. */
+  /** Atendimento no WhatsApp (mesma ferramenta de Relacionamento): atalho operacional, separado das tarefas. */
   onOpenWhatsApp?: () => void }) {
   const refresh = useRef<() => void>(() => undefined);
   return <Shell title="Tarefas" variant="editorial"><div className="ds-page studioPage mugoBrand">

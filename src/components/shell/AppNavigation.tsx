@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Activity, BrainCircuit, Building2, ChevronDown, Circle, ClipboardList, Cpu, CreditCard, Home, LayoutDashboard,
-  Library, ListChecks, Menu, PanelLeftClose, PanelLeftOpen, Plug, Settings, UserCog, Workflow, X, type LucideIcon,
+  Library, ListChecks, Menu, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Plug, Settings, UserCog, Workflow, X, type LucideIcon,
 } from "lucide-react";
 import type { ClientMembership } from "../../app/api";
 import { MUGO_LOGO_ASSETS, PRODUCT_WORDMARK } from "../MugoLogo";
@@ -42,7 +42,7 @@ const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
   home: Home, central: LayoutDashboard, tasks: ListChecks, library: Library,
   integrations: Plug, users: UserCog, companies: Building2, integration_health: Activity, plan: ClipboardList,
-  plans_admin: CreditCard, ai_usage: Cpu, automations: Workflow, brand_ai: BrainCircuit,
+  plans_admin: CreditCard, ai_usage: Cpu, automations: Workflow, brand_ai: BrainCircuit, mugo_ia: MessageCircleQuestion,
 };
 
 // A nova navegação orienta o acesso sem substituir nenhuma ferramenta. Os quatro
@@ -51,6 +51,7 @@ const PRIMARY_ITEMS: NavItem[] = [
   { route: "home", label: "Início" },
   { route: "central", label: "Dashboard" },
   { route: "tasks", label: "Meu trabalho" },
+  { route: "mugo_ia", label: "Mugô IA" },
   { route: "library", label: "Biblioteca" },
 ];
 

@@ -40,7 +40,13 @@ describe("platform routes", () => {
     expect(canViewAppRoute("process_campaign", (code) => code === "media.view")).toBe(true);
     expect(canViewAppRoute("process_campaign", () => false)).toBe(false);
     expect(canViewAppRoute("process_analysis", (code) => code === "ecommerce.view")).toBe(true);
-    expect(canViewAppRoute("process_analysis", (code) => code === "engagement.view")).toBe(true);
+    expect(canViewAppRoute("process_analysis", (code) => code === "engagement.view")).toBe(false);  // Comentários foi para Relacionamento
+    expect(canViewAppRoute("process_relationship", (code) => code === "engagement.view")).toBe(true);
+    expect(canViewAppRoute("process_relationship", () => false)).toBe(false);
+    expect(canViewAppRoute("process_social", (code) => code === "meta.view")).toBe(true);
+    expect(canViewAppRoute("process_social", () => false)).toBe(false);
+    expect(getAppRouteFromPath("/relacionamento")).toBe("process_relationship");
+    expect(getPathForRoute("process_social")).toBe("/redes-sociais");
     expect(canViewAppRoute("process_analysis", (code) => code === "origins.view")).toBe(true);
     expect(canViewAppRoute("process_analysis", () => false)).toBe(false);
   });
