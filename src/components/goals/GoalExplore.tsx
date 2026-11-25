@@ -1,19 +1,22 @@
 import { useEffect, useState } from "react";
 import Drawer from "../Drawer";
 import Premises from "./GoalPremises";
+import GoalActions from "./GoalActions";
+import type { Person } from "../../app/crm";
 import { GOAL_STATUS, getGoalDrivers, getGoalHistory, goalNumber, suggestGoal, type Goal, type GoalDriver, type GoalHistoryEvent,
   type GoalMetric, type GoalSuggestion } from "../../app/goals";
 
-type Tab = "indicadores" | "cenarios" | "fonte" | "historico";
-const TABS: [Tab, string][] = [["indicadores", "Indicadores relacionados"], ["cenarios", "Cenários"], ["fonte", "Fonte e limitações"], ["historico", "Histórico"]];
+type Tab = "indicadores" | "acoes" | "cenarios" | "fonte" | "historico";
+const TABS: [Tab, string][] = [["indicadores", "Indicadores relacionados"], ["acoes", "Diagnóstico e ações"], ["cenarios", "Cenários"], ["fonte", "Fonte e limitações"], ["historico", "Histórico"]];
 const when = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 /**
  * Detalhamento de uma meta: indicadores que a influenciam (com o valor necessário), cenários com premissas,
  * fonte, cobertura e limitações, e o histórico de alterações. Criar submeta só com confirmação da pessoa.
  */
-export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName }: { goal: Goal | null; onClose: () => void;
-  onCreateSubgoal?: (driver: GoalDriver, relation: string | null) => void; ownerName?: (id?: string | null) => string | null }) {
+export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName, people = [], canCreateTasks = false, initialTab = "indicadores" }: { goal: Goal | null; onClose: () => void;
+  onCreateSubgoal?: (driver: GoalDriver, relation: string | null) => void; ownerName?: (id?: string | null) => string | null;
+  people?: Person[]; canCreateTasks?: boolean; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>("indicadores");
   const [drivers, setDrivers] = useState<{ relation: string | null; drivers: GoalDriver[]; note: string } | null>(null);
   const [suggestion, setSuggestion] = useState<GoalSuggestion | null>(null);
@@ -25,7 +28,7 @@ export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName 
     if (!goal) return undefined;
     let alive = true;
     const t = window.setTimeout(() => {
-      setTab("indicadores"); setDrivers(null); setSuggestion(null); setHistory(null); setError(null);
+      setTab(initialTab); setDrivers(null); setSuggestion(null); setHistory(null); setError(null);
       getGoalDrivers(goal.id).then((r) => { if (alive) setDrivers(r); }).catch(() => { if (alive) setError("Não foi possível ler os indicadores relacionados."); });
     }, 0);
     return () => { alive = false; window.clearTimeout(t); };
@@ -58,6 +61,8 @@ export default function GoalExplore({ goal, onClose, onCreateSubgoal, ownerName 
           {drivers.drivers.length ? <p className="libHint">{drivers.note} Nada é criado sozinho: a submeta só existe se você confirmar.</p> : null}
         </>}
       </div> : null}
+
+      {tab === "acoes" ? <GoalActions goal={goal} people={people} canCreateTasks={canCreateTasks} /> : null}
 
       {tab === "cenarios" ? <div>
         {!suggestion ? <p className="libHint">Lendo o histórico…</p> : !suggestion.available ? <p className="libHint">{suggestion.reason}</p> : <>

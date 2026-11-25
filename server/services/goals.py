@@ -202,7 +202,8 @@ async def list_goals(client_id, start=None, end=None, *, include_actuals=True):
             try: cache[key]=await resolve_goal_actual(client_id,*key)
             except Exception: cache[key]=unavailable("A fonte persistida não pôde ser lida agora.")
         results.append(evaluate_goal(goal,cache[key]))
-    return {"ok":True, "client_id":client_id, "goals":results}
+    from .goal_ops import alerts
+    return {"ok":True, "client_id":client_id, "goals":results, "alerts":alerts(results)}
 
 
 # ---------------------------------------------------------------- desdobramento (indicadores relacionados)
