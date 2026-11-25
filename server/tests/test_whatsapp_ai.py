@@ -305,3 +305,18 @@ class HumanReplyTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GroupQuickReplyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_entrar_no_grupo_usa_convite_configurado_sem_chamar_modelo(self):
+        invite = "https://chat.whatsapp.com/example"
+        settings = {**SETTINGS, "mode": "auto", "ad_group_link": invite, "ad_group_message": "Convite: {link}"}
+        incoming = [{**ProcessThreadTests.messages[0], "type": "button", "text": "Entrar no grupo"}]
+        with patch.object(ai, "_thread_messages", AsyncMock(return_value=incoming)), \
+             patch.object(ai, "_number", AsyncMock(return_value={"id": "n1"})), \
+             patch.object(ai, "decide", AsyncMock()) as decide, \
+             patch.object(ai, "send_decision", AsyncMock(return_value=1)) as send, \
+             patch.object(ai, "_save_insight", AsyncMock()):
+            self.assertEqual(await ai.process_thread("roove", dict(ProcessThreadTests.thread), settings), "respondida")
+        self.assertEqual(send.await_args.args[3]["reply"], f"Convite: {invite}")
+        decide.assert_not_awaited()
