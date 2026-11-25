@@ -21,10 +21,10 @@ import InstagramInbox from "../components/whatsapp/InstagramInbox";
 import WhatsAppAiAttendant, { AiExtras } from "../components/whatsapp/WhatsAppAiAttendant";
 import "../styles/whatsapp.css";
 
-type Filter = "all" | "ad" | "bought" | "waiting";
+type Filter = "all" | "campaign" | "ad" | "bought" | "waiting";
 type WorkspaceView = "conversations" | "ai" | "models" | "analytics" | "connection" | "bulk";
 const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "Todas" }, { key: "ad", label: "De anúncio" },
+  { key: "all", label: "Recentes" }, { key: "campaign", label: "Campanhas" }, { key: "ad", label: "De anúncio" },
   { key: "bought", label: "Compraram" }, { key: "waiting", label: "Sem resposta" },
 ];
 
@@ -177,6 +177,8 @@ export default function WhatsApp() {
   const conversations = useMemo(() => {
     const term = query.trim().toLowerCase();
     return (inbox.data?.conversations || []).filter((conv) => {
+      if (filter === "all" && !term && conv.has_campaign && !conv.service_window_expires_at) return false;
+      if (filter === "campaign" && !conv.has_campaign) return false;
       if (filter === "ad" && conv.origin.bucket !== "ad") return false;
       if (filter === "bought" && !conv.purchase) return false;
       if (filter === "waiting" && !isWaiting(conv)) return false;
@@ -411,6 +413,7 @@ export default function WhatsApp() {
                     </span>
                     <span className="waTags">
                       <span className={`waTag is-${conv.origin.bucket}`}>{conv.origin.label}</span>
+                      {conv.has_campaign ? <span className="waTag is-link">Campanha</span> : null}
                       {conv.insight ? <span className={`waTag is-stage-${conv.insight.stage}`}>{STAGE_LABELS[conv.insight.stage] || conv.insight.stage}</span> : null}
                       {conv.purchase ? <span className="waTag is-bought">Comprou {money(conv.purchase.revenue)}</span> : null}
                       {!conv.purchase && isWaiting(conv) ? <span className="waTag is-waiting">Aguardando resposta</span> : null}
@@ -444,7 +447,7 @@ export default function WhatsApp() {
                     <li key={m.id} className={`waBubble${isOutbound(m.direction) ? " is-out" : ""}${m.by_ai ? " is-ai" : ""}${m.failed ? " is-failed" : ""}`}>
                       <p>{m.text || (m.template_name ? `Modelo: ${m.template_name}` : `[${m.type}]`)}</p>
                       {m.payload ? <AiExtras buttons={m.payload.buttons || []} products={m.payload.cards === false || !m.payload.products ? [] : m.payload.products} /> : null}
-                      <small>{m.by_ai ? "IA · " : ""}{fullWhen(m.at)}{isOutbound(m.direction) && m.read_at ? " · lida" : ""}{m.failed ? " · falhou" : ""}</small>
+                      <small>{m.payload?.campaign_id ? "Campanha · " : m.by_ai ? "IA · " : ""}{fullWhen(m.at)}{m.failed ? " · falhou" : isOutbound(m.direction) && (m.read_at || m.status === "read") ? " · lida" : m.payload?.campaign_id && m.status === "delivered" ? " · entregue" : m.payload?.campaign_id && m.status === "sent" ? " · enviada" : ""}</small>
                     </li>
                   ))}
                   {open.purchase ? (
