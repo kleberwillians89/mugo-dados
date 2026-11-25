@@ -106,6 +106,7 @@ async def create_template(client_id: str, *, payload: Dict[str, Any]) -> Dict[st
         name=payload.get("name", ""), category=payload.get("category", ""),
         language=payload.get("language", "pt_BR"), body=payload.get("body", ""),
         examples=payload.get("examples") or [], footer=payload.get("footer", ""),
+            buttons=payload.get("buttons") or None,
     )
     data = await _request(client_id, method="POST", payload=validated)
     template = data.get("template") or {}

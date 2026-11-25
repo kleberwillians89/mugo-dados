@@ -202,7 +202,9 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
 
 export default function CampaignsPanel({ canEdit }: { canEdit: boolean }) {
   const [list, setList] = useState<CampaignSummary[] | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  // ?campanha=<id>: abre direto a campanha (ex.: o "Abrir" de um rascunho criado pela Mugô IA).
+  const [open, setOpen] = useState<string | null>(() => (typeof window === "undefined" ? null
+    : new URLSearchParams(window.location.search).get("campanha")));
   const [error, setError] = useState("");
 
   const load = useCallback(() => listCampaigns().then((out) => setList(out.campaigns))

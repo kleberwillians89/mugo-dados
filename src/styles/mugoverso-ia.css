@@ -127,3 +127,13 @@
 .miaAssistTools small{color:var(--text-muted,#6b7075)}
 .miaAssistForm{display:flex;gap:8px;align-items:flex-end;width:100%}
 .miaAssistForm textarea{flex:1;resize:vertical;min-height:44px;border-radius:12px;border:1px solid var(--border-subtle,#d9dde1);padding:10px 12px;font:inherit}
+.miaCreateList{display:grid;gap:10px;margin-top:12px}
+.miaCreateList .miaCreate{margin-top:0}
+.miaCreateCount{color:var(--text-muted,#6b7075);font-weight:600}
+.miaCreateWa{margin:0;padding:10px 12px;border-radius:10px;background:#fff;border:1px solid var(--mia-line,#e3e6e9);white-space:pre-wrap;line-height:1.5}
+.miaCreateWa small{display:block;margin-top:6px;color:var(--text-muted,#6b7075)}
+.miaCreateButton{display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr);gap:8px 12px;align-items:end}
+.miaCreateButton label{display:grid;gap:4px;font-size:13px;color:var(--text-muted,#6b7075)}
+.miaCreateButton input{min-height:38px;border-radius:10px;border:1px solid var(--border-subtle,#d9dde1);padding:0 10px;font:inherit;color:var(--text-primary,#15181b)}
+.miaCreateButton small{grid-column:1/-1;color:var(--text-muted,#6b7075)}
+@media(max-width:640px){.miaCreateButton{grid-template-columns:1fr}}

@@ -504,19 +504,26 @@ export function clearBrandAgent() { return http<{ ok: true }>(base("/brand-agent
 export type MugoIACoverage = { read: string[]; gaps: string[] };
 export type MugoIAWebSource = { title: string; url: string; researched_at: string; snippet?: string };
 /** Proposta de criação da Mugô IA: o botão Criar vira rascunho na ferramenta (nunca envia nem publica). */
-export type MugoIAAction = { tipo: "email" | "campanha_meta" | "briefing"; status: "proposta" | "criado"; titulo: string; pedido: string;
+export type MugoIAAction = { tipo: "email" | "campanha_meta" | "briefing" | "whatsapp_modelo"; status: "proposta" | "criado"; titulo: string; pedido: string;
   assunto?: string; preheader?: string; email_titulo?: string; email_texto?: string; botao?: string;
-  objetivo?: string; verba_diaria?: number; dias?: number;
-  criado?: { id: string; name?: string; route: AppRoute; label: string } };
-export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction };
+  objetivo?: string; verba_diaria?: number; dias?: number; wa_corpo?: string; wa_rodape?: string; wa_nome?: string; wa_botao_texto?: string; wa_botao_url?: string;
+  criado?: { id: string; name?: string; route: AppRoute; label: string; status?: string } };
+export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction; acoes?: MugoIAAction[] };
 export type MugoIAMessage = { id: string | null; role: "user" | "assistant"; content: string; created_at?: string; meta?: MugoIAMeta };
-export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction };
-export function createFromMugoIA(messageId: string) {
-  return http<{ ok: true; acao: MugoIAAction; already: boolean }>(base(`/mugo-ia/${encodeURIComponent(messageId)}/criar`), { method: "POST", timeoutMs: 180_000 });
+export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction; acoes?: MugoIAAction[] };
+/** Peças de uma resposta (pacote novo ou a proposta única das respostas antigas). */
+export function mugoIAActions(meta?: MugoIAMeta): MugoIAAction[] {
+  return meta?.acoes?.length ? meta.acoes : meta?.acao ? [meta.acao] : [];
+}
+export function createFromMugoIA(messageId: string, item = 0, edits?: { wa_botao_texto?: string; wa_botao_url?: string }) {
+  return http<{ ok: true; acao: MugoIAAction; item: number; already: boolean }>(
+    base(`/mugo-ia/${encodeURIComponent(messageId)}/criar?item=${item}`),
+    { method: "POST", timeoutMs: 180_000, ...(edits ? { body: JSON.stringify(edits) } : {}) });
 }
 export function getMugoIA() { return http<{ messages: MugoIAMessage[] }>(base("/mugo-ia")); }
 export function askMugoIA(question: string, screen?: string) {
-  return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question, ...(screen ? { screen } : {}) }), timeoutMs: 120_000 });
+  // Modelo forte que raciocina: dá mais tempo para a resposta (pesquisa + leitura + peças).
+  return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question, ...(screen ? { screen } : {}) }), timeoutMs: 210_000 });
 }
 export function clearMugoIA() { return http<{ ok: true }>(base("/mugo-ia"), { method: "DELETE" }); }
 

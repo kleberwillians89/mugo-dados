@@ -3,7 +3,7 @@ import { ArrowUp, BookmarkPlus, Check, CornerDownRight, Plus, Sparkles } from "l
 import { getActiveClientName } from "../app/activeClient";
 import { addKnowledgeFacts, askMugoIA, clearMugoIA, getMugoIA, type MugoIAMessage } from "../app/studio";
 import Shell from "../components/Shell";
-import MugoIAAction from "../components/mugoIA/MugoIAAction";
+import MugoIAActions from "../components/mugoIA/MugoIAActions";
 import "../styles/studio.css";
 import "../styles/mugoverso-ia.css";
 
@@ -73,7 +73,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
     try {
       const res = await askMugoIA(q);
       setMessages((m) => [...(m || []), { id: res.id, role: "assistant", content: res.answer,
-        meta: { on_topic: res.on_topic, sources: res.sources, new_facts: res.new_facts, follow_ups: res.follow_ups, coverage: res.coverage, web_sources: res.web_sources, web_status: res.web_status, acao: res.acao } }]);
+        meta: { on_topic: res.on_topic, sources: res.sources, new_facts: res.new_facts, follow_ups: res.follow_ups, coverage: res.coverage, web_sources: res.web_sources, web_status: res.web_status, acao: res.acao, acoes: res.acoes } }]);
     } catch (cause) {
       setMessages((m) => (m || []).slice(0, -1));
       setText(q);
@@ -133,8 +133,8 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
             <div className="miaBotBody">
               <small className="miaName">Mugô IA</small>
               <AnswerBody text={m.content} />
-              {m.meta?.acao ? <MugoIAAction messageId={m.id} action={m.meta.acao} canCreate={canManage}
-                onChange={(acao) => setMessages((list) => (list || []).map((x) => (x === m ? { ...x, meta: { ...x.meta, acao } } : x)))} /> : null}
+              <MugoIAActions messageId={m.id} meta={m.meta} canCreate={canManage}
+                onMeta={(meta) => setMessages((list) => (list || []).map((x) => (x === m ? { ...x, meta } : x)))} />
               {m.meta?.sources?.length || (isLast && m.meta?.coverage?.gaps?.length) ? <div className="miaMeta">
                 {m.meta?.sources?.length ? <div className="miaChips"><span className="miaChipsLabel">Com base em</span>
                   {m.meta.sources.map((s) => <span key={s} className="miaChip">{s}</span>)}</div> : null}
