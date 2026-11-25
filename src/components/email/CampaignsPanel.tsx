@@ -3,7 +3,7 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { formatDateTimeSaoPaulo } from "../../app/dataFormat";
 import { getActiveClientId } from "../../app/activeClient";
 import {
-  cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, listRelationshipLists, preflightCampaign, previewAudience, previewEmail, scheduleCampaign,
+  cancelCampaign, createCampaign, deleteCampaign, getCampaign, importEmailConsents, listCampaigns, listRelationshipLists, preflightCampaign, previewAudience, previewEmail, scheduleCampaign,
   SEGMENT_LABEL, sendTestEmail, STATUS_LABEL, updateCampaign, VARIABLE_HINT,
   type Audience, type AudiencePreview, type RelationshipList, type Campaign, type CampaignStats, type CampaignSummary, type HtmlReport, type Segment,
 } from "../../app/emailMarketing";
@@ -36,6 +36,8 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   const [audience, setAudience] = useState<AudiencePreview | null>(null);
   const [savedLists, setSavedLists] = useState<RelationshipList[]>([]);
   const [report, setReport] = useState<HtmlReport | null>(null);
+  const [consentFile, setConsentFile] = useState<File | null>(null);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [testTo, setTestTo] = useState("");
   const [when, setWhen] = useState("");
   const [busy, setBusy] = useState("");
@@ -45,6 +47,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   useEffect(() => {
     let alive = true;
     setCampaign(null); setAudience(null); setStats(null);
+    setConsentFile(null); setConsentConfirmed(false);
     getCampaign(id).then((out) => {
       if (!alive) return;
       setCampaign(out.campaign); setStats(out.stats); setMode(out.campaign.custom_html ? "html" : "blocos");
@@ -135,6 +138,21 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
               ) : null}
               <p className="emHint">Segurança de marketing: somente contatos com aceite comprovado
                 na plataforma conectada. Importar uma lista não cria consentimento.</p>
+              {editable && ["planilha", "leads_unificados"].includes(campaign.audience.segment) ? (
+                <div>
+                  <label>Planilha de aceites de e-mail <input type="file" accept=".xlsx,.csv"
+                    onChange={(event) => { setConsentFile(event.target.files?.[0] ?? null); setConsentConfirmed(false); }} /></label>
+                  <label><input type="checkbox" checked={consentConfirmed}
+                    onChange={(event) => setConsentConfirmed(event.target.checked)} />
+                    A coluna de aceite corresponde a receber marketing por e-mail desta marca.</label>
+                  <button type="button" className="ds-button" disabled={!!busy || !consentFile || !consentConfirmed}
+                    onClick={() => void run("import", async () => {
+                      const result = await importEmailConsents(consentFile!);
+                      setAudience(await previewAudience(campaign.audience));
+                      setMessage(`${int(result.with_consent)} aceites registrados na planilha. Confira o público elegível abaixo.`);
+                    })}>Importar aceites</button>
+                </div>
+              ) : null}
               {canEdit ? (
                 <button type="button" className="ds-button" disabled={!!busy}
                   onClick={() => void run("audience", async () => setAudience(await previewAudience(campaign.audience)))}>

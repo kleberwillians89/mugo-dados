@@ -2,6 +2,8 @@
 admin do cliente. Descadastro e webhook do Resend são públicos (token assinado / assinatura Svix)."""
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from typing import Any, Dict, Optional
 
@@ -99,6 +101,30 @@ async def email_delete_list(list_id: str, client_id: str | None = Query(default=
         await relationship_lists.delete_list(cid, list_id)
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/import-consents")
+async def email_import_consents(payload: Dict[str, Any] = Body(...),
+                                x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                authorization: str | None = Header(default=None)):
+    from services.relationship_contacts import ContactSyncError
+
+    cid = await require_client_role(x_client_id, authorization, allowed_roles=WRITERS)
+    if payload.get("consent_confirmed") is not True:
+        raise HTTPException(422, "Confirme que a coluna é específica para marketing por e-mail.")
+    encoded = payload.get("content_base64")
+    if not isinstance(encoded, str) or len(encoded) > 12_000_000:
+        raise HTTPException(422, "Arquivo ausente ou grande demais.")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        user_id = await require_user_id(authorization)
+        return await email_marketing.import_email_consents(cid, str(payload.get("filename") or ""), raw, user_id)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(422, "Arquivo inválido.") from exc
+    except ContactSyncError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+    except email_marketing.EmailError as exc:
         raise _fail(exc) from exc
 
 
