@@ -392,6 +392,7 @@ class BulkSendIn(BaseModel):
 
 
 class BulkTestIn(BaseModel):
+    recipient_name: Optional[str] = Field(default=None, max_length=100)
     phone: str = Field(min_length=8, max_length=32, pattern=r"^[+0-9() .-]+$")
     template_name: str = Field(min_length=3, max_length=81, pattern=r"^[a-z0-9_]+$")
     language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")

@@ -111,9 +111,9 @@ async def recipients(client_id: str, provider: str, selection: Optional[List[str
         for r in await _pages("whatsapp_threads", "wa_id,profile_name", {"client_id": f"eq.{client_id}"}, "first_seen_at.asc"):
             add(r.get("wa_id"), r.get("profile_name"))
     if provider in ("all", "capture"):
-        for r in await _pages("lead_capture_events", "phone_ciphertext",
+        for r in await _pages("lead_capture_events", "phone_ciphertext,name_ciphertext",
                               {"client_id": f"eq.{client_id}", "phone_ciphertext": "not.is.null"}, "id.asc"):
-            add(_plain(r.get("phone_ciphertext")), None)
+            add(_plain(r.get("phone_ciphertext")), _plain(r.get("name_ciphertext")))
     return list(out.values())[:MAX_RECIPIENTS]
 
 
@@ -174,7 +174,7 @@ def _check_template(template: Dict[str, Any], header_media_url: Optional[str]) -
 
 
 async def send_test(client_id: str, *, phone: str, template_name: str, language: str,
-                    header_media_url: Optional[str]) -> bool:
+                    header_media_url: Optional[str], recipient_name: Optional[str] = None) -> bool:
     from .whatsapp_native import WhatsAppNativeError, send_template
 
     digits = normalize_phone(phone)
@@ -188,7 +188,11 @@ async def send_test(client_id: str, *, phone: str, template_name: str, language:
     header = ({"type": HEADER_KINDS[template["header"]], "link": header_media_url}
               if template.get("header") in HEADER_KINDS else None)
     receipt: Dict[str, str] = {}
-    params = ["cliente"] if int(template.get("variables") or 0) == 1 else []
+    name = first_name(recipient_name)
+    personalized = int(template.get("variables") or 0) == 1
+    if personalized and name.casefold() == "cliente":
+        raise BulkSendError("Informe o primeiro nome da pessoa para testar este modelo.")
+    params = [name] if personalized else []
     try:
         message_id = await send_template(
             client_id, number_id=None, to=digits, template=template_name, language=language,
@@ -361,6 +365,8 @@ async def run(client_id: str, draft: Dict[str, Any], people: List[Dict[str, str]
                 row["status"] = "skipped"; row["error"] = "Pediu para sair"
             elif canonical_key in previous:
                 row["status"] = "skipped"; row["error"] = "Já recebeu este modelo"
+            elif variables == 1 and first_name(person.get("name")).casefold() == "cliente":
+                row["status"] = "skipped"; row["error"] = "Contato sem primeiro nome válido"
             else:
                 try:
                     receipt: Dict[str, str] = {}

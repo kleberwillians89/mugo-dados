@@ -25,14 +25,15 @@ def test_recipients_junta_origens_sem_repetir():
     tables = {
         "relationship_contacts": [{"phone_ciphertext": "c1", "name_ciphertext": "n1"}],
         "whatsapp_threads": [{"wa_id": "5511988887777", "profile_name": "Ana"}, {"wa_id": "5521977776666", "profile_name": "Bia"}],
-        "lead_capture_events": [{"phone_ciphertext": "c2"}],
+        "lead_capture_events": [{"phone_ciphertext": "c2", "name_ciphertext": "n2"}],
     }
-    plain = {"c1": "(11) 98888-7777", "n1": "Ana Souza", "c2": "21 96666-5555"}
+    plain = {"c1": "(11) 98888-7777", "n1": "Ana Souza", "c2": "21 96666-5555", "n2": "Mariana Dias"}
     with patch.object(send, "sb_select", AsyncMock(side_effect=_select_factory(tables))), \
             patch.object(send, "decrypt_secret", side_effect=lambda v: plain[v]):
         people = asyncio.run(send.recipients("roove", "all"))
     assert [p["phone"] for p in people] == ["5511988887777", "5521977776666", "5521966665555"]
     assert people[0]["name"] == "Ana"
+    assert people[2]["name"] == "Mariana"
 
 
 def test_run_envia_pula_quem_saiu_e_conta():
@@ -216,11 +217,11 @@ def test_envio_de_teste_faz_uma_chamada_para_o_numero_informado():
             patch.object(send, "sb_rpc", AsyncMock()) as record, \
             patch("services.whatsapp_native.send_template", sender):
         saved = asyncio.run(send.send_test("roove", phone="(11) 98888-7777", template_name="bf_roove",
-                                           language="pt_BR", header_media_url=None))
+                                           language="pt_BR", header_media_url=None, recipient_name="Kleber Willians"))
     assert saved is True
     sender.assert_awaited_once()
     assert sender.await_args.kwargs["to"] == "5511988887777"
-    assert sender.await_args.kwargs["params"] == ["cliente"]
+    assert sender.await_args.kwargs["params"] == ["Kleber"]
     record.assert_awaited_once()
-    assert record.await_args.args[1]["p_text"] == "Oi, cliente!"
+    assert record.await_args.args[1]["p_text"] == "Oi, Kleber!"
     insert.assert_not_awaited()
