@@ -865,6 +865,14 @@ async def typing(number: Dict[str, Any], message_id: Optional[str]) -> None:
         print(f"[whatsapp_ai] typing_failed {type(exc).__name__}")
 
 
+def group_invite_text(settings: Dict[str, Any]) -> str:
+    link = str(settings.get("ad_group_link") or "").strip()
+    if not link:
+        return ""
+    template = str(settings.get("ad_group_message") or "").strip() or DEFAULT_GROUP_MESSAGE
+    return (template.replace("{link}", link) if "{link}" in template else f"{template}\n{link}")[:1000]
+
+
 async def ad_group_plan(client_id: str, thread: Dict[str, Any], settings: Dict[str, Any]) -> Optional[Dict[str, str]]:
     """Conversa que começou por anúncio (Click-to-WhatsApp) e ainda não recebeu o link do grupo → texto do convite."""
     link = str(settings.get("ad_group_link") or "").strip()
@@ -883,9 +891,7 @@ async def ad_group_plan(client_id: str, thread: Dict[str, Any], settings: Dict[s
         return None
     if not touches:
         return None
-    template = str(settings.get("ad_group_message") or "").strip() or DEFAULT_GROUP_MESSAGE
-    text = template.replace("{link}", link) if "{link}" in template else f"{template}\n{link}"
-    return {"text": text[:1000], "headline": str(touches[0].get("headline") or "")[:120]}
+    return {"text": group_invite_text(settings), "headline": str(touches[0].get("headline") or "")[:120]}
 
 
 async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[str, Any]) -> str:
@@ -897,11 +903,20 @@ async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[
     number = await _number(client_id, thread["number_id"])
     if not number:
         return "numero_desligado"
+    last = str(messages[-1].get("text") or "")
+    if settings["mode"] == "auto" and _norm(last) in {"entrar no grupo", "quero entrar no grupo", "link do grupo", "quero o link do grupo"}:
+        invite = group_invite_text(settings)
+        if invite:
+            decision = {"reply": invite, "buttons": [], "products": [], "handoff": False}
+            await send_decision(client_id, thread, number, decision, meta=None, match=None)
+            await _save_insight(client_id, thread["id"], decision, {
+                "ai_group_sent_at": now.isoformat(), "ai_suggestion": None,
+            })
+            return "respondida"
     if settings["mode"] == "auto":
         await typing(number, messages[-1].get("provider_message_id"))
     (catalog, meta, match), group = await asyncio.gather(_commerce(client_id, settings, number),
                                                          ad_group_plan(client_id, thread, settings))
-    last = str(messages[-1].get("text") or "")
     order = parse_catalog_order(last)
     order_note, cart = "", None
     if order:
