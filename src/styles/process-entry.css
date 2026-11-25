@@ -1,5 +1,6 @@
 .processHomePage,.processEntryPage{max-width:1120px;margin:0 auto}
 .processHomeGrid,.processToolGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.processHomeGrid{grid-template-columns:repeat(3,minmax(0,1fr))}@media(max-width:1020px){.processHomeGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .processHomeCard,.processToolCard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;min-width:0;padding:20px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);text-decoration:none;transition:border-color .15s ease,box-shadow .15s ease,transform .15s ease}
 .processHomeCard:hover,.processToolCard:hover{border-color:color-mix(in srgb,var(--accent) 42%,var(--border-subtle));box-shadow:0 10px 26px rgba(21,24,27,.07);transform:translateY(-1px)}
 .processHomeCard>svg:first-child,.processToolIcon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--accent)}

@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { ArrowRight, BarChart3, CheckCircle2, Megaphone, PenLine, Target } from "lucide-react";
+import { ArrowRight, CheckCircle2, HeartHandshake, Megaphone, PenLine, Share2, ShoppingCart, Target } from "lucide-react";
 import WorkKanban from "../components/shell/WorkKanban";
 import { getActiveClientName } from "../app/activeClient";
 import { getPathForRoute, type AppRoute } from "../app/routes";
@@ -13,7 +13,9 @@ const ACTIONS: { title: string; description: string; route: AppRoute; icon: type
   { title: "Planejar", description: "Definir objetivos e ações.", route: "process_planning", icon: Target },
   { title: "Criar conteúdo", description: "Produzir e publicar.", route: "process_content", icon: PenLine },
   { title: "Lançar campanha", description: "Ativar canais e acompanhar.", route: "process_campaign", icon: Megaphone },
-  { title: "Analisar resultados", description: "Entender o que funcionou.", route: "process_analysis", icon: BarChart3 },
+  { title: "Relacionamento", description: "E-mail, WhatsApp, captação e comentários.", route: "process_relationship", icon: HeartHandshake },
+  { title: "CRM", description: "Vendas, clientes, relatórios e saúde da marca.", route: "process_analysis", icon: ShoppingCart },
+  { title: "Redes sociais", description: "Desempenho de cada rede.", route: "process_social", icon: Share2 },
 ];
 
 export default function Home({ canView, onOpen }: Props) {

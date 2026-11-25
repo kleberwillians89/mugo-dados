@@ -1033,6 +1033,10 @@ function PrivateApp() {
         <ProcessEntry key={`process-campaign:${activeClientId}`} kind="campaign" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "process_analysis" ? (
         <ProcessEntry key={`process-analysis:${activeClientId}`} kind="analysis" canView={canView} canUse={can} onOpen={openRoute} />
+      ) : route === "process_relationship" ? (
+        <ProcessEntry key={`process-relationship:${activeClientId}`} kind="relationship" canView={canView} canUse={can} onOpen={openRoute} />
+      ) : route === "process_social" ? (
+        <ProcessEntry key={`process-social:${activeClientId}`} kind="social" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "internal_approval" || route === "final_approval" ? (
         <ApprovalWorkspace key={`${route}:${activeClientId}`} mode={route === "internal_approval" ? "internal" : "final"} isAgency={teamHere}
           canDeleteCalendarContent={teamHere && canEdit("calendar")}

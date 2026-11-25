@@ -18,17 +18,19 @@ describe("nova entrada e processos", () => {
   beforeEach(() => { host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });
   afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
-  it("Home abre os quatro processos e não inventa contadores de atenção", async () => {
+  it("Home abre os seis processos e não inventa contadores de atenção", async () => {
     const open = vi.fn();
     await act(async () => root.render(<Home canView={() => true} onOpen={open} />));
     expect(host.textContent).toContain("O que vamos fazer hoje?");
-    for (const label of ["Planejar", "Criar conteúdo", "Lançar campanha", "Analisar resultados"]) expect(host.textContent).toContain(label);
+    for (const label of ["Planejar", "Criar conteúdo", "Lançar campanha", "Relacionamento", "CRM", "Redes sociais"]) expect(host.textContent).toContain(label);
+    expect(host.querySelectorAll(".processHomeCard")).toHaveLength(6);
+    expect(host.textContent).not.toContain("Analisar resultados");
     expect(host.textContent).not.toContain("Precisa da sua atenção");
     expect(host.textContent).toContain("Aprovação Interna");
     expect(host.textContent).toContain("Aprovação Final");
     expect(host.textContent).not.toContain("Ferramentas complementares");
-    expect(host.textContent).not.toContain("Tira-dúvidas");  // foi para Analisar resultados
-    for (const moved of ["WhatsApp", "E-mail marketing", "Captação", "Comentários"]) expect(host.textContent).not.toContain(moved);
+    expect(host.textContent).not.toContain("Tira-dúvidas");  // fica no menu lateral
+    for (const moved of ["E-mail Marketing", "Disparos em massa", "Comentários"]) expect(host.textContent).not.toContain(moved);
     expect(host.textContent).not.toMatch(/\d+ pendência/);
     const planning = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Planejar"))!;
     await act(async () => planning.click());
@@ -41,7 +43,7 @@ describe("nova entrada e processos", () => {
   it("Home mostra cada aprovação somente quando a etapa está autorizada", async () => {
     await act(async () => root.render(<Home canView={(route) => route === "home" || route === "process_analysis"} onOpen={vi.fn()} />));
     expect(host.textContent).not.toContain("Precisa da sua atenção");
-    expect(host.textContent).toContain("Analisar resultados");
+    expect(host.textContent).toContain("CRM");
     expect(host.textContent).not.toContain("Criar conteúdo");
     expect(host.textContent).not.toContain("Ferramentas complementares");
     await act(async () => root.render(<Home canView={(route) => route === "final_approval"} onOpen={vi.fn()} />));
@@ -118,12 +120,14 @@ describe("nova entrada e processos", () => {
     expect(host.textContent).not.toContain("Social Media");
   });
 
-  it("as quatro páginas usam somente links para ferramentas reais", async () => {
+  it("as seis páginas usam somente links para ferramentas reais", async () => {
     const expected: Record<ProcessKind, AppRoute[]> = {
       planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
-      content: ["briefing", "campaigns", "redacao", "creators", "production"],
-      campaign: ["media", "email_marketing", "capture"],
-      analysis: ["brand_health", "meta", "google", "channels", "origins", "ecommerce", "customers", "clipping", "social_report", "whatsapp", "engagement"],
+      content: ["briefing", "campaigns", "redacao", "creators", "production", "clipping"],
+      campaign: ["media", "meta", "google"],
+      relationship: ["email_marketing", "capture", "engagement", "whatsapp", "whatsapp", "whatsapp"],
+      analysis: ["origins", "ecommerce", "customers", "social_report", "brand_health", "ai_actions"],
+      social: ["channels", "tiktok", "pinterest", "linkedin"],
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
       await act(async () => root.render(<ProcessEntry kind={kind} canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
@@ -133,45 +137,44 @@ describe("nova entrada e processos", () => {
     }
   });
 
-  it("Lançar campanha: Mídia On, E-mail Marketing e Captação, com atalhos do WhatsApp", async () => {
-    const open = vi.fn();
-    await act(async () => root.render(<ProcessEntry kind="campaign" canView={() => true} canUse={() => true} onOpen={open} />));
-    const grid = host.querySelector(".processToolGrid")!;
-    expect([...grid.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Mídia On", "E-mail Marketing", "Captação"]);
-    for (const gone of ["Aprovação Interna", "Aprovação Final", "Acompanhamento"]) expect(host.textContent).not.toContain(gone);
-    const bulk = [...host.querySelectorAll<HTMLAnchorElement>("a")].find((a) => a.textContent?.includes("Disparos em massa"))!;
-    expect(bulk.getAttribute("href")).toBe("/whatsapp?area=bulk");
-    await act(async () => bulk.click());
-    expect(open).toHaveBeenCalledWith("whatsapp");
-    expect(window.sessionStorage.getItem("mugo:whatsapp:area")).toBe("bulk");
-    window.sessionStorage.clear();
-    await act(async () => root.render(<ProcessEntry kind="campaign" canView={(route) => route === "media"} canUse={() => true} onOpen={open} />));
-    expect(host.textContent).not.toContain("Disparos em massa");  // sem WhatsApp, sem atalho
+  it("Lançar campanha: Mídia On, Meta e Google", async () => {
+    await act(async () => root.render(<ProcessEntry kind="campaign" canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Mídia On", "Meta", "Google"]);
+    for (const gone of ["Aprovação Interna", "Aprovação Final", "E-mail Marketing", "Disparos em massa"]) expect(host.textContent).not.toContain(gone);
   });
 
-  it("Criar conteúdo: só Briefing, Social Media, Redação, Criadores e Eventos, nesta ordem", async () => {
+  it("Criar conteúdo: Briefing, Social Media, Redação, Criadores, Eventos e Clipping, nesta ordem", async () => {
     const open = vi.fn();
     await act(async () => root.render(<ProcessEntry kind="content" canView={() => true} canUse={() => true} onOpen={open} />));
-    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Briefing", "Social Media", "Redação", "Criadores", "Eventos"]);
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Briefing", "Social Media", "Redação", "Criadores", "Eventos", "Clipping"]);
     expect(host.textContent).not.toContain("E-mail Marketing");
     const creators = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("Criadores"))!;
     await act(async () => creators.click());
     expect(open).toHaveBeenCalledWith("creators");
   });
 
-  it("agrupa Relacionamento em Analisar resultados sem duplicar o Dashboard e respeita permissões", async () => {
+  it("Relacionamento: e-mail, captação, comentários e atalhos do WhatsApp, respeitando permissões", async () => {
     const open = vi.fn();
-    const allowed = new Set<AppRoute>(["whatsapp", "capture", "email_marketing", "engagement"]);
-    await act(async () => root.render(<ProcessEntry kind="analysis" canView={(route) => allowed.has(route)} canUse={() => false} onOpen={open} />));
-    expect(host.textContent).toContain("Relacionamento");
-    expect(host.textContent).toContain("WhatsApp");
-    expect(host.textContent).toContain("Comentários");
-    // E-mail Marketing e Captação têm o acesso operacional em Lançar campanha.
-    expect(host.textContent).not.toContain("Captação");
-    expect(host.textContent).not.toContain("E-mail Marketing");
-    expect(host.textContent).not.toContain("Dashboard");
-    const whatsapp = [...host.querySelectorAll("a")].find((item) => item.textContent?.includes("WhatsApp"))!;
-    await act(async () => whatsapp.click());
+    await act(async () => root.render(<ProcessEntry kind="relationship" canView={() => true} canUse={() => true} onOpen={open} />));
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(
+      ["E-mail Marketing", "Captação", "Comentários", "Disparos em massa", "Modelos de campanha", "WhatsApp"]);
+    const bulk = [...host.querySelectorAll<HTMLAnchorElement>("a")].find((a) => a.textContent?.includes("Disparos em massa"))!;
+    expect(bulk.getAttribute("href")).toBe("/whatsapp?area=bulk");
+    await act(async () => bulk.click());
     expect(open).toHaveBeenCalledWith("whatsapp");
+    expect(window.sessionStorage.getItem("mugo:whatsapp:area")).toBe("bulk");
+    window.sessionStorage.clear();
+    await act(async () => root.render(<ProcessEntry kind="relationship" canView={(route) => route === "engagement"} canUse={() => true} onOpen={open} />));
+    expect(host.textContent).toContain("Comentários");
+    expect(host.textContent).not.toContain("Disparos em massa");  // sem WhatsApp, sem atalho
+  });
+
+  it("CRM e Redes sociais: cada ferramenta em um lugar só", async () => {
+    await act(async () => root.render(<ProcessEntry kind="analysis" canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(
+      ["Vendas", "E-commerce", "Clientes", "Relatórios", "Saúde da Marca", "O que a IA fez"]);
+    for (const gone of ["Comentários", "Clipping", "Tira-dúvidas", "Meta", "Dashboard"]) expect(host.textContent).not.toContain(gone);
+    await act(async () => root.render(<ProcessEntry kind="social" canView={(route) => route !== "tiktok"} canUse={() => true} onOpen={vi.fn()} />));
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Instagram e Facebook", "Pinterest", "LinkedIn"]);
   });
 });
