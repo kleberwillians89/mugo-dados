@@ -2065,16 +2065,21 @@ async def read_mugo_ia(client_id: str, authorization: str | None = Header(defaul
     from services.market_research import warm
     cid = await require_client_read(client_id, authorization)
     warm(cid)  # começa a pesquisa de mercado do dia enquanto a pessoa escreve
-    return {"messages": await history(cid, await require_user_id(authorization))}
+    uid = await require_user_id(authorization)
+    from services.library_knowledge import schedule
+    schedule(cid, user_id=uid)  # e lê os documentos novos da Biblioteca: ninguém precisa abrir o Contexto da Marca antes
+    return {"messages": await history(cid, uid)}
 
 
 @router.post("/mugo-ia")
 async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | None = Header(default=None)):
     """Pergunta à Mugoverso IA: lê todo o contexto deste cliente (e só dele). O que é só da equipe não vai para o cliente."""
     from services.mugo_ia import ask
+    from services.library_knowledge import schedule
     cid = await require_client_read(client_id, authorization)
     uid = await require_user_id(authorization)
     team = await is_agency_user(authorization)
+    schedule(cid, user_id=uid)  # chamada de dentro de uma tela (Pedir à Mugô IA): também lê o que é novo na Biblioteca
     try:
         return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid), screen=body.screen)}
     except StudioError as exc:
