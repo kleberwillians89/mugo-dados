@@ -356,6 +356,8 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         await _first_comment(creds, item, out.get("media_id"))
         await _set(item, {"publish_status": "publicado", "status": "publicado", "published_at": datetime.now(timezone.utc).isoformat(),
                           "published_media_id": out["media_id"], "published_permalink": out.get("permalink")}, expect="publicando")
+        from .studio_tasks import sync_calendar_item  # post publicado: a tarefa ligada (se houver) fecha junto
+        await sync_calendar_item(item["client_id"], {**item, "status": "publicado"})
         return "publicado"
     except StudioError as exc:
         await _set(item, {"publish_status": "falhou", "publish_error": (str(exc) if str(exc) != exc.code else exc.code)[:300]}, expect="publicando")
