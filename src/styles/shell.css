@@ -94,6 +94,13 @@
 .appNavLink[aria-current="page"] .appNavIcon{ color: var(--accent); }
 /* Ativo: claro mas discreto — peso, cor e fundo leve (nunca só a cor). */
 .appNavLink[aria-current="page"]{ color: var(--text-primary); font-weight: 600; background: rgba(21, 24, 27, .07); }
+/* Mugô IA em destaque com o ouro envelhecido (#b79830) como acento: filete e fundo suave.
+   O texto fica escuro (o ouro puro sobre o claro dá ~2,8:1) e o ícone usa um ouro fechado (#7a6420, ~5,6:1). */
+.appNavLink[data-highlight="gold"]{ color: var(--text-primary); background: rgba(183, 152, 48, .10); box-shadow: inset 3px 0 0 #b79830; }
+.appNavLink[data-highlight="gold"] .appNavIcon{ color: #7a6420; }
+.appNavLink[data-highlight="gold"]:hover{ background: rgba(183, 152, 48, .17); }
+.appNavLink[data-highlight="gold"][aria-current="page"]{ background: rgba(183, 152, 48, .18); font-weight: 600; }
+.appSidebar .appNavLink[data-highlight="gold"]:focus-visible{ outline-color: #7a6420; }
 
 .appSidebarFooter{ padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
 
