@@ -50,7 +50,6 @@ const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
 const PRIMARY_ITEMS: NavItem[] = [
   { route: "home", label: "Início" },
   { route: "central", label: "Dashboard" },
-  { route: "tasks", label: "Meu trabalho" },
   { route: "mugo_ia", label: "Mugô IA" },
   { route: "library", label: "Biblioteca" },
 ];
@@ -159,7 +158,7 @@ export default function AppNavigation({
     return (
       <li key={item.route}>
         <a
-          className="appNavLink"
+          className={`appNavLink${item.route === "mugo_ia" ? " is-mugo-ia" : ""}`}
           href={getPathForRoute(target)}
           title={collapsed ? item.label : undefined}
           aria-current={routesOf(item).includes(route) ? "page" : undefined}

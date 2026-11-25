@@ -7,6 +7,7 @@ import { STUDIO_FORMATS, decideCalendarItem, getPipeline, listContacts, localPar
 import PostReview from "./PostReview";
 import { OPEN, handleFromName, monthKey, sortTasks } from "./taskBoard.helpers";
 import { OPEN_TASK_EVENT } from "../shell/workKanban.helpers";
+import "../../styles/studio.css";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const DEPARTMENTS = ["Desenvolvimento", "Design", "Mídia", "Social Media", "Criação", "Dados", "CRM", "Operações", "Estratégia", "Atendimento"];

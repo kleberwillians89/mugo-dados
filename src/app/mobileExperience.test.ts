@@ -15,12 +15,18 @@ describe("mobile product experience contracts", () => {
     // A navegação móvel usa os mesmos pontos de entrada transversais do desktop.
     expect(nav.match(/label: "Início"/g)?.length).toBe(1);
     expect(nav.match(/label: "Dashboard"/g)?.length).toBe(1);
-    expect(nav.match(/label: "Meu trabalho"/g)?.length).toBe(1);
+    expect(nav).not.toContain('label: "Meu trabalho"');
+    expect(nav).toContain('{ route: "mugo_ia", label: "Mugô IA" }');
     expect(nav.match(/label: "Biblioteca"/g)?.length).toBe(1);
     expect(nav).not.toContain('label: "Fornecedores"');
     expect(nav).not.toContain('{ route: "calendar", label: "Calendário" }');
     expect(css).toContain("env(safe-area-inset-top)");
     expect(css).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.appSidebar\{[\s\S]*?transform: translateX\(-100%\)/);
+  });
+
+  it("carrega os estilos do quadro junto com o TaskBoard no primeiro acesso", () => {
+    const board = readFileSync(path.join(root, "src/components/studio/TaskBoard.tsx"), "utf8");
+    expect(board).toContain('import "../../styles/studio.css"');
   });
 
   it("keeps restricted destinations behind the existing role checks", () => {

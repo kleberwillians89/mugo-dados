@@ -94,6 +94,12 @@
 .appNavLink[aria-current="page"] .appNavIcon{ color: var(--accent); }
 /* Ativo: claro mas discreto — peso, cor e fundo leve (nunca só a cor). */
 .appNavLink[aria-current="page"]{ color: var(--text-primary); font-weight: 600; background: rgba(21, 24, 27, .07); }
+.appNavLink.is-mugo-ia{ color:#715b16; font-weight:650; }
+.appNavLink.is-mugo-ia .appNavIcon{ color:#b79830; }
+.appNavLink.is-mugo-ia:hover{ color:#56450f; background:rgba(183,152,48,.11); }
+.appNavLink.is-mugo-ia[aria-current="page"]{ color:#493a0b; background:rgba(183,152,48,.16); }
+.appNavLink.is-mugo-ia[aria-current="page"] .appNavIcon{ color:#8b711d; }
+.appNavLink.is-mugo-ia:focus-visible{ outline-color:#b79830; }
 
 .appSidebarFooter{ padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
 
