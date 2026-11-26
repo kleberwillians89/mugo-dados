@@ -87,3 +87,23 @@ async def work_task_produced(client_id: str, task_id: str, authorization: Option
         return await task_produced.produced(cid, task_id, scope)
     except StudioError as exc:
         raise _http(exc) from None
+
+
+class LinkInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    module: str = Field(max_length=30)
+    record_id: str = Field(min_length=1, max_length=80)
+    deliverable: str = Field(default="", max_length=160)
+
+
+@router.post("/tasks/{task_id}/links", status_code=201)
+async def work_task_link(client_id: str, task_id: str, body: LinkInput, authorization: Optional[str] = Header(None)):
+    """Grava na tarefa o que foi criado em outro módulo a partir dela (matriz do Social Media, post do Calendário…)."""
+    from services import redacao_from_task
+    cid, scope = await _scope(client_id, authorization)
+    uid = await require_user_id(authorization)
+    try:
+        return await redacao_from_task.link_to_task(cid, task_id, scope, module=body.module, record_id=body.record_id,
+                                                    deliverable=body.deliverable, user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None
