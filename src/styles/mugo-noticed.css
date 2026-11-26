@@ -1,0 +1,17 @@
+/* "A Mugô IA notou": quadro de alertas do Início e de Minhas Tarefas */
+.mugoNoticed{display:grid;gap:10px;padding:14px 16px;border:1px solid #e3d6a8;border-radius:14px;background:#fffdf6;min-width:0}
+.mugoNoticed h2{display:flex;align-items:center;gap:8px;margin:0;font-size:15px;font-weight:700;color:var(--mugo-deep-blue,#0c4160)}
+.mugoNoticed ul{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.mugoNotice{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:12px;background:#fff}
+.mugoNotice[data-kind="publicacao_falhou"],.mugoNotice[data-kind="conta_sem_saldo"]{border-color:#f0c2b8;background:#fff8f6}
+.mugoNoticeIcon{font-size:18px;line-height:1.3}
+.mugoNoticeBody{display:grid;gap:6px;min-width:0}
+.mugoNoticeBody p{margin:0;font-size:14px;line-height:1.4;overflow-wrap:anywhere}
+.mugoNoticeCompany{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--mugo-muted,#5b6670)}
+.mugoNoticeActions{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.mugoNoticeActions .ds-button{min-height:34px;padding:4px 12px;font-size:13px}
+.mugoNoticeFeedback{font-size:13px;color:#1f6b45}
+.mugoNoticeFeedback.is-error{color:#b42318}
+.mugoNoticeClose{border:0;background:none;color:var(--mugo-muted,#5b6670);cursor:pointer;padding:2px;border-radius:6px}
+.mugoNoticeClose:hover{color:var(--mugo-deep-blue,#0c4160)}
+@media(max-width:560px){.mugoNotice{grid-template-columns:auto minmax(0,1fr)}.mugoNoticeClose{display:none}}

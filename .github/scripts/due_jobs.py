@@ -55,6 +55,7 @@ SCHEDULE: List[Tuple[str, str]] = [
     ("0-59/5 * * * *", "whatsapp-bulk-due"),  # disparo em massa: fila e agendadas (envia até o fim, fora do Render)
     ("5 11 * * *", "brand-learnings"),  # 08:05 em São Paulo: o que os posts e anúncios renderam vira aprendizado da IA
     ("33 * * * *", "media-alerts"),  # alertas da Mídia On viram tarefa no Chat de tarefas
+    ("13 * * * *", "mugo-notices"),  # "A Mugô IA notou": alertas do Início; urgentes também por WhatsApp
     ("10 13 1 * *", "monthly-reports"),  # dia 1, 10:10 em São Paulo: relatório do mês anterior em rascunho
 ]
 SLOT_MINUTES = 5

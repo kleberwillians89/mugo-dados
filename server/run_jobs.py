@@ -155,6 +155,9 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "brand-learnings":
         from services.brand_learnings import run_all as learnings_run
         return await learnings_run()
+    if args.command == "mugo-notices":
+        from services.mugo_notices import run_all as notices_run
+        return await notices_run()
     if args.command == "media-alerts":
         from services.media_alerts import run_all as alerts_run
         return await alerts_run()
@@ -361,6 +364,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("studio-clipping", help="Busca diária de notícias (Google Notícias) das marcas com clipping configurado.")
     sub.add_parser("whatsapp-bulk-due", help="Disparo em massa: envia as campanhas da fila (agora ou agendadas) e retoma as que pararam.")
     sub.add_parser("brand-learnings", help="Ciclo fechado da IA: o que cada post e anúncio rendeu contra a média vira aprendizado.")
+    sub.add_parser("mugo-notices", help="A Mugô IA notou: alertas do Início por regra fixa; urgentes também por WhatsApp.")
     sub.add_parser("media-alerts", help="Alertas da Mídia On: reprovada, sem entrega, custo alto, fim próximo (vira tarefa).")
     sub.add_parser("monthly-reports", help="Relatório mensal: fecha o mês anterior como rascunho para a equipe liberar.")
     media_monthly = sub.add_parser(
