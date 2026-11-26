@@ -393,12 +393,34 @@ async def cart_register_webhooks(client_id: str | None = Query(default=None), x_
 @router.get("/api/cart-recovery/whatsapp-templates")
 async def cart_templates(client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
                          authorization: str | None = Header(default=None)):
-    from services import whatsapp_native
+    from services import whatsapp_native, brand_whatsapp_templates, crm_whatsapp_templates
+    from services.whatsapp_sources import bridge_for
     cid = await require_client_read(client_id or x_client_id, authorization)
     try:
         numbers = await whatsapp_native.list_numbers(cid)
-        templates = await whatsapp_native.list_templates(cid) if any(n.get("status") == "active" for n in numbers) else []
-        return {"ok": True, "numbers": numbers, "templates": templates}
+        has_native = any(n.get("status") == "active" for n in numbers)
+        # A shared model catalog, but never claim the native-only automation
+        # sender can deliver via Ruah/CRM Mugô. It cannot.
+        if has_native:
+            templates = await whatsapp_native.list_templates(cid)
+            provider = "native"
+        elif bridge_for(cid):
+            templates = await brand_whatsapp_templates.list_templates(cid)
+            provider = "crm_bridge"
+        else:
+            try:
+                templates = await crm_whatsapp_templates.list_templates(cid)
+                provider = "mugozap_crm"
+            except Exception as exc:
+                from services.studio_calendar import StudioError
+                if isinstance(exc, StudioError) and exc.code in {
+                    "CRM_TEMPLATES_NOT_LINKED", "CRM_TEMPLATES_NOT_CONNECTED", "CRM_TEMPLATES_NOT_CONFIGURED",
+                }:
+                    templates, provider = [], "none"
+                else:
+                    raise
+        return {"ok": True, "numbers": numbers, "templates": templates,
+                "provider": provider, "send_supported": has_native}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 

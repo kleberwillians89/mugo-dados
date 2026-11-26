@@ -219,6 +219,9 @@ async def run_client(client_id: str, flows: List[Dict[str, Any]], *, now: Option
     talked = await _talked_keys(client_id) if needs_talk else set()
     sender = await email_marketing.get_settings(client_id)
     wa_live = (os.getenv("WHATSAPP_MARKETING_SEND_ENABLED") or "").strip().lower() == "true"
+    if wa_live:
+        from .whatsapp_native import active_number_ids
+        wa_live = bool(await active_number_ids(client_id))  # CRM bridge is not a native sender.
     from . import saas
     quota = {"email": await saas.remaining(client_id, "email_sends_month"), "whatsapp": await saas.remaining(client_id, "whatsapp_month")}
     totals: Dict[str, Dict[str, int]] = {}

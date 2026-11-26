@@ -360,6 +360,10 @@ async def _send_whatsapp(client_id: str, cart: Dict[str, Any], contact: Dict[str
     params = wa_params(list(settings.get("whatsapp_variables") or []), first_name=contact.get("first_name") or "", cart=cart)
     if (os.getenv("WHATSAPP_MARKETING_SEND_ENABLED") or "").strip().lower() != "true":
         return "simulado", "", None
+    if not await whatsapp_native.active_number_ids(client_id):
+        # CRM-owned numbers (Ruah / MugôZap) have separate send transports.
+        # Never attempt a native Meta send against an unrelated tenant WABA.
+        return "simulado", "transmissor CRM ainda não homologado", None
     message_id = await whatsapp_native.send_template(client_id, number_id=settings.get("whatsapp_number_id"), to=to,
                                                      template=settings["whatsapp_template"], language=settings["whatsapp_language"], params=params)
     return "enviado", "", message_id or None
