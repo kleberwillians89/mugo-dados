@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { EmailPreviewResult, HtmlReport } from "../../app/emailMarketing";
 
 /** Prévia do e-mail exatamente como o servidor monta. Relê com uma pausa curta depois de cada mudança. */
-export default function EmailPreview({ load, deps, onReport }: {
-  load: () => Promise<EmailPreviewResult>; deps: unknown[]; onReport?: (report: HtmlReport | null) => void;
+export default function EmailPreview({ load, deps, onReport, deviceMode }: {
+  load: () => Promise<EmailPreviewResult>; deps: unknown[]; onReport?: (report: HtmlReport | null) => void; deviceMode?: "desktop" | "mobile";
 }) {
   const [preview, setPreview] = useState<EmailPreviewResult | null>(null);
   const [error, setError] = useState("");
@@ -34,13 +34,13 @@ export default function EmailPreview({ load, deps, onReport }: {
           <span className="emInboxLabel">Assunto</span>
           <strong>{preview?.subject || "—"}</strong>
         </div>
-        <div className="ds-segmented" role="group" aria-label="Tamanho da prévia">
+        {!deviceMode ? <div className="ds-segmented" role="group" aria-label="Tamanho da prévia">
           <button type="button" aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")}>Computador</button>
           <button type="button" aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")}>Celular</button>
-        </div>
+        </div> : null}
       </div>
       {error ? <p className="emError" role="alert">{error}</p> : null}
-      <div className={`emFrameWrap is-${device}`}>
+      <div className={`emFrameWrap is-${deviceMode || device}`}>
         {preview ? <iframe title="Prévia do e-mail" sandbox="" srcDoc={preview.html} /> : <p className="emMuted">Montando prévia…</p>}
       </div>
     </div>
