@@ -2,7 +2,7 @@ import { http } from "./api";
 
 /** Usuários da empresa ativa com permissões por módulo (modelo do CRM Ruah). A empresa vai no X-Client-Id. */
 
-export type TeamPreset = "administrador" | "gestor" | "marketing" | "comercial" | "visualizacao" | "personalizado";
+export type TeamPreset = "administrador" | "gestor" | "marketing" | "comercial" | "visualizacao" | "cliente_aprovacao" | "personalizado";
 export type TeamCatalog = {
   modules: { code: string; label: string }[];
   permissions: { code: string; module: string; label: string; opt_in?: boolean }[];
