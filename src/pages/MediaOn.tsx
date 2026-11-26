@@ -78,6 +78,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
   // Mídia On enxuta: "Agora" (campanhas no ar + criar) para todos; "Planejamento" (estratégia, cenários, curvas) só para a equipe.
   const [tab, setTab] = useState<"agora" | "planejamento">("agora");
   const [building, setBuilding] = useState(false);
+  const [creationChannel, setCreationChannel] = useState<"meta" | "google" | null>(null);
 
   const monthLabel = MONTH_NAMES[Number(month.slice(5)) - 1];
 
@@ -280,25 +281,44 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
       <button type="button" role="tab" aria-selected={tab === "planejamento"} className={tab === "planejamento" ? "is-active" : ""} onClick={() => setTab("planejamento")}>Planejamento</button>
     </div> : null}
     {!planning ? <>
-      {canManageCampaigns ? <div className="mediaCreateBar">
-        <div><strong>Criar campanha</strong><p>Nasce pausada na conta de anúncios e só vai ao ar quando alguém aprovar.</p></div>
-        <button type="button" className="ds-button" aria-expanded={building} onClick={() => setBuilding((v) => !v)}>{building ? "Fechar" : "Criar campanha"}</button>
-      </div> : null}
-      <MediaNow showRecommendations={canManage} />
-      <details className="ds-section mediaHistory"><summary>Histórico de campanhas</summary><MediaLiveCampaigns defaultFilter="encerrada" title="Campanhas que já rodaram" /></details>
+      {canManageCampaigns ? <section className="mediaCreate">
+        <div className="mediaCreateBar">
+          <div><strong>Criar campanha</strong><p>Escolha a plataforma para começar.</p></div>
+          <button type="button" className="ds-button" aria-expanded={building}
+            onClick={() => { setBuilding(!building); setCreationChannel(null); }}>
+            {building ? "Fechar criação" : "Criar campanha"}
+          </button>
+        </div>
+        {building ? <>
+          <div className="mediaCreateChannels" role="group" aria-label="Escolha a plataforma">
+            {canManage ? <button type="button" className="ds-button" aria-pressed={creationChannel === "meta"}
+              onClick={() => setCreationChannel("meta")}>Meta Ads</button> : null}
+            <button type="button" className="ds-button" aria-pressed={creationChannel === "google"}
+              onClick={() => setCreationChannel("google")}>Google Ads</button>
+          </div>
+          {creationChannel ? <>
+            <details className="mediaCreateBrief"><summary>Usar briefing existente</summary>
+              <MediaCampaignHub
+                briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
+                canManage={canManage} busy={Boolean(busy)} onSelect={setSelectedBriefId}
+                onRefresh={() => void loadCampaignBriefs()} onEditBrief={() => navigateToAppRoute("briefing")}
+                onMeta={prepareBriefForMeta} onGoogle={prepareBriefForGoogle} channel={creationChannel}
+              />
+            </details>
+            <div className="mediaAdCreation" id="media-campaign-builder">
+              {creationChannel === "meta" && canManage
+                ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} />
+                : <GoogleAdsPanel request={googlePrepare} />}
+            </div>
+          </> : null}
+        </> : null}
+      </section> : null}
+      <MediaNow showRecommendations={canManage} history={
+        <details className="ds-section mediaHistory"><summary>Histórico de campanhas</summary><MediaLiveCampaigns defaultFilter="encerrada" title="Campanhas que já rodaram" /></details>
+      } />
     </> : null}
     {planning ? <MediaLiveRead onData={setLiveRead} /> : null}
     {planning ? <MediaClientCampaigns /> : null}
-    {canManageCampaigns && !planning && building ? <MediaCampaignHub
-      briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
-      canManage={canManage} busy={Boolean(busy)} onSelect={setSelectedBriefId}
-      onRefresh={() => void loadCampaignBriefs()} onEditBrief={() => navigateToAppRoute("briefing")}
-      onMeta={prepareBriefForMeta} onGoogle={prepareBriefForGoogle}
-    /> : null}
-    {canManageCampaigns && !planning && building ? <div className="mediaAdCreation" id="media-campaign-builder">
-      {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} /> : null}
-      <GoogleAdsPanel request={googlePrepare} />
-    </div> : null}
     {planning ? <>
     {canManage ? <MediaKpiStrip onOpen={(target) => { navigateToAppRoute(target); window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state })); }} /> : null}
     {canManage ? <MediaGoals onOpenPlanning={() => { requestGoalsSection(); navigateToAppRoute("planning"); window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state })); }} /> : null}
