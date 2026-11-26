@@ -28,6 +28,17 @@ class BuilderTests(unittest.TestCase):
         self.assertIn('href="https://loja.com/c?a=1&amp;b=2"', html)
         self.assertIn("Comprar (https://loja.com/c?a=1&b=2)", text)
 
+    def test_button_accepts_existing_wrapped_http_url_without_weakening_url_checks(self):
+        broken = "{{https://www.curavino.com.br/}}"
+        design = {"blocks": [{"type": "botao", "label": "Quero aproveitar", "href": broken}]}
+        html, plain = eb.render(design, {}, {})
+        self.assertIn('href="https://www.curavino.com.br/"', html)
+        self.assertIn("Quero aproveitar (https://www.curavino.com.br/)", plain)
+        self.assertEqual(eb.normalize_design(design)["blocks"][0]["href"], "https://www.curavino.com.br/")
+        self.assertEqual(eb.normalize_design({"blocks": [{"type": "botao", "href": "{{link_loja}}"}]})["blocks"][0]["href"], "{{link_loja}}")
+        unsafe, _ = eb.render({"blocks": [{"type": "botao", "label": "Malicioso", "href": "{{javascript:alert(1)}}"}]}, {}, {})
+        self.assertNotIn("Malicioso", unsafe)
+
     def test_unsafe_links_and_unknown_blocks_are_dropped(self):
         design = {"blocks": [{"type": "botao", "label": "x", "href": "javascript:alert(1)"}, {"type": "html", "text": "<b>"},
                              {"type": "imagem", "url": "data:image/png;base64,xx"}]}
