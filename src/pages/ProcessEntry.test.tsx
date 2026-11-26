@@ -129,13 +129,14 @@ describe("nova entrada e processos", () => {
       campaign: ["media", "meta", "google"],
       relationship: ["email_marketing", "capture", "engagement", "whatsapp", "whatsapp", "whatsapp"],
       analysis: ["origins", "ecommerce", "customers", "social_report", "brand_health", "ai_actions"],
-      social: ["channels", "tiktok", "pinterest", "linkedin"],
+      social: ["meta", "tiktok", "pinterest", "linkedin"],
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
       await act(async () => root.render(<ProcessEntry kind={kind} canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
       const hrefs = [...host.querySelectorAll<HTMLAnchorElement>(".processToolCard, .planningToolCard")].map((item) => item.getAttribute("href"));
       expect(hrefs.length).toBeGreaterThanOrEqual(expected[kind].length);
       expect(hrefs.every((href) => Boolean(href) && href !== "/404")).toBe(true);
+      if (kind === "social") expect(hrefs).toContain("/meta");
     }
   });
 
