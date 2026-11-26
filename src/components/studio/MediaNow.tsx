@@ -49,11 +49,6 @@ export default function MediaNow({ showRecommendations, history, reportLink }: {
         <div><h2 id="media-now-title">Campanhas</h2><small>Meta ao vivo · Google pela última sincronização</small></div>
         {reportLink}
       </div>
-      {items ? <dl className="mediaNowTotals" aria-label="Resumo de desempenho">
-        <div><dt>Campanhas no ar</dt><dd>{items.length}</dd></div>
-        <div><dt>Investimento nos últimos 7 dias</dt><dd>{brl(spend7)}</dd></div>
-        <div><dt>Pedem atenção</dt><dd className={counts.atencao ? "is-warn" : ""}>{counts.atencao}</dd></div>
-      </dl> : null}
       <div className="mediaNowStatusFilters" role="group" aria-label="Status das campanhas">
         <button type="button" className="ds-button" aria-pressed={view === "active"} onClick={() => setView("active")}>Ativas</button>
         <button type="button" className="ds-button" aria-pressed={view === "closed"} onClick={() => setView("closed")}>Encerradas</button>
@@ -90,7 +85,15 @@ export default function MediaNow({ showRecommendations, history, reportLink }: {
       </> : null}
       </>}
     </section>
-    {showRecommendations && tips && tips.length ? <section className="ds-section mediaNowTips" aria-labelledby="media-now-tips">
+    {view === "active" && items ? <section className="ds-section mediaNowTips" aria-labelledby="media-now-analysis">
+      <h2 id="media-now-analysis">Resumo de desempenho</h2>
+      <dl className="mediaNowTotals" aria-label="Resumo de desempenho">
+        <div><dt>Campanhas no ar</dt><dd>{items.length}</dd></div>
+        <div><dt>Investimento nos últimos 7 dias</dt><dd>{brl(spend7)}</dd></div>
+        <div><dt>Pedem atenção</dt><dd className={counts.atencao ? "is-warn" : ""}>{counts.atencao}</dd></div>
+      </dl>
+    </section> : null}
+    {view === "active" && showRecommendations && tips && tips.length ? <section className="ds-section mediaNowTips" aria-labelledby="media-now-tips">
       <h2 id="media-now-tips">O que a Mugô recomenda</h2>
       <small>Só sobre campanhas no ar há pelo menos 7 dias e com investimento suficiente para julgar.</small>
       <ol>{tips.map((t) => <li key={`${t.id}:${t.texto}`}><b>{t.campanha}</b> <small>({t.canal})</small>: {t.texto}</li>)}</ol>
