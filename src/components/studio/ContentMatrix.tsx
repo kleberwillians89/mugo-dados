@@ -100,8 +100,11 @@ export default function ContentMatrix({ canManage, canApprove = false, onOpenCal
       setList(data.matrices || []);
       setProfile(profile?.profile || null);
       setBriefs((briefData?.briefs || []).filter((item) => item.status !== "arquivado"));
-      if (data.matrices?.[0]) {
-        const opened = (await getMatrix(data.matrices[0].id)).matrix;
+      // ?matriz=<id>: abre essa matriz (ex.: "Ir para o job" no detalhe da tarefa); senão, a mais recente.
+      const requested = new URLSearchParams(window.location.search).get("matriz");
+      const first = data.matrices?.find((m) => m.id === requested) || data.matrices?.[0];
+      if (first) {
+        const opened = (await getMatrix(first.id)).matrix;
         setMatrix(opened); syncBriefControls(opened);
       }
     } catch (cause) { setError(message(cause, "Não foi possível carregar a matriz.")); }

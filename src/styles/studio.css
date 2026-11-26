@@ -2002,3 +2002,14 @@
 .taskFormOptional{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:640px){.taskFormOptional{grid-template-columns:1fr}}
 .taskAssigneePicker .ds-link{display:inline-block;margin-top:6px;text-align:left;align-self:flex-start}
+/* Detalhe da tarefa: "Produzido a partir desta tarefa" (Ir para o job) */
+.taskProduced{display:grid;gap:8px}
+.taskProduced h3{margin:0;font-size:14px;font-weight:700}
+.taskProduced ul{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.taskProduced button{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:9px 12px;border:1px solid var(--border-subtle,#e5e7eb);border-radius:10px;background:var(--surface,#fff);text-align:left;font:inherit;color:inherit;cursor:pointer}
+.taskProduced button:disabled{cursor:default;opacity:.7}
+.taskProduced button:not(:disabled):hover{border-color:var(--mugo-deep-blue,#0c4160)}
+.taskProduced span{display:grid;gap:2px;min-width:0}
+.taskProduced small{font-size:12px;color:var(--text-muted,#6b7280)}
+.taskProduced b{overflow-wrap:anywhere}
+.taskProduced em{font-style:normal;font-size:12px;color:var(--mugo-deep-blue,#0c4160)}

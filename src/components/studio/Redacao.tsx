@@ -56,6 +56,11 @@ export default function Redacao({ canManage, onOpenCalendar }: Props) {
     finally { setLoading(false); }
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
+  // ?doc=<id>: abre direto o documento (ex.: "Ir para o job" no detalhe da tarefa).
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("doc");
+    if (requested) void open(requested);
+  }, [clientId]);
 
   async function open(id: string) {
     setBusy(`open:${id}`); setError(null); setNotice(null);

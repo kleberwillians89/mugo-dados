@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listAssignees, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type Person, type TaskScope, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
+import TaskProduced from "./TaskProduced";
 import { getPathForRoute } from "../../app/routes";
 import { STUDIO_FORMATS, decideCalendarItem, getPipeline, listContacts, localParts, sendForApproval, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
 import PostReview from "./PostReview";
@@ -376,6 +377,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         {current ? <section className="taskApproval" aria-label="Aprovação">
           <p className={`taskStage is-${current.status}`}><b>{TASK_STATUS[current.status]}</b>{current.approval_round ? ` · rodada ${current.approval_round}` : ""}</p>
           {current.deliverable_url ? <a href={current.deliverable_url} target="_blank" rel="noreferrer noopener">Abrir a entrega ↗</a> : null}
+          <TaskProduced key={current.id} taskId={current.id} />
           {current.calendar_item_id ? <p className="libHint">Ligada a um post do <b>Calendário</b>: o que fizer aqui vale lá também (e vice-versa). <a href={getPathForRoute("calendar")}>Abrir no Calendário →</a></p> : null}
           {current.calendar_item_id && isAgency ? <div className="taskApprovalActions">
             {current.status === "changes" || current.status === "in_progress" ? <>

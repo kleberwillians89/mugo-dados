@@ -76,3 +76,14 @@ async def work_task_email(client_id: str, task_id: str, body: EmailFromTask, aut
                                                       mode=body.mode, new_version=body.new_version, instruction=body.instruction)
     except StudioError as exc:
         raise _http(exc) from None
+
+
+@router.get("/tasks/{task_id}/produced")
+async def work_task_produced(client_id: str, task_id: str, authorization: Optional[str] = Header(None)):
+    """"Ir para o job": o que foi produzido a partir da tarefa, cada item com o lugar para abrir."""
+    from services import task_produced
+    cid, scope = await _scope(client_id, authorization)
+    try:
+        return await task_produced.produced(cid, task_id, scope)
+    except StudioError as exc:
+        raise _http(exc) from None
