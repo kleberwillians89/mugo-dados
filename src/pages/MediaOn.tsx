@@ -331,7 +331,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage, can
       <MediaNow showRecommendations={canManage}
         reportLink={canView("google") ? <a className="ds-button" href={getPathForRoute("google")}>Relatório do Google</a> : null}
         history={
-        <details className="ds-section mediaHistory"><summary>Histórico de campanhas</summary><MediaLiveCampaigns defaultFilter="encerrada" title="Campanhas que já rodaram" /></details>
+        <MediaLiveCampaigns defaultFilter="encerrada" fixedFilter title="Campanhas encerradas na Meta" />
       } />
     </> : null}
     {planning ? <MediaLiveRead onData={setLiveRead} /> : null}

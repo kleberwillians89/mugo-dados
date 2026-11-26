@@ -17,7 +17,7 @@ export default function MediaNow({ showRecommendations, history, reportLink }: {
   const [items, setItems] = useState<MediaNowCampaign[] | null>(null);
   const [channel, setChannel] = useState("");
   const [search, setSearch] = useState("");
-  const [signal, setSignal] = useState("");
+  const [view, setView] = useState<"active" | "closed">("active");
   const [spend7, setSpend7] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [tips, setTips] = useState<LiveReadNote[] | null>(null);
@@ -41,13 +41,12 @@ export default function MediaNow({ showRecommendations, history, reportLink }: {
   for (const item of items || []) counts[item.sinal]++;
   const priority = { atencao: 0, bem: 1, aprendendo: 2 };
   const filtered = (items || []).filter((campaign) => (!channel || campaign.canal === channel)
-    && (!signal || campaign.sinal === signal)
     && campaign.campanha.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))
     .sort((a, b) => priority[a.sinal] - priority[b.sinal]);
   return <>
     <section className="ds-section mediaNow" aria-labelledby="media-now-title">
       <div className="mediaNowHead">
-        <div><h2 id="media-now-title">Campanhas ativas</h2><small>Meta ao vivo · Google pela última sincronização</small></div>
+        <div><h2 id="media-now-title">Campanhas</h2><small>Meta ao vivo · Google pela última sincronização</small></div>
         {reportLink}
       </div>
       {items ? <dl className="mediaNowTotals" aria-label="Resumo de desempenho">
@@ -55,6 +54,11 @@ export default function MediaNow({ showRecommendations, history, reportLink }: {
         <div><dt>Investimento nos últimos 7 dias</dt><dd>{brl(spend7)}</dd></div>
         <div><dt>Pedem atenção</dt><dd className={counts.atencao ? "is-warn" : ""}>{counts.atencao}</dd></div>
       </dl> : null}
+      <div className="mediaNowStatusFilters" role="group" aria-label="Status das campanhas">
+        <button type="button" className="ds-button" aria-pressed={view === "active"} onClick={() => setView("active")}>Ativas</button>
+        <button type="button" className="ds-button" aria-pressed={view === "closed"} onClick={() => setView("closed")}>Encerradas</button>
+      </div>
+      {view === "closed" ? history : <>
       {error ? <p role="alert" className="studioError">{error}</p> : null}
       {items === null && !error ? <p className="libHint" role="status">Lendo as campanhas no ar…</p> : null}
       {items && !items.length ? <p className="mediaNowEmpty">Nenhuma campanha no ar agora.</p> : null}
@@ -64,14 +68,6 @@ export default function MediaNow({ showRecommendations, history, reportLink }: {
           <label>Canal<select value={channel} onChange={(event) => setChannel(event.target.value)}>
             <option value="">Todos</option><option>Meta</option><option>Google</option>
           </select></label>
-        </div>
-        <div className="mediaNowStatusFilters" role="group" aria-label="Situação da campanha">
-          <button type="button" className="ds-button" aria-pressed={!signal} onClick={() => setSignal("")}>Todas <span>{items.length}</span></button>
-          {(["atencao", "bem", "aprendendo"] as const).map((key) => (
-            <button key={key} type="button" className="ds-button" aria-pressed={signal === key} onClick={() => setSignal(key)}>
-              {SIGNAL[key].label} <span>{counts[key]}</span>
-            </button>
-          ))}
         </div>
         <p className="mediaNowResultCount" role="status">{filtered.length} de {items.length} campanhas</p>
         {!filtered.length ? <p className="mediaNowEmpty">Nenhuma campanha corresponde aos filtros.</p> : null}
@@ -92,8 +88,8 @@ export default function MediaNow({ showRecommendations, history, reportLink }: {
           </li>;
         })}</ul>
       </> : null}
+      </>}
     </section>
-    {history}
     {showRecommendations && tips && tips.length ? <section className="ds-section mediaNowTips" aria-labelledby="media-now-tips">
       <h2 id="media-now-tips">O que a Mugô recomenda</h2>
       <small>Só sobre campanhas no ar há pelo menos 7 dias e com investimento suficiente para julgar.</small>
