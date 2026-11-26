@@ -89,7 +89,11 @@ jobs:
             if grep -qi "password authentication failed" err.txt; then echo "senha do banco errada no SUPABASE_DB_URL";
             elif grep -qi "could not translate host\|Network is unreachable\|timeout" err.txt; then echo "endereço do banco errado ou inacessível (use o Session pooler)";
             elif grep -qi "server version" err.txt; then echo "versão do pg_dump menor que a do banco: aumentar PG_MAJOR";
-            else echo "pg_dump falhou (motivo não exibido no log público)"; fi
+            elif grep -qi "Tenant or user not found" err.txt; then echo "usuário ou região do pooler errados: o usuário deve ser postgres.<id-do-projeto> e o host o do Session pooler";
+            elif grep -qi "permission denied" err.txt; then echo "permissão negada em algum schema interno do Supabase: ajustar --exclude-schema";
+            else echo "pg_dump falhou"; fi
+            # Primeira linha do erro, sem segredos (o GitHub mascara o valor do segredo; o pg_dump não imprime senha).
+            head -3 err.txt | sed -E 's#postgres(ql)?://[^ ]+#<url>#g; s/password=[^ ]+/password=<oculta>/g' 
             exit 1
           fi
           gpg --batch --yes --quiet --pinentry-mode loopback --symmetric --cipher-algo AES256 --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" -o check.gpg < check.dump
