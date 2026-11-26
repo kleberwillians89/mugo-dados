@@ -25,6 +25,7 @@ from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_config import META_GRAPH_BASE_URL
 from .studio_calendar import StudioError
 from .ads_tracking import clean_tracking, tracking_suffix
+from . import meta_structure as ms
 
 TABLE = "studio_ad_drafts"
 ADS_SCOPE = "ads_management"
@@ -159,12 +160,19 @@ def clean_placements(value: Any) -> Dict[str, Any]:
     mode = str(p.get("mode") or "automatic")
     if mode not in ("automatic", "manual"):
         raise StudioError("AD_PLACEMENTS_INVALID")
-    allowed = {"platforms": ("instagram", "facebook"),
-               "instagram": ("stream", "story", "reels"),
-               "facebook": ("feed", "story", "facebook_reels")}
+    # Posicionamentos manuais do Gerenciador (nomes da API). O padrão de rascunho antigo continua o mesmo.
+    allowed = {"platforms": ("instagram", "facebook", "messenger", "audience_network"),
+               "instagram": ("stream", "story", "reels", "explore", "explore_home", "profile_feed", "ig_search"),
+               "facebook": ("feed", "story", "facebook_reels", "marketplace", "video_feeds", "right_hand_column",
+                            "search", "instream_video", "profile_feed", "notification"),
+               "messenger": ("messenger_home", "story", "sponsored_messages"),
+               "audience_network": ("classic", "rewarded_video")}
+    defaults = {"platforms": ["instagram", "facebook"], "instagram": ["stream", "story", "reels"],
+                "facebook": ["feed", "story", "facebook_reels"], "messenger": ["messenger_home", "story"],
+                "audience_network": ["classic"]}
     result: Dict[str, Any] = {"mode": mode}
     for key, options in allowed.items():
-        items = p.get(key, list(options))
+        items = p.get(key, defaults[key])
         if not isinstance(items, list) or any(not isinstance(x, str) or x not in options for x in items):
             raise StudioError("AD_PLACEMENTS_INVALID")
         result[key] = list(dict.fromkeys(items))
@@ -205,7 +213,18 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
     excluded = _refs(aud.get("excluded_audiences"))
     skip = {a["id"] for a in excluded}  # o mesmo público nos dois lados: vale a exclusão
     ad = data.get("ad") if isinstance(data.get("ad"), dict) else {}
+    # Estrutura igual ao Gerenciador (objetivo oficial, local de conversão, meta, orçamento e lance).
+    meta = ms.clean_meta(data.get("meta"), legacy_objective_key=objective, daily_budget=budget)
+    if not meta["budget"]:
+        meta["budget"] = budget
+    objective = ms.legacy_objective(meta, objective)
+    budget = ms.daily_equivalent(meta, start.isoformat(), end.isoformat())
+    allowed_ctas = ms.ctas_for(meta["conversion_location"], meta["messaging_apps"])
     cta = str(ad.get("cta") or "LEARN_MORE")
+    if cta == "SEND_WHATSAPP_MESSAGE":
+        cta = "WHATSAPP_MESSAGE"
+    if cta not in allowed_ctas:
+        cta = allowed_ctas[0]
     try:
         tracking = clean_tracking(data.get("tracking"))
     except ValueError as exc:
@@ -215,12 +234,15 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
         "name": _text(data.get("name"), LIMITS["name"]) or "Campanha Mídia On",
         "objective": objective,
         "daily_budget": budget,
+        "meta": meta,
         "placements": clean_placements(data.get("placements")),
         # Conjunto de dados (pixel) escolhido na revisão; vazio = o que está recebendo eventos.
         "pixel_id": str(data.get("pixel_id") or "") if re.fullmatch(r"\d{5,25}", str(data.get("pixel_id") or "")) else None,
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "audience": {"age_min": age_min, "age_max": age_max, "gender": gender if gender in GENDERS else "todos",
                      "regions": _names(aud.get("regions")), "interests": _names(aud.get("interests")),
+                     # Interesses escolhidos na lista oficial da Meta (id exato, sem precisar buscar pelo nome).
+                     "interest_refs": _refs(aud.get("interest_refs"), limit=25),
                      "advantage": bool(aud.get("advantage", True)),
                      # Públicos que já existem na conta de anúncios do cliente (lista em /studio/ads/audiences).
                      "saved_audience": _ref(aud.get("saved_audience")),
@@ -229,7 +251,7 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
         "ad": {"primary_text": _text(ad.get("primary_text"), LIMITS["primary_text"]),
                "headline": _text(ad.get("headline"), LIMITS["headline"]),
                "description": _text(ad.get("description"), LIMITS["description"]),
-               "cta": cta if cta in CTAS else "LEARN_MORE",
+               "cta": cta,
                "link": _text(ad.get("link"), LIMITS["link"]),
                "image_url": _text(ad.get("image_url"), LIMITS["image_url"]),
                "calendar_item_id": _text(ad.get("calendar_item_id"), 60) or None,
@@ -249,13 +271,17 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
 
 def readiness(payload: Dict[str, Any]) -> List[str]:
     """O que falta para publicar (mostrado na tela antes do botão)."""
-    missing = []
-    if payload["daily_budget"] < MIN_DAILY_BRL:
-        missing.append(f"Orçamento diário de pelo menos R$ {MIN_DAILY_BRL:.0f}".replace(".", ","))
+    meta = payload["meta"]
+    missing = ms.missing(meta, payload, MIN_DAILY_BRL)
     ad = payload["ad"]
-    if not ad["primary_text"]:
+    if not ad["primary_text"] and not meta.get("use_existing_post"):
         missing.append("Texto principal do anúncio")
     units = ad_units(ad)
+    if meta.get("use_existing_post"):
+        # Post existente do Instagram: a arte e a legenda vêm do próprio post.
+        if not ad.get("instagram_post_id"):
+            missing.append("Post existente do Instagram")
+        units = units[1:]
     if ad["format"] == "multi" and len(units) < 2:
         missing.append("Pelo menos 2 imagens para os anúncios")
     for index, unit in enumerate(units):
@@ -264,7 +290,7 @@ def readiness(payload: Dict[str, Any]) -> List[str]:
             label = "Imagem do anúncio" if problem == "imagem" and len(units) == 1 else \
                 ("URL HTTPS do vídeo" if problem.startswith("URL") and len(units) == 1 else f"Anúncio {index + 1}: {problem}")
             missing.append(label)
-    if OBJECTIVES[payload["objective"]].get("destination") == "WEBSITE" and not ad["link"].startswith(("http://", "https://")):
+    if meta["conversion_location"] == "WEBSITE" and not ad["link"].startswith(("http://", "https://")):
         missing.append("Link do site (começando com https://)")
     return missing
 
@@ -305,6 +331,7 @@ async def _calendar_art(client_id: str, item_id: Optional[str]) -> str:
     return first
 
 
+TASK_BRIEF_KEYS = ("title", "summary", "objective", "key_message", "offer", "audience", "deadline", "goal", "notes")
 AD_SCHEMA_KEYS = ("name", "primary_text", "headline", "description", "cta", "age_min", "age_max", "gender", "regions", "interests")
 
 
@@ -326,11 +353,22 @@ async def generate_draft(client_id: str, *, user_id: str, month: Optional[str], 
         knowledge = (await knowledge_for_prompt(client_id, 1500)).strip()
     except Exception:  # noqa: BLE001 — memória indisponível não impede o rascunho
         knowledge = ""
-    schema = obj({"name": STR, "primary_text": STR, "headline": STR, "description": STR, "cta": STR,
-                  "age_min": INT, "age_max": INT, "gender": STR, "regions": arr(STR), "interests": arr(STR)})
+    brief = campaign.get("task_brief") if isinstance(campaign.get("task_brief"), dict) else {}
+    brief = {k: _text(v, 600) for k, v in brief.items() if k in TASK_BRIEF_KEYS and isinstance(v, str) and v.strip()}
+    fields = {"name": STR, "primary_text": STR, "headline": STR, "description": STR, "cta": STR,
+              "age_min": INT, "age_max": INT, "gender": STR, "regions": arr(STR), "interests": arr(STR)}
+    if brief:
+        # Com briefing da tarefa, a IA também sugere o objetivo oficial e o local de conversão (a pessoa revisa campo por campo).
+        fields.update({"meta_objective": STR, "conversion_location": STR, "messaging_app": STR})
+    schema = obj(fields)
     prompt = (f"CAMPANHA DO PLANO (Mídia On): {json.dumps({k: campaign.get(k) for k in ('campaign', 'action', 'why', 'planned_budget')}, ensure_ascii=False)}\n"
-              f"OBJETIVO NO META: {OBJECTIVES[obj_key]['label']}\n"
-              f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
+              + (f"BRIEFING DA TAREFA DO KANBAN: {json.dumps(brief, ensure_ascii=False)}\n"
+                 f"Escolha meta_objective entre {', '.join(ms.OBJECTIVES)} ({', '.join(o['label'] for o in ms.OBJECTIVES.values())}), "
+                 "conversion_location entre WEBSITE, MESSAGING, ON_AD (formulário instantâneo), NONE (só reconhecimento), "
+                 "e messaging_app (WHATSAPP, INSTAGRAM_DIRECT ou MESSENGER) se o local for MESSAGING; senão vazio. "
+                 "Siga o objetivo do briefing.\n"
+                 if brief else f"OBJETIVO NO META: {OBJECTIVES[obj_key]['label']}\n")
+              + f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
               f"NEGÓCIO: {json.dumps(business, ensure_ascii=False, default=str)[:2500]}\n"
               + (f"CONHECIMENTO DA MARCA (documentos): {knowledge}\n" if knowledge else "")
               + (f"COMO O PÚBLICO FALA DA MARCA (Saúde da marca; use para escolher o gancho, responder o que mais perguntam "
@@ -345,8 +383,15 @@ async def generate_draft(client_id: str, *, user_id: str, month: Optional[str], 
                           prompt=prompt, schema_name="meta_ad_draft", schema=schema, temperature=0.6)
     days = max(1, int(days_left or 14))
     planned = float(campaign.get("planned_budget") or 0)
+    suggested = None
+    if brief and data.get("meta_objective") in ms.OBJECTIVES:
+        app = str(data.get("messaging_app") or "")
+        suggested = {"objective": data["meta_objective"], "conversion_location": str(data.get("conversion_location") or ""),
+                     "messaging_apps": [app] if app in ms.MESSAGING_APPS else [],
+                     "budget": round(planned / days, 2) if planned else 30}
     payload = clean_payload({
-        "name": data.get("name") or campaign.get("campaign"), "objective": obj_key,
+        "meta": suggested,
+        "name": data.get("name") or campaign.get("campaign") or brief.get("title"), "objective": obj_key,
         "daily_budget": round(planned / days, 2) if planned else 30,
         "start_date": (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat(),
         "end_date": (datetime.now(timezone.utc).date() + timedelta(days=days)).isoformat(),
@@ -356,7 +401,7 @@ async def generate_draft(client_id: str, *, user_id: str, month: Optional[str], 
                "cta": data.get("cta"), "link": str(business.get("website") or business.get("site") or "")},
     })
     created = await sb_insert(TABLE, {"client_id": client_id, "month": f"{month}-01" if month else None,
-                                      "source_campaign": _text(campaign.get("campaign"), 200) or None,
+                                      "source_campaign": _text(campaign.get("campaign") or brief.get("title"), 200) or None,
                                       "payload": payload, "status": "rascunho", "created_by": user_id})
     if not created:
         raise StudioError("AD_SAVE_FAILED")
@@ -1158,7 +1203,7 @@ async def _context(client_id: str) -> Dict[str, Any]:
     return {**account, "page_id": page_id, "ig_id": ig_id}
 
 
-async def publication_preflight(client_id: str, objective: str = "leads") -> Dict[str, Any]:
+async def publication_preflight(client_id: str, objective: str = "leads", needs_pixel: Optional[bool] = None) -> Dict[str, Any]:
     """Read-only account readiness for creating one PAUSED Meta ad.
 
     No credentials, pixel IDs or other private Meta connection values are returned.
@@ -1203,7 +1248,7 @@ async def publication_preflight(client_id: str, objective: str = "leads") -> Dic
         record("page", False, "Conecte a Página do Facebook desta marca em Integrações.")
         record("instagram", False, "Instagram não pôde ser verificado.")
 
-    if OBJECTIVES[objective].get("event"):
+    if needs_pixel if needs_pixel is not None else OBJECTIVES[objective].get("event"):
         try:
             chosen = best_pixel(await _pixels(act, token))
             active = bool(chosen and chosen.get("last_fired_time"))
@@ -1644,6 +1689,48 @@ def apply_account_audiences(targeting: Dict[str, Any], audience: Dict[str, Any])
     return targeting
 
 
+def cta_for(meta: Dict[str, Any], ad: Dict[str, Any], target: str, *, page_id: str) -> Optional[Dict[str, Any]]:
+    """Botão do anúncio no formato que a API espera para cada local de conversão."""
+    location, apps, chosen = meta["conversion_location"], meta["messaging_apps"], ad["cta"]
+    if location == "MESSAGING":
+        if apps == ["WHATSAPP"]:
+            return {"type": "WHATSAPP_MESSAGE", "value": {"app_destination": "WHATSAPP"}}
+        if apps == ["INSTAGRAM_DIRECT"]:
+            return {"type": "INSTAGRAM_MESSAGE", "value": {"app_destination": "INSTAGRAM_DIRECT"}}
+        if apps == ["MESSENGER"]:
+            return {"type": "MESSAGE_PAGE", "value": {"app_destination": "MESSENGER"}}
+        return {"type": "MESSAGE_PAGE", "value": {}}
+    if location == "PHONE_CALL":
+        return {"type": "CALL_NOW", "value": {"link": f"tel:+{meta['phone_number'] or ''}"}}
+    if location == "ON_AD":
+        return {"type": chosen, "value": {"lead_gen_form_id": (meta["lead_form"] or {}).get("id", "")}}
+    if location == "APP":
+        return {"type": chosen, "value": {"link": target, "application": (meta["app"] or {}).get("id", "")}}
+    if location == "ON_PAGE":
+        return {"type": "LIKE_PAGE", "value": {"page": page_id}}
+    if location == "INSTAGRAM_PROFILE":
+        return {"type": "VIEW_INSTAGRAM_PROFILE", "value": {"link": target}}
+    if chosen == "NO_BUTTON":
+        return None
+    return {"type": chosen, "value": {"link": target}}
+
+
+def without_empty_cta(value: Any) -> Any:
+    """Tira "call_to_action": None (anúncio "Sem botão") em qualquer nível do criativo."""
+    if isinstance(value, dict):
+        return {k: without_empty_cta(v) for k, v in value.items() if not (k == "call_to_action" and v is None)}
+    if isinstance(value, list):
+        return [without_empty_cta(v) for v in value]
+    return value
+
+
+async def _instagram_profile_link(ctx: Dict[str, Any], token: str) -> str:
+    if not ctx.get("ig_id"):
+        raise StudioError("AD_INSTAGRAM_MISSING")
+    profile = await _graph("GET", f"/{ctx['ig_id']}", token=token, params={"fields": "username"})
+    return f"https://www.instagram.com/{profile.get('username') or ''}"
+
+
 def _ts(day: str, end: bool = False) -> str:
     return f"{day}T{'23:59:00' if end else '08:00:00'}-0300"
 
@@ -1662,7 +1749,10 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
     if ids.get("joined") and ids.get("ad_account_id") and ids["ad_account_id"] != ctx["act"]:
         raise StudioError("AD_ACCOUNT_CHANGED", "A conta de anúncios mudou desde a campanha original. Use Duplicar campanha.")
     ids["ad_account_id"] = ctx["act"]
-    cfg = OBJECTIVES[payload["objective"]]
+    meta = payload["meta"]
+    # Retenção/remarketing (rascunhos antigos): públicos do pixel criados automaticamente.
+    auto_audience = OBJECTIVES.get(payload["objective"], {}).get("audience")
+    needs_pixel = ms.needs_event(meta["performance_goal"], meta["conversion_location"])
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}
     await sb_update(TABLE, filters=filters, patch={"status": "publicando", "error": None, "updated_at": _now()})
     async def checkpoint() -> None:
@@ -1670,29 +1760,32 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
         # This avoids creating a second campaign when a later adset/creative request is rejected.
         await sb_update(TABLE, filters=filters, patch={"meta_ids": ids, "updated_at": _now()})
 
+    level = "campaign"
     try:
         token, act, ad = ctx["token"], ctx["act"], payload["ad"]
         if not ids.get("campaign_id"):
-            camp = await _graph("POST", f"/{act}/campaigns", token=token, data={
-                "name": payload["name"], "objective": cfg["objective"], "status": "PAUSED", "special_ad_categories": "[]",
-                "daily_budget": str(int(round(payload["daily_budget"] * 100))), "bid_strategy": "LOWEST_COST_WITHOUT_CAP"})
+            camp = await _graph("POST", f"/{act}/campaigns", token=token, data=ms.campaign_fields(meta, payload["name"]))
             ids["campaign_id"] = str(camp["id"])
             await checkpoint()
+        level = "adset"
         if not ids.get("adset_id"):
             saved = payload["audience"].get("saved_audience")
             if saved:
                 # Público salvo da conta: usa a segmentação dele (idade, locais, interesses) no lugar da escrita.
                 targeting = await saved_targeting(saved["id"], token)
             else:
-                interests = await _interest_ids(payload["audience"]["interests"], token)
+                refs = payload["audience"]["interest_refs"]
+                known = {r["name"].lower() for r in refs}
+                typed = [n for n in payload["audience"]["interests"] if n.lower() not in known]
+                interests = refs + await _interest_ids(typed, token)
                 regions = await _region_keys(payload["audience"]["regions"], token)
                 targeting = targeting_for(payload, interests, regions)
-            pixel = await _chosen_pixel(act, token, payload.get("pixel_id")) if cfg.get("event") else ""
+            pixel = await _chosen_pixel(act, token, payload.get("pixel_id")) if needs_pixel or auto_audience else ""
             if pixel:
                 ids["pixel_id"] = pixel
-            if cfg.get("audience"):
+            if auto_audience:
                 # Retenção/remarketing: o público é a lista (não amplia com Advantage+ nem interesses).
-                key = cfg["audience"]
+                key = auto_audience
                 ids.setdefault("audiences", {})[key] = await ensure_audience(act, token, key, pixel)
                 targeting.pop("flexible_spec", None)
                 targeting["targeting_automation"] = {"advantage_audience": 0}
@@ -1705,46 +1798,60 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
             placements = payload["placements"]
             if placements["mode"] == "manual":
                 targeting["publisher_platforms"] = placements["platforms"]
-                if "instagram" in placements["platforms"]:
-                    if not ctx["ig_id"]:
-                        raise StudioError("AD_INSTAGRAM_MISSING")
-                    targeting["instagram_positions"] = placements["instagram"]
-                if "facebook" in placements["platforms"]:
-                    targeting["facebook_positions"] = placements["facebook"]
-                targeting.pop("messenger_positions", None)
-                targeting.pop("audience_network_positions", None)
+                for platform in ("facebook", "instagram", "messenger", "audience_network"):
+                    targeting.pop(f"{platform}_positions", None)
+                if "instagram" in placements["platforms"] and not ctx["ig_id"]:
+                    raise StudioError("AD_INSTAGRAM_MISSING")
+                for platform in placements["platforms"]:
+                    targeting[f"{platform}_positions"] = placements[platform]
             adset = {"name": f"{payload['name']} · público", "campaign_id": ids["campaign_id"], "status": "PAUSED",
-                     "billing_event": "IMPRESSIONS", "optimization_goal": cfg["optimization"],
-                     "targeting": json.dumps(targeting),
-                     "start_time": _ts(payload["start_date"]), "end_time": _ts(payload["end_date"], end=True)}
-            if cfg.get("destination"):
-                adset["destination_type"] = cfg["destination"]
-            if cfg.get("event"):
-                adset["promoted_object"] = json.dumps({"pixel_id": pixel, "custom_event_type": cfg["event"]})
-            elif cfg.get("destination") == "WHATSAPP":
-                adset["promoted_object"] = json.dumps({"page_id": ctx["page_id"],
-                                                       **({"whatsapp_phone_number": ad["whatsapp_number"]} if ad["whatsapp_number"] else {})})
+                     "billing_event": ms.billing_event(meta), "optimization_goal": meta["performance_goal"],
+                     "targeting": json.dumps(targeting), "start_time": _ts(payload["start_date"]),
+                     **ms.adset_budget_fields(meta)}
+            if meta["has_end_date"]:
+                adset["end_time"] = _ts(payload["end_date"], end=True)
+            destination = ms.destination_type(meta)
+            if destination:
+                adset["destination_type"] = destination
+            promoted = ms.promoted_object(meta, pixel_id=pixel, page_id=ctx["page_id"], whatsapp_number=ad["whatsapp_number"])
+            if promoted:
+                adset["promoted_object"] = json.dumps(promoted)
             ids["adset_id"] = str((await _graph("POST", f"/{act}/adsets", token=token, data=adset))["id"])
             await checkpoint()
-        elif cfg.get("event") and payload.get("pixel_id") and ids.get("pixel_id") != payload["pixel_id"]:
+        elif needs_pixel and payload.get("pixel_id") and ids.get("pixel_id") != payload["pixel_id"]:
             # Criação que parou no meio e o pixel foi trocado na revisão: o conjunto passa a otimizar pelo escolhido.
             chosen = await _chosen_pixel(act, token, payload["pixel_id"])
             await _graph("POST", f"/{ids['adset_id']}", token=token,
-                         data={"promoted_object": json.dumps({"pixel_id": chosen, "custom_event_type": cfg["event"]})})
+                         data={"promoted_object": json.dumps({"pixel_id": chosen, "custom_event_type": meta["conversion_event"] or "PURCHASE"})})
             ids["pixel_id"] = chosen
             await checkpoint()
-        to_whatsapp = cfg.get("destination") == "WHATSAPP"
-        link = WHATSAPP_LINK if to_whatsapp else (ad["link"] or f"https://www.facebook.com/{ctx['page_id']}")
+        level = "ad"
+        location, apps = meta["conversion_location"], meta["messaging_apps"]
+        to_whatsapp = location == "MESSAGING" and apps == ["WHATSAPP"]
+        page_link = f"https://www.facebook.com/{ctx['page_id']}"
+        if to_whatsapp:
+            link = WHATSAPP_LINK
+        elif location == "APP" and meta["app"]:
+            link = meta["app"]["store_url"]
+        elif location == "ON_AD":
+            link = "https://fb.me/"
+        elif location == "INSTAGRAM_PROFILE":
+            link = await _instagram_profile_link(ctx, token)
+        elif location in ("MESSAGING", "PHONE_CALL", "ON_PAGE"):
+            link = page_link
+        else:
+            link = ad["link"] or page_link
+        fixed_target = location != "WEBSITE" and location not in ("NONE", "ON_POST")
 
-        def cta(target: str) -> Dict[str, Any]:
-            # Click-to-WhatsApp: o botão é sempre "Enviar mensagem no WhatsApp" e abre a conversa.
-            if to_whatsapp:
-                return {"type": "WHATSAPP_MESSAGE", "value": {"app_destination": "WHATSAPP"}}
-            return {"type": ad["cta"], "value": {"link": target}}
+        def cta(target: str) -> Optional[Dict[str, Any]]:
+            return cta_for(meta, ad, target, page_id=ctx["page_id"])
         tags = {"url_tags": tracking_suffix(payload["tracking"])} if payload["tracking"] else {}
 
         async def make_creative(name: str, link_or_video: Dict[str, Any]) -> str:
-            spec = {"page_id": ctx["page_id"], **link_or_video}
+            if "existing_post" in link_or_video:
+                made = await _graph("POST", f"/{act}/adcreatives", token=token, data={"name": name, **link_or_video["existing_post"], **tags})
+                return str(made["id"])
+            spec = without_empty_cta({"page_id": ctx["page_id"], **link_or_video})
             if ctx["ig_id"]:
                 spec["instagram_user_id"] = ctx["ig_id"]
             made = await _graph("POST", f"/{act}/adcreatives", token=token,
@@ -1767,12 +1874,21 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
             return {"link_data": data}
 
         async def body_for(unit: Dict[str, Any], index: int) -> Dict[str, Any]:
+            if index == 0 and meta.get("use_existing_post") and ad.get("instagram_post_id"):
+                # "Usar publicação existente": o anúncio é o próprio post do Instagram (curtidas e comentários ficam juntos).
+                post: Dict[str, Any] = {"object_id": ctx["page_id"], "source_instagram_media_id": ad["instagram_post_id"]}
+                if ctx["ig_id"]:
+                    post["instagram_user_id"] = ctx["ig_id"]
+                button = cta(link)
+                if button and location not in ("NONE", "ON_POST"):
+                    post["call_to_action"] = json.dumps(button)
+                return {"existing_post": post}
             headline = unit.get("headline") or ad["headline"]
-            target = link if to_whatsapp else (unit.get("link") or link)
+            target = link if fixed_target else (unit.get("link") or link)
             if unit["format"] == "carousel":
                 children = []
                 for card in unit["cards"]:
-                    card_link = link if to_whatsapp else (card["link"] or link)
+                    card_link = link if fixed_target else (card["link"] or link)
                     child: Dict[str, Any] = {"link": card_link, "image_hash": await _image_hash(act, card["image_url"], token),
                                              "call_to_action": cta(card_link)}
                     if card["headline"] or ad["headline"]:
@@ -1844,8 +1960,15 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
         await checkpoint()
     except StudioError as exc:
         message = str(exc) if str(exc) != exc.code else exc.code
+        if exc.code == "AD_META_REJECTED":
+            # Mostra em que nível do Gerenciador a Meta recusou (Campanha, Conjunto ou Anúncio).
+            message = f"{ms.ERROR_LEVEL_HINTS[level]}: {message}"
+            ids["error_level"] = level
         await sb_update(TABLE, filters=filters, patch={"status": "erro", "meta_ids": ids, "error": str(message)[:600], "updated_at": _now()})
+        if exc.code == "AD_META_REJECTED":
+            raise MetaAdError(exc.code, message) from None
         raise
+    ids.pop("error_level", None)
     rows = await sb_update(TABLE, filters=filters, patch={"status": "publicada", "meta_ids": ids, "error": None,
                                                           "published_at": _now(), "updated_at": _now()})
     print(f"[meta_ads_publish] client_id={client_id} draft={draft_id} status=published campaign={ids.get('campaign_id')}")
