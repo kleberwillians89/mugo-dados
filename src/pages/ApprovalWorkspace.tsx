@@ -59,7 +59,8 @@ type Props = {
   isAgency: boolean;
   canDeleteCalendarContent: boolean;
   canDeleteTaskContent: boolean;
-  onOpenCalendar: () => void;
+  /** Sem acesso ao Calendário (perfil Cliente — Aprovação Final), o botão não aparece. */
+  onOpenCalendar?: () => void;
 };
 
 export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarContent, canDeleteTaskContent, onOpenCalendar }: Props) {
@@ -209,7 +210,7 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
   }
 
   const controls = <div className="approvalWorkspaceTopActions">
-    <button type="button" className="ds-button" onClick={onOpenCalendar}><CalendarDays size={16} aria-hidden="true" /> Calendário</button>
+    {onOpenCalendar ? <button type="button" className="ds-button" onClick={onOpenCalendar}><CalendarDays size={16} aria-hidden="true" /> Calendário</button> : null}
   </div>;
 
   return <Shell title={title} variant="editorial"><div className="ds-page approvalWorkspacePage">
