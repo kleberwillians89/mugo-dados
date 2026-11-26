@@ -5,13 +5,14 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
+from pydantic import BaseModel, Field
 
-from services import cart_recovery, commercial_flows, email_marketing, email_resend, relationship_lists
-from services.tenant import require_client_read, require_client_role, require_user_id
+from services import cart_recovery, commercial_flows, email_approval, email_marketing, email_resend, relationship_lists
+from services.tenant import is_agency_user, require_client_read, require_client_role, require_user_id
 
 router = APIRouter(tags=["email"])
 WRITERS = ("agency_admin", "client_admin")
@@ -196,6 +197,89 @@ async def email_upload_image(request: Request, client_id: str | None = Query(def
         raise _fail(exc) from exc
 
 
+class EmailReviewSubmission(BaseModel):
+    expected_updated_at: str = Field(min_length=1, max_length=64)
+
+
+class EmailReviewDecision(BaseModel):
+    version: int = Field(ge=1)
+    decision: Literal["approved", "changes_requested"]
+    comment: str = Field(default="", max_length=1000)
+
+
+async def _require_internal_review(client_id: str | None, authorization: str | None) -> tuple[str, str]:
+    cid = await require_client_read(client_id, authorization)
+    if not await is_agency_user(authorization, cid):
+        raise HTTPException(status_code=403, detail="Aprovação Interna é restrita à equipe Mugô.")
+    return cid, await require_user_id(authorization)
+
+
+async def _review_actor_name(authorization: str | None) -> str:
+    from services.auth import get_user_from_bearer
+
+    user = await get_user_from_bearer(authorization) or {}
+    metadata = user.get("user_metadata") or {}
+    return str(metadata.get("full_name") or metadata.get("name")
+               or str(user.get("email") or "").split("@")[0] or "Equipe Mugô")[:120]
+
+
+async def _campaign_response(cid: str, authorization: str | None, campaign: dict) -> dict:
+    public = email_marketing.public_campaign(campaign)
+    review = email_approval.review_summary(campaign)
+    agency = await is_agency_user(authorization, cid)
+    valid = False
+    if campaign["status"] == "rascunho" and (review["status"] == "approved" or (agency and review["status"] == "pending")):
+        settings = await email_marketing.get_settings(cid)
+        snapshot = campaign["internal_review"]["versions"][-1]["snapshot"]
+        if snapshot != email_marketing.review_snapshot(campaign, settings):
+            review["status"] = "draft"
+        else:
+            valid = email_marketing.approval_valid(campaign, settings)
+    public["can_dispatch"] = valid
+    if agency:
+        public["review"] = review
+    return public
+
+
+@router.get("/api/email/internal-approval")
+async def email_approval_queue(client_id: str | None = Query(default=None),
+                               x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                               authorization: str | None = Header(default=None)):
+    cid, _ = await _require_internal_review(client_id or x_client_id, authorization)
+    try:
+        return {"campaigns": await email_approval.queue(cid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/campaigns/{campaign_id}/internal-approval")
+async def email_submit_approval(campaign_id: str, payload: EmailReviewSubmission,
+                                client_id: str | None = Query(default=None),
+                                x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    _, uid = await _require_internal_review(cid, authorization)
+    try:
+        return {"review": await email_approval.submit(cid, campaign_id, uid, payload.expected_updated_at,
+                                                        actor_name=await _review_actor_name(authorization))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/campaigns/{campaign_id}/internal-approval/decision")
+async def email_decide_approval(campaign_id: str, payload: EmailReviewDecision,
+                                client_id: str | None = Query(default=None),
+                                x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                authorization: str | None = Header(default=None)):
+    cid, uid = await _require_internal_review(client_id or x_client_id, authorization)
+    try:
+        return {"review": await email_approval.decide(cid, campaign_id, uid, payload.version,
+                                                       payload.decision, payload.comment.strip(),
+                                                       actor_name=await _review_actor_name(authorization))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
 @router.get("/api/email/campaigns")
 async def email_campaigns(client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
                           authorization: str | None = Header(default=None)):
@@ -213,7 +297,8 @@ async def email_create_campaign(payload: Dict[str, Any] = Body(default={}), clie
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     user_id = await require_user_id(authorization)
     try:
-        return {"ok": True, "campaign": await email_marketing.save_campaign(cid, payload, user_id=user_id)}
+        campaign = await email_marketing.save_campaign(cid, payload, user_id=user_id)
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -226,7 +311,7 @@ async def email_campaign(campaign_id: str, client_id: str | None = Query(default
     try:
         campaign = await email_marketing.get_campaign(cid, campaign_id)
         live = campaign["status"] in ("enviando", "enviada")
-        return {"ok": True, "campaign": campaign, "stats": await email_marketing.campaign_stats(cid, campaign_id) if live else None}
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign), "stats": await email_marketing.campaign_stats(cid, campaign_id) if live else None}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -238,7 +323,8 @@ async def email_update_campaign(campaign_id: str, payload: Dict[str, Any] = Body
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     user_id = await require_user_id(authorization)
     try:
-        return {"ok": True, "campaign": await email_marketing.save_campaign(cid, payload, user_id=user_id, campaign_id=campaign_id)}
+        campaign = await email_marketing.save_campaign(cid, payload, user_id=user_id, campaign_id=campaign_id)
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -262,6 +348,8 @@ async def email_test(campaign_id: str, payload: Dict[str, Any] = Body(...), clie
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     try:
         campaign = await email_marketing.get_campaign(cid, campaign_id)
+        if isinstance(payload.get("draft"), dict):
+            campaign = {**campaign, **email_marketing.clean_campaign(payload["draft"])}
         return {"ok": True, **(await email_marketing.send_test(cid, campaign, str(payload.get("to") or "")))}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
@@ -286,7 +374,8 @@ async def email_schedule(campaign_id: str, payload: Dict[str, Any] = Body(defaul
     """Agenda (ou envia já, sem data). O envio sai pelo job a cada 5 minutos."""
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     try:
-        return {"ok": True, "campaign": await email_marketing.schedule(cid, campaign_id, payload.get("at"))}
+        campaign = await email_marketing.schedule(cid, campaign_id, payload.get("at"), payload.get("expected_updated_at"))
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -297,7 +386,8 @@ async def email_cancel(campaign_id: str, client_id: str | None = Query(default=N
                        authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     try:
-        return {"ok": True, "campaign": await email_marketing.cancel(cid, campaign_id)}
+        campaign = await email_marketing.cancel(cid, campaign_id)
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
