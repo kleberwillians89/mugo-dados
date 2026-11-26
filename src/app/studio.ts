@@ -242,7 +242,9 @@ export function searchShopProducts(q: string, catalogId?: string) {
   return http<{ products: ShopProduct[] }>(base(`/calendar/shop/products?${params.toString()}`), { timeoutMs: 30_000 });
 }
 
-export function createCalendarItem(item: Required<Pick<CalendarItem, "scheduled_at" | "format" | "title">> & ItemPatch) {
+export type PublicationDestination = { channel: StudioChannel; format?: StudioFormat; caption_draft?: string; scheduled_at?: string; art_url?: string };
+
+export function createCalendarItem(item: Required<Pick<CalendarItem, "scheduled_at" | "format" | "title">> & ItemPatch & { destinations?: PublicationDestination[]; publication_group_id?: string }) {
   return http<{ item: CalendarItem }>(base("/calendar/items"), { method: "POST", body: JSON.stringify(item) });
 }
 export function deleteCalendarItem(id: string) {

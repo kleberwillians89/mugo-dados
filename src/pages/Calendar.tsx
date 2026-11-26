@@ -168,7 +168,12 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     // Cliente só manda o que pode mudar (texto e data); o resto fica como a Mugô deixou.
     const clientBody = { scheduled_at: body.scheduled_at, title: body.title, hook: body.hook, caption_draft: body.caption_draft };
     const current = modal?.item;
-    const result = await run("save", () => (current ? updateCalendarItem(current.id, team ? body : clientBody) : createCalendarItem(body)), "Não foi possível salvar a pauta.");
+    const result = await run("save", () => (current ? updateCalendarItem(current.id, team ? body : clientBody) : createCalendarItem({
+      ...body, destinations: draft.destinations?.map((destination) => ({
+        ...destination, scheduled_at: destination.scheduled_at
+          ? toSaoPauloIso(destination.scheduled_at.split("T")[0], destination.scheduled_at.split("T")[1]) : undefined,
+      })), publication_group_id: draft.publication_group_id,
+    })), "Não foi possível salvar a pauta.");
     if (!result) return false;
     if (current) { replace(result.item); setModal({ item: withBoost(result.item), draft: draftFrom(result.item) }); } else await load();
     return true;

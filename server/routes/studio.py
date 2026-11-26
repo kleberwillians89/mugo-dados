@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from services.ig_supabase import sb_delete, sb_insert, sb_update
 
 from services.studio_calendar import (
-    ART_URL_MAX_LENGTH, StudioError, create_item, delete_approval_item, delete_item, generate_month, list_items, load_profile,
+    ART_URL_MAX_LENGTH, StudioError, create_destinations, create_item, delete_approval_item, delete_item, generate_month, list_items, load_profile,
     parse_month, save_profile, update_item,
 )
 from services.studio_approvals import (
@@ -127,7 +127,18 @@ class GenerateInput(BaseModel):
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
 
 
+class PublicationDestination(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: Channel
+    format: Optional[Format] = None
+    caption_draft: Optional[str] = Field(default=None, max_length=4000)
+    scheduled_at: Optional[datetime] = None
+    art_url: Optional[str] = Field(default=None, max_length=ART_URL_MAX_LENGTH)
+
+
 class ItemCreate(BaseModel):
+    publication_group_id: Optional[UUID] = None
+    destinations: Optional[List[PublicationDestination]] = Field(default=None, max_length=5)
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     scheduled_at: datetime
     channel: Channel = "instagram"
@@ -341,6 +352,11 @@ async def add_item(client_id: str, body: ItemCreate, authorization: str | None =
     await _agency_only(authorization)
     uid = await require_user_id(authorization)
     try:
+        if body.destinations:
+            if not body.publication_group_id:
+                raise HTTPException(status_code=422, detail="Identificador da criação compartilhada obrigatório.")
+            items = await create_destinations(cid, body.model_dump(mode="json"), user_id=uid)
+            return {"ok": True, "item": items[0], "items": items}
         item = await create_item(cid, body.model_dump(mode="json"), user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
