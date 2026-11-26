@@ -178,6 +178,24 @@ async def email_preview(payload: Dict[str, Any] = Body(...), client_id: str | No
 
 # ---------------------------------------------------------------- campanhas
 
+@router.post("/api/email/images")
+async def email_upload_image(request: Request, client_id: str | None = Query(default=None),
+                             x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                             authorization: str | None = Header(default=None)):
+    from services import email_images
+
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > email_images.MAX_BYTES:
+            raise HTTPException(status_code=413, detail="A imagem deve ter até 5 MB.")
+        data.extend(chunk)
+    try:
+        return {"url": await email_images.upload_image(cid, bytes(data))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
 @router.get("/api/email/campaigns")
 async def email_campaigns(client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
                           authorization: str | None = Header(default=None)):

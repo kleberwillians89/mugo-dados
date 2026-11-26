@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { http } from "../../app/api";
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import { BLOCK_LABEL, type BlockType, type EmailBlock, type EmailDesign } from "../../app/emailMarketing";
 
@@ -13,12 +15,40 @@ function emptyBlock(type: BlockType): EmailBlock {
 }
 
 /** Editor por blocos: cada bloco vira uma linha com os campos que ele usa. O HTML final é montado no servidor. */
-export default function BlockEditor({ design, onChange, allowProducts, disabled }: {
+export default function BlockEditor({ design, onChange, allowProducts, disabled: readOnly, allowImageUpload, onUploadPending }: {
   design: EmailDesign; onChange: (design: EmailDesign) => void; allowProducts?: boolean; disabled?: boolean;
+  allowImageUpload?: boolean; onUploadPending?: (pending: boolean) => void;
 }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const disabled = readOnly || uploading;
   const blocks = design.blocks || [];
   const set = (next: EmailBlock[]) => onChange({ blocks: next });
   const patch = (index: number, change: Partial<EmailBlock>) => set(blocks.map((b, i) => (i === index ? { ...b, ...change } : b)));
+  async function upload(index: number, file: File) {
+    setUploadError("");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setUploadError("Selecione um JPG, PNG ou WebP.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError("A imagem deve ter até 5 MB.");
+      return;
+    }
+    setUploading(true);
+    onUploadPending?.(true);
+    try {
+      const { url } = await http<{ url: string }>("/api/email/images", {
+        method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" }, timeoutMs: 60_000,
+      });
+      patch(index, { url });
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Falha ao enviar imagem.");
+    } finally {
+      setUploading(false);
+      onUploadPending?.(false);
+    }
+  }
   const move = (index: number, delta: number) => {
     const target = index + delta;
     if (target < 0 || target >= blocks.length) return;
@@ -29,6 +59,8 @@ export default function BlockEditor({ design, onChange, allowProducts, disabled 
 
   return (
     <div className="emBlocks">
+      {uploading ? <p role="status">Enviando imagem…</p> : null}
+      {uploadError ? <p className="emError" role="alert">{uploadError}</p> : null}
       <ol className="emBlockList">
         {blocks.map((block, index) => (
           <li key={index} className="emBlock">
@@ -48,6 +80,22 @@ export default function BlockEditor({ design, onChange, allowProducts, disabled 
             ) : null}
             {block.type === "imagem" ? (
               <div className="emBlockRow">
+                {block.url?.startsWith("https://") ? (
+                  <img src={block.url} alt={block.alt || ""} className="emImageThumb" referrerPolicy="no-referrer" />
+                ) : null}
+                {allowImageUpload ? <label className="emField">
+                  <span>{block.url ? "Substituir imagem" : "Enviar imagem"}</span>
+                  <input type="file" accept="image/jpeg,image/png,image/webp" disabled={disabled}
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void upload(index, file);
+                    }} />
+                </label> : null}
+                {block.url ? <button type="button" className="ds-button" disabled={disabled}
+                  onClick={() => patch(index, { url: "" })}>Remover imagem</button> : null}
+                <input aria-label="Texto alternativo" placeholder="Texto alternativo" maxLength={200}
+                  value={block.alt || ""} disabled={disabled} onChange={(e) => patch(index, { alt: e.target.value })} />
                 <input aria-label="Link da imagem (https)" placeholder="https://… imagem" value={block.url || ""} disabled={disabled} onChange={(e) => patch(index, { url: e.target.value })} />
                 <input aria-label="Link ao clicar" placeholder="Link ao clicar (opcional)" value={block.href || ""} disabled={disabled} onChange={(e) => patch(index, { href: e.target.value })} />
               </div>

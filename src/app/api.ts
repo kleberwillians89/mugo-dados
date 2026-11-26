@@ -414,7 +414,7 @@ async function executeHttp<T>(path: string, init: HttpRequestInit = {}): Promise
   }
 
   const headers = toHeaders(init.headers);
-  headers.set("Content-Type", "application/json");
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const activeClientId = getActiveClientId();
   if (activeClientId) headers.set("X-Client-Id", activeClientId);
