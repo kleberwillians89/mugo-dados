@@ -1902,7 +1902,8 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
                     "call_to_action": cta(link)}}
             if unit["media_type"] == "video":
                 videos = dict(ids.get("video_ids") or ({"0": ids["video_id"]} if ids.get("video_id") else {}))
-                video_id = videos.get(str(index))
+                # Vídeo já enviado na prévia oficial: reaproveita, sem enviar de novo.
+                video_id = videos.get(str(index)) or (ids.get("preview_videos") or {}).get(unit_key(unit))
                 if not video_id:
                     video_id = await _upload_video(act, unit, token, f"{payload['name']} · vídeo {index + 1}")
                     videos[str(index)] = video_id
