@@ -109,6 +109,10 @@ async function renderOnboarding() {
     root.render(<Onboarding isAuthenticated />);
   });
   await act(async () => Promise.resolve());
+  const tab = Array.from(container!.querySelectorAll<HTMLButtonElement>(".integrationPlatformTabs button"))
+    .find((button) => button.textContent === "Google")!;
+  await act(async () => tab.click());
+
 }
 
 async function flush() {

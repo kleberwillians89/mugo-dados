@@ -10,8 +10,8 @@ export type MugoNotice = {
 export type NoticesResult = { notices: MugoNotice[]; total: number; unavailable?: boolean };
 
 export const listNotices = (limit = 3) => http<NoticesResult>(`/api/me/notices?limit=${limit}`);
-export const dismissNotice = (id: string) =>
-  http<{ ok: true }>("/api/me/notices/dismiss", { method: "POST", body: JSON.stringify({ id }) });
+export const dismissNotice = (id: string, completed = false) =>
+  http<{ ok: true }>("/api/me/notices/dismiss", { method: "POST", body: JSON.stringify(completed ? { id, completed } : { id }) });
 /** "Cobrar o cliente no WhatsApp": o mesmo lembrete de aprovação do Calendário, na empresa do alerta. */
 export const remindClient = (clientId: string, requestId: string, contactId?: string | null) =>
   http<{ ok?: boolean }>(`/api/clients/${encodeURIComponent(clientId)}/studio/messages/send`, {

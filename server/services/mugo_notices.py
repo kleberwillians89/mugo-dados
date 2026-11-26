@@ -365,7 +365,7 @@ async def for_user(user_id: str, *, client_id: Optional[str] = None, limit: int 
     return {"notices": out[:limit], "total": len(out)}
 
 
-async def dismiss(user_id: str, notice_id: str) -> bool:
+async def dismiss(user_id: str, notice_id: str, *, completed: bool = False) -> bool:
     from .clients import list_clients_for_user
     client_id, _, key = notice_id.partition("|")
     listed = (await list_clients_for_user(user_id)).get("clients") or []
@@ -375,6 +375,7 @@ async def dismiss(user_id: str, notice_id: str) -> bool:
     if not rows:
         return False
     await sb_upsert(DISMISSALS, [{"client_id": client_id, "notice_key": key, "user_id": user_id, "level": rows[0]["level"],
-                                  "dismissed_at": datetime.now(timezone.utc).isoformat()}],
+                                  "dismissed_at": datetime.now(timezone.utc).isoformat(),
+                                  **({"disposition": "completed"} if completed else {})}],
                     on_conflict="client_id,notice_key,user_id")
     return True
