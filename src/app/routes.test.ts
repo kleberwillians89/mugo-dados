@@ -27,7 +27,9 @@ describe("platform routes", () => {
   it("separa as aprovações pelas permissões existentes", () => {
     expect(canViewAppRoute("internal_approval", (code) => code === "tasks.approve")).toBe(true);
     expect(canViewAppRoute("internal_approval", (code) => code === "calendar.view")).toBe(false);
-    expect(canViewAppRoute("final_approval", (code) => code === "calendar.view")).toBe(true);
+    // Permissão própria (o servidor já devolve final_approval.* para quem vê o Calendário).
+    expect(canViewAppRoute("final_approval", (code) => code === "final_approval.view")).toBe(true);
+    expect(canViewAppRoute("calendar", (code) => code === "final_approval.view")).toBe(false);
     expect(canViewAppRoute("final_approval", () => false)).toBe(false);
   });
 

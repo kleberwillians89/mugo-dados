@@ -43,6 +43,7 @@ MODULES: List[Tuple[str, str]] = [
     ("google", "Google"),
     ("origins", "Origem das vendas"),
     ("calendar", "Calendário"),
+    ("final_approval", "Aprovação Final"),
     ("social_media", "Social Media"),
     ("brand_ai", "IA da marca"),
     ("media", "Mídia On"),
@@ -60,6 +61,7 @@ MODULE_LABEL = dict(MODULES)
 _EDIT_LABEL = {
     "central": "Editar metas",
     "calendar": "Criar, editar e aprovar pautas",
+    "final_approval": "Aprovar, pedir ajuste e comentar na Aprovação Final",
     "social_media": "Gerar matriz de conteúdo e campanhas e enviar ao Calendário",
     "brand_ai": "Editar perfil e conhecimento da marca",
     "media": "Editar plano de mídia",
@@ -108,6 +110,9 @@ PRESETS: Dict[str, Dict[str, Any]] = {
         "central.view", "ecommerce.view", "customers.view", "origins.view", "meta.view", "google.view",
         "tasks.view", "tasks.edit")},
     "visualizacao": {"label": "Visualização", "view_all": True, "access_total": False, "codes": set(VIEW_CODES)},
+    # Cliente que só aprova: entra direto na Aprovação Final e só vê o que precisa (revisar, aprovar, ajustar, comentar).
+    "cliente_aprovacao": {"label": "Cliente — Aprovação Final", "view_all": False, "access_total": False,
+                          "codes": _codes("final_approval.view", "final_approval.edit")},
     "personalizado": {"label": "Personalizado", "view_all": False, "access_total": False, "codes": set()},
 }
 LEGACY_ADMIN_ROLES = {"client_admin", "owner", "admin"}
@@ -128,8 +133,22 @@ def base_codes(preset: Optional[str]) -> Set[str]:
     return set(PRESETS.get(str(preset or ""), PRESETS["personalizado"])["codes"])
 
 
+def with_derived(codes: Set[str]) -> Set[str]:
+    """Quem já via o Calendário continua aprovando como antes (aprovar sempre foi de quem vê o Calendário).
+    A Aprovação Final agora também pode ser dada sozinha, sem o Calendário (perfil Cliente — Aprovação Final)."""
+    if "calendar.view" in codes:
+        codes |= {"final_approval.view", "final_approval.edit"}
+    return codes
+
+
 def resolve_codes(*, status: str, preset: Optional[str], view_all: bool, access_total: bool,
                   overrides: Iterable[Tuple[str, bool]] = ()) -> Set[str]:
+    return with_derived(_resolve_codes(status=status, preset=preset, view_all=view_all, access_total=access_total,
+                                       overrides=overrides))
+
+
+def _resolve_codes(*, status: str, preset: Optional[str], view_all: bool, access_total: bool,
+                   overrides: Iterable[Tuple[str, bool]] = ()) -> Set[str]:
     if status != "active":
         return set()
     if access_total:
@@ -288,11 +307,31 @@ _TOP_LEVEL: Dict[str, Tuple[str, bool]] = {
 }
 
 
+def _final_approval_route(method: str, parts: List[str]) -> Optional[Tuple[str, str]]:
+    """Rotas que a Aprovação Final usa: fila, aprovar/pedir ajuste e comentários do post (conferidas no servidor)."""
+    if len(parts) < 6 or parts[1] != "clients" or parts[3] != "studio":
+        return None
+    tail = parts[4:]
+    read = method.upper() in ("GET", "HEAD", "OPTIONS")
+    if tail[:2] == ["approvals", "pipeline"] and read:
+        return "final_approval", "final_approval.view"
+    if len(tail) == 4 and tail[:2] == ["calendar", "items"] and tail[3] in ("decision", "comments"):
+        return "final_approval", "final_approval.view" if read else "final_approval.edit"
+    return None
+
+
+# Rotas em que a escrita exige o código ".edit" mesmo abertas a qualquer membro (não vira ".view").
+STRICT_EDIT_MODULES = {"final_approval"}
+
+
 def route_module(method: str, path: str) -> Optional[Tuple[str, str]]:
     """(módulo, código exigido) para a rota, ou None quando a rota não pertence a um módulo."""
     parts = [p for p in (path or "").split("/") if p]
     if len(parts) < 2 or parts[0] != "api":
         return None
+    special = _final_approval_route(method, parts)
+    if special:
+        return special
     entry: Optional[Tuple[str, bool]] = None
     if parts[1] == "clients" and len(parts) >= 4:
         if parts[3] == "studio" and len(parts) >= 5:
