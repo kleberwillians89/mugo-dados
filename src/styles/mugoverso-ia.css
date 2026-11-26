@@ -121,12 +121,15 @@
 .miaAssistButton svg{color:#7a6420}
 .miaAssistButton:hover{background:rgba(183,152,48,.2)}
 .miaAssistButton:focus-visible{outline:2px solid #7a6420;outline-offset:2px}
-.miaAssist{display:grid;gap:14px}
+.mia.miaAssist{display:grid;align-content:start;height:auto;min-height:0;gap:14px}
+.miaAssist .miaUser,.miaAssist .miaBot{margin:0}
+.miaAssist .miaBot{grid-template-columns:minmax(0,1fr)}
+.miaAssistContinue{justify-self:start;max-width:100%;white-space:normal;text-align:left}
 .miaAssist .miaStarters{display:grid;gap:8px}
 .miaAssistTools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
 .miaAssistTools small{color:var(--text-muted,#6b7075)}
-.miaAssistForm{display:flex;gap:8px;align-items:flex-end;width:100%}
-.miaAssistForm textarea{flex:1;resize:vertical;min-height:44px;border-radius:12px;border:1px solid var(--border-subtle,#d9dde1);padding:10px 12px;font:inherit}
+.miaAssistForm{--mia-accent:var(--accent,#1e3f5a);display:flex;gap:8px;align-items:flex-end;width:100%}
+.miaAssistForm textarea{flex:1;min-width:0;resize:vertical;min-height:44px;border-radius:12px;border:1px solid var(--border-subtle,#d9dde1);padding:10px 12px;font:inherit}
 .miaCreateList{display:grid;gap:10px;margin-top:12px}
 .miaCreateList .miaCreate{margin-top:0}
 .miaCreateCount{color:var(--text-muted,#6b7075);font-weight:600}
