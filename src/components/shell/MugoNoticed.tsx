@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { ChevronDown, Sparkles, X } from "lucide-react";
 import { dismissNotice, listNotices, remindClient, type MugoNotice, type NoticeAction } from "../../app/notices";
 import type { AppRoute } from "../../app/routes";
 import "../../styles/mugo-noticed.css";
@@ -14,6 +14,9 @@ type Props = {
 
 /** "A Mugô IA notou": os alertas mais urgentes, cada um com o botão do que fazer. Sem nada relevante, não aparece. */
 export default function MugoNoticed({ onOpen, limit = 3, showCompany = true }: Props) {
+  const titleId = useId();
+  const listId = useId();
+  const [expanded, setExpanded] = useState(true);
   const [notices, setNotices] = useState<MugoNotice[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ id: string; text: string; error?: boolean } | null>(null);
@@ -48,9 +51,17 @@ export default function MugoNoticed({ onOpen, limit = 3, showCompany = true }: P
   }
 
   if (!notices || !notices.length) return null;
-  return <section className="mugoNoticed" aria-labelledby="mugo-noticed-title">
-    <h2 id="mugo-noticed-title"><Sparkles size={16} aria-hidden="true" />A Mugô IA notou</h2>
-    <ul>
+  return <section className="mugoNoticed" aria-labelledby={titleId}>
+    <h2 id={titleId}>
+      <button type="button" className="mugoNoticedToggle" aria-expanded={expanded} aria-controls={listId}
+        onClick={() => setExpanded((value) => !value)}>
+        <Sparkles size={16} aria-hidden="true" />
+        <span>A Mugô IA notou</span>
+        {!expanded ? <small>{notices.length} {notices.length === 1 ? "aviso" : "avisos"}</small> : null}
+        <ChevronDown className="mugoNoticedChevron" size={18} aria-hidden="true" />
+      </button>
+    </h2>
+    <ul id={listId} hidden={!expanded}>
       {notices.map((n) => <li key={n.id} className="mugoNotice" data-kind={n.kind}>
         <span className="mugoNoticeIcon" aria-hidden="true">{n.icon}</span>
         <div className="mugoNoticeBody">

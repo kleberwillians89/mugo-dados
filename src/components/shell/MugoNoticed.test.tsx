@@ -36,6 +36,22 @@ describe("A Mugô IA notou", () => {
     expect(onOpen).toHaveBeenCalledWith("ruah", "final_approval");
   });
 
+  it("recolhe e reabre os avisos sem dispensá-los", async () => {
+    m.list.mockResolvedValue({ notices: NOTICES, total: 2 });
+    await render();
+    const toggle = host.querySelector<HTMLButtonElement>(".mugoNoticedToggle")!;
+    const list = host.querySelector("ul")!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("2 avisos");
+    expect(list.hidden).toBe(true);
+    expect(m.dismiss).not.toHaveBeenCalled();
+    await act(async () => toggle.click());
+    expect(list.hidden).toBe(false);
+    expect(list.children).toHaveLength(2);
+  });
+
   it("cobra o cliente só depois de confirmar e dispensa tirando da lista", async () => {
     m.list.mockResolvedValue({ notices: NOTICES, total: 2 });
     m.remind.mockResolvedValue({ ok: true }); m.dismiss.mockResolvedValue({ ok: true });
