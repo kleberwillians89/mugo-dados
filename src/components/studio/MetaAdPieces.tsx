@@ -106,9 +106,10 @@ export function MetaOfficialPreview({ draftId, formats, adIndex, version, save }
       <label className="ds-field"><span className="ds-srOnly">Posicionamento</span>
         <select value={format} onChange={(e) => setFormat(e.target.value)}>
           {formats.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select></label>
-      <button type="button" className="ds-button" disabled={busy} onClick={() => void load()}>{busy ? "Gerando na Meta…" : shownFor && shownFor !== key ? "Atualizar prévia" : "Ver prévia oficial"}</button>
+      <button type="button" className="ds-button" disabled={busy} onClick={() => void load()}>{busy ? "Gerando na Meta…" : error || (shownFor && shownFor !== key) ? "Atualizar prévia" : "Ver prévia oficial"}</button>
     </div>
-    <p className="ds-caption">Gerada pela própria Meta, como no Gerenciador. Salva o rascunho antes e não cria nada na campanha.</p>
+    <p className="ds-caption">Gerada pela própria Meta, como no Gerenciador. Salva o rascunho antes e não cria nada na campanha.
+      Vídeo: na primeira vez ele é enviado para a conta e a Meta leva alguns segundos para processar; a criação reaproveita o mesmo envio.</p>
     {error ? <p className="studioError" role="alert">{error}</p> : null}
     {src ? <iframe className="metaOfficialPreviewFrame" title="Prévia oficial da Meta" src={src}
       sandbox="allow-scripts allow-same-origin allow-popups" referrerPolicy="no-referrer" /> : null}
