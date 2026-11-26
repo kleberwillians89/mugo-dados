@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { AuthClient } from "@supabase/auth-js";
+import { PostgrestClient } from "@supabase/postgrest-js";
 
 const url = String(import.meta.env.VITE_SUPABASE_URL || "").trim();
 const anon = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
@@ -20,14 +21,49 @@ function buildBootstrapError(): string | null {
   ].join(" ");
 }
 
-let supabaseClient: SupabaseClient | null = null;
+/**
+ * Cliente enxuto: só o login (auth) e as consultas (rest), que é tudo o que o app usa. Antes era o
+ * supabase-js inteiro (realtime, storage, functions…), ~200 KB baixados em toda tela, inclusive pelo
+ * celular do cliente na aprovação. Mesma chave de sessão do supabase-js: ninguém é deslogado.
+ */
+export type SlimSupabaseClient = {
+  auth: InstanceType<typeof AuthClient>;
+  from: (relation: string) => ReturnType<PostgrestClient["from"]>;
+};
+
+/** Mesma chave que o supabase-js usava (sb-<projeto>-auth-token): quem já está logado continua logado. */
+export function authStorageKey(supabaseUrl: string): string {
+  return `sb-${new URL(supabaseUrl).hostname.split(".")[0]}-auth-token`;
+}
+
+export function createSlimClient(supabaseUrl: string, key: string): SlimSupabaseClient {
+  const base = supabaseUrl.replace(/\/+$/, "");
+  const headers = { "X-Client-Info": "mugo-dados-web" };
+  const auth = new AuthClient({
+    url: `${base}/auth/v1`,
+    headers: { ...headers, Authorization: `Bearer ${key}`, apikey: key },
+    storageKey: authStorageKey(base),
+    flowType: "implicit",
+    ...SUPABASE_AUTH_OPTIONS,
+  });
+  // Igual ao supabase-js: cada consulta vai com o token da sessão (ou a chave pública, sem sessão).
+  const fetchWithAuth: typeof fetch = async (input, init) => {
+    const { data } = await auth.getSession();
+    const merged = new Headers(init?.headers);
+    if (!merged.has("apikey")) merged.set("apikey", key);
+    if (!merged.has("Authorization")) merged.set("Authorization", `Bearer ${data.session?.access_token ?? key}`);
+    return fetch(input, { ...init, headers: merged });
+  };
+  const rest = new PostgrestClient(`${base}/rest/v1`, { headers, fetch: fetchWithAuth });
+  return { auth, from: (relation: string) => rest.from(relation) };
+}
+
+let supabaseClient: SlimSupabaseClient | null = null;
 let supabaseBootstrapError: string | null = buildBootstrapError();
 
 if (!supabaseBootstrapError) {
   try {
-    supabaseClient = createClient(url, anon, {
-      auth: SUPABASE_AUTH_OPTIONS,
-    });
+    supabaseClient = createSlimClient(url, anon);
   } catch (error: unknown) {
     const detail =
       error instanceof Error && error.message

@@ -36,6 +36,12 @@ vi.mock("../app/connectionState", () => ({
   }),
 }));
 
+// As funções de integração saíram de api.ts para onboardingApi.ts: usa as mesmas simulações do mock de api.
+vi.mock("../app/onboardingApi", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const api = (await import("../app/api")) as Record<string, unknown>;
+  return Object.fromEntries(Object.keys(actual).map((key) => [key, key in api ? api[key] : actual[key]]));
+});
 vi.mock("../app/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../app/api")>();
   const adsConnection = () => ({

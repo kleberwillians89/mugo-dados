@@ -4,48 +4,8 @@ import QuietBoundary from "../components/meta/QuietBoundary";
 import { DATA_HEALTH_CHANGED } from "../app/dataHealth";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  disconnectClientConnection,
-  activateMetaOrganic,
-  configureExistingMetaOrganic,
-  discoverExistingMetaAdAccounts,
-  ApiError,
-  disconnectGenericConnection,
-  discoverClientMetaAssets,
-  linkClientAssets,
-  listClientConnections,
-  listClientMetaAdsAccounts,
-  listGenericConnections,
-  getApiVersion,
-  isUsableGoogleConnection,
-  isUsableMetaConnection,
-  selectUsableGoogleConnection,
-  selectUsableMetaConnection,
-  formatGoogleAdsAccountLabel,
-  formatGoogleAdsCustomerId,
-  listGoogleAdsAccounts,
-  listGoogleGa4Properties,
-  listGoogleGa4Streams,
-  selectGoogleAdsAccount,
-  selectGoogleGa4Property,
-  selectClientMetaAdsAccount,
-  selectShopifyConnection,
-  syncGoogleConnection,
-  syncClientMetaAdsAccount,
-  syncShopifyConnection,
-  refreshAll,
-  validateManualMetaAssets,
-  saveManualMetaAssets,
-  type GenericConnection,
-  type GoogleAdsAccount,
-  type GoogleGa4Property,
-  type GoogleGa4Stream,
-  type MetaAdsSelectableAccount,
-  type ManualMetaAssetsValidation,
-  startClientMetaOAuth,
-  startGoogleOAuth,
-  startShopifyOAuth,
-} from "../app/api";
+import { ApiError, listClientConnections, listGenericConnections, getApiVersion, isUsableGoogleConnection, isUsableMetaConnection, selectUsableGoogleConnection, selectUsableMetaConnection, type GenericConnection } from "../app/api";
+import { disconnectClientConnection, activateMetaOrganic, configureExistingMetaOrganic, discoverExistingMetaAdAccounts, disconnectGenericConnection, discoverClientMetaAssets, linkClientAssets, listClientMetaAdsAccounts, formatGoogleAdsAccountLabel, formatGoogleAdsCustomerId, listGoogleAdsAccounts, listGoogleGa4Properties, listGoogleGa4Streams, selectGoogleAdsAccount, selectGoogleGa4Property, selectClientMetaAdsAccount, selectShopifyConnection, syncGoogleConnection, syncClientMetaAdsAccount, syncShopifyConnection, refreshAll, validateManualMetaAssets, saveManualMetaAssets, type GoogleAdsAccount, type GoogleGa4Property, type GoogleGa4Stream, type MetaAdsSelectableAccount, type ManualMetaAssetsValidation, startClientMetaOAuth, startGoogleOAuth, startShopifyOAuth } from "../app/onboardingApi";
 import { resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
 import useClientIntegrations from "../hooks/useClientIntegrations";
 import {

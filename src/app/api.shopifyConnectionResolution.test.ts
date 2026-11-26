@@ -32,7 +32,8 @@ vi.mock("./activeClient", () => ({
   getActiveClientConfigurationWarning: () => null,
 }));
 
-import { getShopifyCustomers, getShopifyReport, startShopifyOAuth } from "./api";
+import { getShopifyCustomers, getShopifyReport } from "./api";
+import { startShopifyOAuth } from "./onboardingApi";
 import { getSelectedConnectionId, setSelectedConnectionId } from "./connectionState";
 
 function jsonResponse(body: unknown, status = 200): Response {

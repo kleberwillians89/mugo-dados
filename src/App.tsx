@@ -5,7 +5,7 @@ import { PLANNING_TOOLS } from "./app/planningTools";
 import { DataHealthSummary } from "./components/data/DataFreshness";
 import { markReadStage } from "./app/readPerformance";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
+import type { Session } from "@supabase/auth-js";
 import {
   disableLocalAuth,
   getSupabaseBootstrapError,
@@ -33,7 +33,11 @@ import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundar
 import MugoLogo from "./components/MugoLogo";
 import "./components/mugo-logo.css";
 import { DashboardDataProvider } from "./app/DashboardDataContext";
-import { DataDeletionPage, DataProtectionPage, PrivacyPage, TermsPage } from "./pages/LegalPages";
+// Páginas legais só carregam quando alguém abre /termos, /privacidade… (antes iam junto em toda tela).
+const PrivacyPage = lazy(() => import("./pages/LegalPages").then((m) => ({ default: m.PrivacyPage })));
+const DataDeletionPage = lazy(() => import("./pages/LegalPages").then((m) => ({ default: m.DataDeletionPage })));
+const DataProtectionPage = lazy(() => import("./pages/LegalPages").then((m) => ({ default: m.DataProtectionPage })));
+const TermsPage = lazy(() => import("./pages/LegalPages").then((m) => ({ default: m.TermsPage })));
 
 const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
@@ -1200,9 +1204,9 @@ export default function App() {
   const reportToken = reportTokenFromPath(window.location.pathname);
   if (reportToken) return <Suspense fallback={<AppLoading />}><PublicReport token={reportToken} /></Suspense>;
   const publicRoute = getPublicAppRouteFromPath(window.location.pathname);
-  if (publicRoute === "privacy") return <PrivacyPage />;
-  if (publicRoute === "data_deletion") return <DataDeletionPage />;
-  if (publicRoute === "data_protection") return <DataProtectionPage />;
-  if (publicRoute === "terms") return <TermsPage />;
+  if (publicRoute === "privacy") return <Suspense fallback={<AppLoading />}><PrivacyPage /></Suspense>;
+  if (publicRoute === "data_deletion") return <Suspense fallback={<AppLoading />}><DataDeletionPage /></Suspense>;
+  if (publicRoute === "data_protection") return <Suspense fallback={<AppLoading />}><DataProtectionPage /></Suspense>;
+  if (publicRoute === "terms") return <Suspense fallback={<AppLoading />}><TermsPage /></Suspense>;
   return <PrivateApp />;
 }
