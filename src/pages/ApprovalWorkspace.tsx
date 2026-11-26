@@ -26,7 +26,7 @@ import {
 import { artSlides } from "../app/artLinks";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
-import ArtCarousel from "../components/studio/ArtCarousel";
+import ApprovalArtPreview from "../components/studio/ApprovalArtPreview";
 import PostComments from "../components/studio/PostComments";
 import "../styles/studio.css";
 import "../styles/approval-workspace.css";
@@ -243,22 +243,18 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
 function ContentPreview({ item, mode }: { item: PipelineItem; mode: PreviewMode }) {
   const slides = artSlides(item.art_url);
   const when = localParts(item.scheduled_at);
+  const account = getActiveClientName() || "marca";
   return <article className={`approvalDevice is-${mode}`}>
-    <div className="approvalDeviceChrome"><span /><span /><span /></div>
     <header><small>{item.channel || "Social Media"} · {STUDIO_FORMATS[item.format]}</small><strong>{item.title}</strong></header>
-    <div className="approvalDeviceMedia">{slides.length ? <ArtCarousel images={slides} /> : <div className="approvalMediaFallback">{item.hook || item.title}</div>}</div>
-    <div className="approvalDeviceCopy">
-      {item.hook ? <b>{item.hook}</b> : null}
-      <p>{item.caption_draft || "Sem legenda cadastrada."}</p>
-      <small>{when.weekday}, {when.label} · {when.time}</small>
-    </div>
+    <ApprovalArtPreview key={`${item.id}:${slides.join("|")}`} slides={slides} format={item.format} mode={mode} account={account} fallback={item.hook || item.title}
+      caption={<>{item.hook ? <b>{item.hook}</b> : null}<p>{item.caption_draft || "Sem legenda cadastrada."}</p></>}
+      meta={<>{when.weekday}, {when.label} · {when.time}</>} />
   </article>;
 }
 
 function TaskPreview({ task, mode }: { task: CrmTask; mode: PreviewMode }) {
   const due = dueInfo(task.due_date);
-  return <article className={`approvalDevice is-${mode}`}>
-    <div className="approvalDeviceChrome"><span /><span /><span /></div>
+  return <article className={`approvalDevice is-task is-${mode}`}>
     <header><small>Job · {task.category || "Tarefa"}</small><strong>{task.title}</strong></header>
     <div className="approvalDeviceMedia"><div className="approvalMediaFallback">{task.deliverable_url
       ? <a href={task.deliverable_url} target="_blank" rel="noreferrer noopener">Abrir material para revisão ↗</a>
