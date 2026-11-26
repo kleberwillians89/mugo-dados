@@ -42,12 +42,14 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [testTo, setTestTo] = useState("");
   const [when, setWhen] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
+    setUploading(false);
     setCampaign(null); setAudience(null); setStats(null);
     setConsentFile(null); setConsentConfirmed(false);
     getCampaign(id).then((out) => {
@@ -85,7 +87,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   return (
     <div className="emEditor">
       <div className="emEditorTop">
-        <button type="button" className="ds-button" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /> Campanhas</button>
+        <button type="button" className="ds-button" disabled={uploading} onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /> Campanhas</button>
         <span className={`emPill is-${campaign.status}`}>{STATUS_LABEL[campaign.status]}</span>
       </div>
       <div className="emEditorGrid">
@@ -105,11 +107,11 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
               <h3>Conteúdo</h3>
               <div className="ds-segmented" role="group" aria-label="Modo de edição">
                 <button type="button" aria-pressed={mode === "blocos"} onClick={() => setMode("blocos")} disabled={!editable}>Blocos</button>
-                <button type="button" aria-pressed={mode === "html"} onClick={() => setMode("html")} disabled={!editable}>HTML próprio</button>
+                <button type="button" aria-pressed={mode === "html"} onClick={() => setMode("html")} disabled={!editable || uploading}>HTML próprio</button>
               </div>
             </header>
             {mode === "blocos" ? (
-              <BlockEditor design={campaign.design} disabled={!editable} onChange={(design) => change({ design })} />
+              <BlockEditor key={`${tenant}:${id}`} allowImageUpload onUploadPending={setUploading} design={campaign.design} disabled={!editable || !!busy} onChange={(design) => change({ design })} />
             ) : (
               <HtmlInput value={campaign.custom_html || ""} disabled={!editable} report={report} hint={`Variáveis: ${VARIABLE_HINT}`}
                 onChange={(custom_html) => change({ custom_html })} />
@@ -147,7 +149,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                   <label><input type="checkbox" checked={consentConfirmed}
                     onChange={(event) => setConsentConfirmed(event.target.checked)} />
                     A coluna de aceite corresponde a receber marketing por e-mail desta marca.</label>
-                  <button type="button" className="ds-button" disabled={!!busy || !consentFile || !consentConfirmed}
+                  <button type="button" className="ds-button" disabled={uploading || !!busy || !consentFile || !consentConfirmed}
                     onClick={() => void run("import", async () => {
                       const result = await importEmailConsents(consentFile!);
                       setAudience(await previewAudience(campaign.audience));
@@ -156,7 +158,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                 </div>
               ) : null}
               {canEdit ? (
-                <button type="button" className="ds-button" disabled={!!busy}
+                <button type="button" className="ds-button" disabled={uploading || !!busy}
                   onClick={() => void run("audience", async () => setAudience(await previewAudience(campaign.audience)))}>
                   {busy === "audience" ? "Contando…" : "Contar público"}</button>
               ) : null}
@@ -182,7 +184,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             <section className="emCard emSendBox">
               <div className="emInlineRow">
                 <input type="email" aria-label="E-mail para teste" placeholder="seu@email.com" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
-                <button type="button" className="ds-button" disabled={!!busy || !testTo}
+                <button type="button" className="ds-button" disabled={uploading || !!busy || !testTo}
                   onClick={() => void run("test", async () => {
                     await updateCampaign(id, payload()!);
                     const out = await sendTestEmail(id, testTo);
@@ -191,7 +193,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
               </div>
               <div className="emInlineRow">
                 <input type="datetime-local" aria-label="Agendar para" value={when} onChange={(e) => setWhen(e.target.value)} />
-                <button type="button" className="ds-button is-primary" disabled={!!busy}
+                <button type="button" className="ds-button is-primary" disabled={uploading || !!busy}
                   onClick={() => void run("send", async () => {
                     await updateCampaign(id, payload()!);
                     const check = await preflightCampaign(id);
@@ -208,12 +210,12 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                     setCampaign(out.campaign);
                     setMessage(at ? "Campanha agendada." : "Campanha na fila: o envio começa em até 5 minutos.");
                   })}>{busy === "send" ? "Confirmando…" : when ? "Agendar envio" : "Enviar agora"}</button>
-                <button type="button" className="ds-button" disabled={!!busy} onClick={() => void save()}>{busy === "save" ? "Salvando…" : "Salvar"}</button>
+                <button type="button" className="ds-button" disabled={uploading || !!busy} onClick={() => void save()}>{busy === "save" ? "Salvando…" : "Salvar"}</button>
               </div>
             </section>
           ) : null}
           {canEdit && ["agendada", "enviando"].includes(campaign.status) ? (
-            <button type="button" className="ds-button is-danger" disabled={!!busy}
+            <button type="button" className="ds-button is-danger" disabled={uploading || !!busy}
               onClick={() => void run("cancel", async () => setCampaign((await cancelCampaign(id)).campaign))}>Cancelar envio</button>
           ) : null}
           <StatsRow stats={stats || campaign.stats} />
