@@ -58,6 +58,10 @@ afterEach(async () => {
 async function renderPublicPath(path: string) {
   window.history.replaceState({}, "", path);
   await act(async () => root.render(React.createElement(App)));
+  // Páginas legais carregam sob demanda (lazy): espera a página aparecer.
+  for (let i = 0; i < 50 && !container.querySelector("[data-public-route]"); i += 1) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  }
 }
 
 function expectNoPrivateBootstrap() {

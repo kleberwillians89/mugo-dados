@@ -30,7 +30,8 @@ vi.mock("./activeClient", () => ({
   getActiveClientConfigurationWarning: () => null,
 }));
 
-import { getClientIntegrations, getFbitsOrdersSummary, syncFbitsConnection, syncShopifyConnection, refreshProviderData } from "./api";
+import { getClientIntegrations, getFbitsOrdersSummary, syncFbitsConnection, refreshProviderData } from "./api";
+import { syncShopifyConnection } from "./onboardingApi";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

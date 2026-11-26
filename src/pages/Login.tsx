@@ -1,7 +1,7 @@
 import { normalizeLoginIdentifier } from "../app/teamRules";
 import { markReadStage } from "../app/readPerformance";
 import { useEffect, useState, type FormEvent } from "react";
-import type { Session } from "@supabase/supabase-js";
+import type { Session } from "@supabase/auth-js";
 import { enableLocalAuth, getSupabaseBootstrapError, isLocalAuthAvailable, supabase } from "../app/supabase";
 import AuthFrame from "../components/auth/AuthFrame";
 
