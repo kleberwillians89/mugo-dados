@@ -278,6 +278,18 @@ async def duplicate_ad_draft(client_id: str, draft_id: UUID, into: Optional[str]
         raise _http(exc) from None
 
 
+@router.get("/now")
+async def media_now(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Mídia On enxuta: só as campanhas ATIVAS agora (Meta + Google), com o resultado do objetivo e um sinal por
+    regra fixa (indo bem / atenção / aprendendo). Sem IA. Cliente e equipe da empresa."""
+    from services.media_live_read import now
+    cid = await require_client_read(client_id, authorization)
+    try:
+        return await now(cid)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.get("/live")
 async def read_live_overview(client_id: str, authorization: Optional[str] = Header(default=None)):
     """Cliente e equipe: o que está sendo veiculado no Meta (criativo, se está no ar e números). Somente leitura."""

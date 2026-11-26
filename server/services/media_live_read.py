@@ -320,3 +320,68 @@ async def read(client_id: str, *, refresh: bool = False) -> Dict[str, Any]:
               "proximos_passos": [str(p)[:300] for p in data.get("proximos_passos") or []][:4], "checked_at": checked_at}
     _CACHE[client_id] = (time.monotonic(), result)
     return result
+
+
+# ------------------------------------------------------------------ Mídia On enxuta: "Sua mídia agora" (sem IA)
+
+MIN_SPEND_TO_JUDGE = 50.0      # abaixo disso, ainda não dá para dizer se vai bem
+MIN_SPEND_TO_RECOMMEND = 100.0  # recomendação da IA só com dado suficiente
+MIN_DAYS_TO_RECOMMEND = 7
+WORSE_THAN_AVERAGE = 1.2        # custo dos últimos 7 dias 20% acima da média desde o início
+_BAD_SIGNALS = ("frequência", "CTR do link", "sem gasto", "sem nenhuma compra", "sem nenhuma conversão", "CTR ")
+
+
+def headline(objective_id: str, n: Dict[str, Any]) -> Dict[str, Any]:
+    """O resultado que importa para o objetivo da campanha (o mesmo critério da leitura da IA)."""
+    if objective_id == GOOGLE:
+        return {"label": "conversões", "value": n.get("conversoes"), "cost_label": "custo por conversão",
+                "cost": n.get("custo_por_conversao"), "roas": n.get("roas")}
+    if objective_id == "alcance":
+        return {"label": "pessoas alcançadas", "value": n.get("alcance"), "cost_label": "CPM", "cost": n.get("cpm"), "roas": None}
+    if objective_id == "trafego":
+        return {"label": "cliques no link", "value": n.get("cliques_no_link"), "cost_label": "custo por clique",
+                "cost": n.get("cpc_link"), "roas": None}
+    if objective_id in ("vendas", "retencao", "remarketing"):
+        return {"label": "compras", "value": n.get("compras"), "cost_label": "custo por compra",
+                "cost": n.get("custo_por_compra"), "roas": n.get("roas")}
+    return {"label": "resultados", "value": n.get("resultados"), "cost_label": "custo por resultado",
+            "cost": n.get("custo_por_resultado"), "roas": None}
+
+
+def verdict(c: Dict[str, Any]) -> Dict[str, str]:
+    """✅ indo bem / ⚠️ atenção / ⏳ aprendendo — por regras fixas, nunca pela IA. Puro, para teste."""
+    total, week = c.get("desde_o_inicio") or {}, c.get("ultimos_7_dias") or {}
+    days = c.get("dias_no_ar")
+    if (days is not None and days < LEARNING_DAYS) or (total.get("investido") or 0) < MIN_SPEND_TO_JUDGE:
+        return {"sinal": "aprendendo", "motivo": "Começou há pouco: ainda aprendendo, cedo para julgar."}
+    for s in c.get("sinais") or []:
+        if any(s.startswith(b) or b in s for b in _BAD_SIGNALS) and "bom" not in s:
+            return {"sinal": "atencao", "motivo": s[:1].upper() + s[1:] + "."}
+    head_total = headline(c.get("objetivo_id") or "", total)
+    head_week = headline(c.get("objetivo_id") or "", week)
+    if head_total["cost"] and head_week["cost"] and (week.get("investido") or 0) >= MIN_SPEND_TO_JUDGE \
+            and head_week["cost"] > head_total["cost"] * WORSE_THAN_AVERAGE:
+        up = round((head_week["cost"] / head_total["cost"] - 1) * 100)
+        return {"sinal": "atencao", "motivo": f"{head_total['cost_label'].capitalize()} {up}% acima da média nos últimos 7 dias."}
+    return {"sinal": "bem", "motivo": "Dentro do esperado para o objetivo."}
+
+
+def can_recommend(c: Dict[str, Any]) -> bool:
+    days = c.get("dias_no_ar")
+    enough_days = days is None or days >= MIN_DAYS_TO_RECOMMEND  # Google não informa o início: vale o gasto
+    return enough_days and (c.get("desde_o_inicio", {}).get("investido") or 0) >= MIN_SPEND_TO_RECOMMEND
+
+
+async def now(client_id: str) -> Dict[str, Any]:
+    """Só campanhas ATIVAS (Meta ao vivo + Google sincronizado), com o resultado do objetivo e um sinal. Sem IA."""
+    today = datetime.now(timezone.utc).date()
+    campaigns = await collect(client_id, today)
+    items, spend7 = [], 0.0
+    for c in campaigns:
+        objective_id = c.get("objetivo_id") or ""
+        spend7 += c["ultimos_7_dias"].get("investido") or 0
+        items.append({"id": c["id"], "canal": c.get("canal", "Meta"), "campanha": c["campanha"], "objetivo": c["objetivo"],
+                      "investido": c["desde_o_inicio"].get("investido"), "investido_7d": c["ultimos_7_dias"].get("investido"),
+                      "verba_diaria": c.get("verba_diaria"), "dias_no_ar": c.get("dias_no_ar"), "fim": c.get("fim"),
+                      "resultado": headline(objective_id, c["desde_o_inicio"]), "recomendavel": can_recommend(c), **verdict(c)})
+    return {"campaigns": items, "spend_7d": round(spend7, 2), "checked_at": datetime.now(timezone.utc).isoformat()}

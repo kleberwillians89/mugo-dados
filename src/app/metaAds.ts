@@ -245,3 +245,15 @@ export type LiveRead = { resumo: string | null; campanhas: LiveReadCampaign[]; p
 export function getLiveRead(refresh = false) {
   return http<LiveRead>(base(`/live-read${refresh ? "?refresh=true" : ""}`), { timeoutMs: 150_000 });
 }
+
+/** Mídia On enxuta: só as campanhas ATIVAS agora, com o resultado do objetivo e um sinal por regra fixa (sem IA). */
+export type MediaNowSignal = "bem" | "atencao" | "aprendendo";
+export type MediaNowCampaign = {
+  id: string; canal: "Meta" | "Google"; campanha: string; objetivo: string; investido: number | null; investido_7d: number | null;
+  verba_diaria: number | null; dias_no_ar: number | null; fim: string | null; recomendavel: boolean;
+  resultado: { label: string; value: number | null; cost_label: string; cost: number | null; roas: number | null };
+  sinal: MediaNowSignal; motivo: string;
+};
+export function getMediaNow() {
+  return http<{ campaigns: MediaNowCampaign[]; spend_7d: number; checked_at: string }>(base("/now"), { timeoutMs: 60_000 });
+}
