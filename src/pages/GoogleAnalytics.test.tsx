@@ -73,6 +73,10 @@ vi.mock("../hooks/dashboard/useDashboardGa4", () => ({
 }));
 
 vi.mock("../app/api", () => ({
+  getGa4Hourly: vi.fn(async () => ({
+    hours: [{ hour: 18, sessions: 42, purchases: 3 }],
+    time_zone: "America/Sao_Paulo", complete: true,
+  })),
   syncGa4: vi.fn(),
   getClientIntegrations: vi.fn(async () => ({
     ok: true,

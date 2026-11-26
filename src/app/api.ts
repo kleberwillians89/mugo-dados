@@ -2370,6 +2370,19 @@ export async function getGa4Channels(
   return normalizeGa4Channels(raw);
 }
 
+export function getGa4Hourly(
+  period: PeriodQueryInput,
+  options: ClientRequestOptions & { connectionId?: string },
+) {
+  const path = pathWithClientId(pathWithPeriod("/api/google/ga4/hourly", period, 30), options.clientId);
+  const connection = options.connectionId ? `&connection_id=${encodeURIComponent(options.connectionId)}` : "";
+  return http<{
+    hours: Array<{ hour: number; sessions: number; purchases: number }>;
+    time_zone: string | null;
+    complete: boolean;
+  }>(path + connection, { signal: options.signal });
+}
+
 export async function getGa4Campaigns(
   period: number | PeriodQueryInput = 30,
   options?: ClientRequestOptions
