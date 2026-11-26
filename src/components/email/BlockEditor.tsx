@@ -7,6 +7,12 @@ import { BLOCK_LABEL, type BlockType, type EmailBlock, type EmailDesign } from "
 
 const ADDABLE: BlockType[] = ["logo", "titulo", "texto", "imagem", "botao", "produtos", "divisor", "espaco"];
 
+/** A pasted address is not a template variable: {{https://...}} should become https://... */
+const normalizePastedLink = (value: string): string => {
+  const match = /^\{\{\s*(https?:\/\/[^\s{}]+)\s*\}\}$/i.exec(value.trim());
+  return match ? match[1] : value;
+};
+
 function emptyBlock(type: BlockType): EmailBlock {
   if (type === "titulo") return { type, text: "Novo título" };
   if (type === "texto") return { type, text: "" };
@@ -151,7 +157,9 @@ export default function BlockEditor({ design, onChange, allowProducts, disabled:
             {block.type === "botao" ? (
               <div className="emBlockRow">
                 <input aria-label="Texto do botão" value={block.label || ""} disabled={disabled} onChange={(e) => patch(index, { label: e.target.value })} />
-                <input aria-label="Link do botão" placeholder="https://… ou {{link_loja}}" value={block.href || ""} disabled={disabled} onChange={(e) => patch(index, { href: e.target.value })} />
+                <input aria-label="Link do botão" placeholder="https://… ou {{link_loja}}" value={block.href || ""} disabled={disabled}
+                  onChange={(e) => patch(index, { href: normalizePastedLink(e.target.value) })}
+                  onBlur={(e) => { const corrected = normalizePastedLink(e.currentTarget.value); if (corrected !== block.href) patch(index, { href: corrected }); }} />
               </div>
             ) : null}
             {block.type === "logo" ? <p className="emBlockNote">Usa o logo do remetente (aba Remetente).</p> : null}

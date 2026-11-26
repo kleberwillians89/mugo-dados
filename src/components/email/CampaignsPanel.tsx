@@ -103,6 +103,20 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
         <button type="button" className="ds-button" disabled={uploading} onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /> Campanhas</button>
         <span className={`emPill is-${campaign.status}`}>{STATUS_LABEL[campaign.status]}</span>
       </div>
+      {canEdit && ["rascunho", "agendada"].includes(campaign.status) ? <section className="emCard emQuickTest" aria-label="Teste do e-mail">
+        <strong>Testar o e-mail</strong>
+        <div className="emInlineRow">
+          <input type="email" aria-label="E-mail para teste" placeholder="seu@email.com" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+          <button type="button" className="ds-button" disabled={uploading || !!busy || !testTo}
+            onClick={() => void run("test", async () => {
+              const out = await sendTestEmail(id, testTo, payload()!);
+              setMessage(out.status === "simulado" ? "Teste registrado (modo simulado: nada saiu)." : `Teste enviado para ${testTo}.`);
+            })}>{busy === "test" ? "Enviando…" : "Enviar teste"}</button>
+        </div>
+        <small className="emMuted">Envia uma cópia somente para o endereço informado; não aprova nem dispara a campanha.</small>
+      </section> : null}
+      {error ? <p className="emError" role="alert">{error}</p> : null}
+      {message ? <p className="emOk" role="status">{message}</p> : null}
       {reviewLabel ? <p className="emNotice">{reviewLabel}{lastReview?.decision === "changes_requested" && lastReview.comment ? ` · ${lastReview.comment}` : ""}</p> : null}
       {review?.versions.length ? <details className="emCard"><summary>Histórico de aprovação</summary>
         <ol>{review.versions.map((entry) => <li key={entry.version}>
@@ -198,21 +212,12 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             ) : null}
           </section>
 
-          {error ? <p className="emError" role="alert">{error}</p> : null}
-          {message ? <p className="emOk">{message}</p> : null}
 
           {canEdit && ["rascunho", "agendada"].includes(campaign.status) ? (
             <section className="emCard emSendBox">
               {campaign.status === "rascunho" ? <button type="button" className="ds-button" disabled={uploading || !!busy}
                 onClick={() => void save()}>{busy === "save" ? "Salvando…" : "Salvar"}</button> : null}
-              <div className="emInlineRow">
-                <input type="email" aria-label="E-mail para teste" placeholder="seu@email.com" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
-                <button type="button" className="ds-button" disabled={uploading || !!busy || !testTo}
-                  onClick={() => void run("test", async () => {
-                    const out = await sendTestEmail(id, testTo, payload()!);
-                    setMessage(out.status === "simulado" ? "Teste registrado (modo simulado: nada saiu)." : `Teste enviado para ${testTo}.`);
-                  })}>{busy === "test" ? "Enviando…" : "Enviar teste"}</button>
-              </div>
+
               {review && campaign.status === "rascunho" && (!campaign.can_dispatch || dirty) ? (
                 <button type="button" className="ds-button is-primary" disabled={uploading || !!busy || (review.status === "pending" && !dirty)}
                   onClick={() => void run("approval", async () => {

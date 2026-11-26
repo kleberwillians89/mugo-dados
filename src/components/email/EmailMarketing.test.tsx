@@ -114,6 +114,8 @@ describe("E-mail marketing", () => {
     await flush();
     await act(async () => { button("Reativação 90 dias").click(); });
     await flush();
+    expect(host.querySelectorAll('input[aria-label="E-mail para teste"]')).toHaveLength(1);
+    expect(host.querySelector(".emQuickTest")).not.toBeNull();
     const to = host.querySelector<HTMLInputElement>('input[aria-label="E-mail para teste"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(to, "equipe@example.org");
