@@ -28,3 +28,11 @@ export const getTaskContext = (taskId: string, module: WorkModule) =>
 export const createEmailFromTask = (taskId: string, input: { deliverable: string; mode: "ia" | "branco"; new_version?: boolean; instruction?: string }) =>
   http<{ created: { id: string; name: string; status: string } | null; existing: LinkedCampaign[] }>(
     base(`/tasks/${encodeURIComponent(taskId)}/email`), { ...json("POST", input), timeoutMs: 120_000 });
+
+/** "Ir para o job": o que foi produzido a partir da tarefa (e-mail, texto, matriz, post, anúncio) e onde abrir. */
+export type ProducedItem = {
+  module: WorkModule; module_label: string; record_id: string; deliverable: string; created_at: string | null;
+  name: string; removed: boolean; status: string; route: string | null; query: string | null;
+};
+export const listProduced = (taskId: string) =>
+  http<{ task_id: string; items: ProducedItem[] }>(base(`/tasks/${encodeURIComponent(taskId)}/produced`));
