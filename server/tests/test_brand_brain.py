@@ -16,7 +16,7 @@ SERVICES = Path(__file__).resolve().parent.parent / "services"
 # "propria": já monta o contexto completo da marca sozinha. "sem_marca": tarefa técnica que não escreve para a marca
 # (extrair dados, OCR, manter a própria memória). IA nova fora da lista quebra o teste: decida em qual ela entra.
 COVERAGE = {
-    "creators": "brand", "social_report": "brand", "monthly_report": "brand", "ai_actions": "brand", "ai_summary": "brand",
+    "creators": "brand", "email_from_task": "brand", "social_report": "brand", "monthly_report": "brand", "ai_actions": "brand", "ai_summary": "brand",
     "studio_campaigns": "brand", "studio_documents": "brand", "studio_projects": "brand", "media_strategy": "brand",
     "studio_briefs": "brand", "studio_agents": "brand", "media_live_read": "brand", "goal_ops": "brand",
     "whatsapp_ai": "propria", "ig_engagement": "propria", "ig_direct": "propria", "mugo_ia": "propria",
