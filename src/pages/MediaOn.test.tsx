@@ -12,12 +12,12 @@ vi.mock("../app/media", async (original) => ({ ...(await original<typeof import(
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: unknown }) => children }));
 vi.mock("../components/data/PageHeader", () => ({ default: () => null }));
 vi.mock("../components/studio/BrandContextPanel", () => ({ default: () => null }));
-vi.mock("../components/studio/MetaAdsPanel", () => ({ default: () => null }));
+vi.mock("../components/studio/MetaAdsPanel", () => ({ default: () => <section aria-label="Editor Meta" /> }));
 vi.mock("../components/studio/MediaClientCampaigns", () => ({ default: () => null }));
 vi.mock("../components/studio/MediaLiveRead", () => ({ default: () => null }));
 vi.mock("../components/studio/MediaKpiStrip", () => ({ default: () => null }));
 vi.mock("../components/goals/MediaGoals", () => ({ default: () => null }));
-vi.mock("../components/studio/GoogleAdsPanel", () => ({ default: () => null }));
+vi.mock("../components/studio/GoogleAdsPanel", () => ({ default: () => <section aria-label="Editor Google" /> }));
 vi.mock("../components/studio/MediaNow", () => ({ default: () => <section>Sua mídia agora</section> }));
 vi.mock("../components/studio/MediaLiveCampaigns", () => ({ default: () => null }));
 const openPlanning = async () => { const b = [...document.querySelectorAll("button")].find((x) => x.textContent === "Planejamento") as HTMLButtonElement | undefined; if (b) await act(async () => { b.click(); }); };
@@ -30,6 +30,26 @@ let host: HTMLDivElement;
 afterEach(() => { host?.remove(); vi.clearAllMocks(); });
 
 describe("Mídia On", () => {
+  it("mostra os canais no clique em Criar campanha e monta somente o editor escolhido", async () => {
+    host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<MediaOn canManage />));
+    const button = (label: string, scope: ParentNode = host) =>
+      [...scope.querySelectorAll("button")].find((item) => item.textContent?.trim() === label)!;
+    await act(async () => button("Criar campanha").click());
+    const chooser = host.querySelector('[aria-label="Escolha a plataforma"]')!;
+    expect(button("Meta Ads", chooser)).toBeDefined();
+    expect(button("Google Ads", chooser)).toBeDefined();
+    expect(host.querySelector("#media-campaign-builder")).toBeNull();
+    await act(async () => button("Google Ads", chooser).click());
+    expect(host.querySelector('[aria-label="Editor Google"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Editor Meta"]')).toBeNull();
+    await act(async () => button("Meta Ads", chooser).click());
+    expect(host.querySelector('[aria-label="Editor Meta"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Editor Google"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
   it("mês vazio: a equipe já abre com a IA gerando a estratégia (uma vez só)", async () => {
     host = document.createElement("div"); document.body.appendChild(host);
     const root = createRoot(host);

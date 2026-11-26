@@ -70,9 +70,9 @@
 .mediaTabs{display:flex;gap:6px;margin:4px 0 14px}
 .mediaTabs button{padding:8px 16px;border-radius:999px;border:1px solid var(--border-subtle,#dedbd4);background:var(--surface,#fff);font:600 13px/1 var(--font-body);cursor:pointer}
 .mediaTabs button.is-active{background:var(--text-primary,#15181b);color:#fff;border-color:transparent}
-.mediaCreateBar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px 20px;border-radius:16px;background:var(--text-primary,#15181b);color:#fff}
+.mediaCreateBar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:18px 20px;border-radius:16px;background:#004f6e;color:#fff}
 .mediaCreateBar p{margin:4px 0 0;opacity:.8;font-size:13px}
-.mediaCreateBar .ds-button{min-height:46px;padding:0 22px;font-size:15px;background:#fff;color:var(--text-primary,#15181b);border-color:#fff}
+.mediaCreateBar .ds-button{min-height:46px;padding:0 22px;font-size:15px;background:#fff;color:#004f6e;border-color:#fff}
 .mediaNowHead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .mediaNowHead h2,.mediaNowTips h2{margin:0;font:650 18px/1.3 var(--font-display)}
 .mediaNowHead small,.mediaNowTips>small{color:var(--text-muted,#687178);font-size:12px}
@@ -92,3 +92,13 @@
 .mediaNowTips ol{margin:10px 0 0;padding-left:20px;display:grid;gap:6px}
 .mediaHistory summary{cursor:pointer;font-weight:650}
 @media(max-width:720px){.mediaNowTotals{grid-template-columns:1fr 1fr 1fr}.mediaNowTotals strong{font-size:18px}.mediaNowList li{grid-template-columns:1fr}}
+
+
+.mediaCreate{display:grid;gap:12px}
+.mediaCreateChannels{display:flex;flex-wrap:wrap;gap:8px}
+.mediaCreateChannels .ds-button[aria-pressed="true"]{background:#004f6e;color:#fff;border-color:#004f6e}
+.mediaCreateBrief summary{cursor:pointer;color:#004f6e;font-weight:650}
+.mediaNowFilters{display:grid;grid-template-columns:2fr repeat(2,minmax(0,1fr));gap:10px}
+.mediaNowFilters label{display:grid;gap:5px;font-size:13px;font-weight:650;min-width:0}
+.mediaNowFilters input,.mediaNowFilters select{width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--border-subtle,#dce0e3);border-radius:8px;background:var(--surface,#fff);color:inherit}
+@media(max-width:640px){.mediaNowFilters{grid-template-columns:repeat(2,minmax(0,1fr))}.mediaNowFilters label:first-child{grid-column:1/-1}}
