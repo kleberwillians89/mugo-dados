@@ -13,7 +13,14 @@ vi.mock("../components/Shell", () => ({ default: ({ children }: { children: unkn
 vi.mock("../components/data/PageHeader", () => ({ default: () => null }));
 vi.mock("../components/studio/BrandContextPanel", () => ({ default: () => null }));
 vi.mock("../components/studio/MetaAdsPanel", () => ({ default: () => null }));
+vi.mock("../components/studio/MediaClientCampaigns", () => ({ default: () => null }));
+vi.mock("../components/studio/MediaLiveRead", () => ({ default: () => null }));
+vi.mock("../components/studio/MediaKpiStrip", () => ({ default: () => null }));
+vi.mock("../components/goals/MediaGoals", () => ({ default: () => null }));
 vi.mock("../components/studio/GoogleAdsPanel", () => ({ default: () => null }));
+vi.mock("../components/studio/MediaNow", () => ({ default: () => <section>Sua mídia agora</section> }));
+vi.mock("../components/studio/MediaLiveCampaigns", () => ({ default: () => null }));
+const openPlanning = async () => { const b = [...document.querySelectorAll("button")].find((x) => x.textContent === "Planejamento") as HTMLButtonElement | undefined; if (b) await act(async () => { b.click(); }); };
 
 import * as media from "../app/media";
 import MediaOn from "./MediaOn";
@@ -27,6 +34,7 @@ describe("Mídia On", () => {
     host = document.createElement("div"); document.body.appendChild(host);
     const root = createRoot(host);
     await act(async () => { root.render(<MediaOn canManage />); });
+    await openPlanning();
     await act(async () => {});
     expect(media.generateStrategy).toHaveBeenCalledTimes(1);
     expect(vi.mocked(media.generateStrategy).mock.calls[0][0].objective).toBe("vendas");
@@ -47,6 +55,7 @@ describe("Mídia On", () => {
     host = document.createElement("div"); document.body.appendChild(host);
     const root = createRoot(host);
     await act(async () => { root.render(<MediaOn canManage />); });
+    await openPlanning();
     await act(async () => {});
     vi.mocked(media.generateStrategy).mockClear();
 
@@ -93,6 +102,7 @@ describe("Mídia On", () => {
     host = document.createElement("div"); document.body.appendChild(host);
     const root = createRoot(host);
     await act(async () => { root.render(<MediaOn canManage />); });
+    await openPlanning();
     await act(async () => {});
     expect(host.textContent).toContain("Seu marketing em 1 minuto");
     expect(host.textContent).toContain("O que pode explicar os resultados?");
@@ -124,6 +134,7 @@ describe("Mídia On", () => {
     host = document.createElement("div"); document.body.appendChild(host);
     const root = createRoot(host);
     await act(async () => { root.render(<MediaOn canManage />); });
+    await openPlanning();
     await act(async () => {});
     const prepare = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Preparar minha primeira análise") as HTMLButtonElement;
     expect(prepare).toBeTruthy();
@@ -132,5 +143,20 @@ describe("Mídia On", () => {
     expect(host.textContent).not.toContain("Preparar minha primeira análise");
     expect(vi.mocked(media.generateStrategy)).not.toHaveBeenCalled();
     act(() => root.unmount());
+  });
+  it("abre em Agora: campanhas no ar e Criar campanha, sem gerar estratégia; Planejamento só para a equipe", async () => {
+    const host = document.createElement("div"); document.body.appendChild(host);
+    const root2 = createRoot(host);
+    vi.mocked(media.generateStrategy).mockClear();
+    await act(async () => { root2.render(<MediaOn canManage />); });
+    await act(async () => {});
+    expect(host.textContent).toContain("Sua mídia agora");
+    expect(host.textContent).toContain("Criar campanha");
+    expect(host.textContent).not.toContain("Planejamento e análise de mídia");
+    expect(vi.mocked(media.generateStrategy)).not.toHaveBeenCalled();
+    await act(async () => { root2.render(<MediaOn canManage={false} />); });
+    expect([...host.querySelectorAll("button")].some((b) => b.textContent === "Planejamento")).toBe(false);
+    expect(host.textContent).not.toContain("Criar campanha");
+    act(() => root2.unmount()); host.remove();
   });
 });

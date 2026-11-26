@@ -1,3 +1,4 @@
+import type { AppRoute } from "./routes";
 import { http, clientClientPath, publicHttp } from "./api";
 
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
@@ -56,11 +57,16 @@ export const CONTENT_ANGLES: Record<string, string> = {
 };
 
 /** Briefing em texto corrido para copiar e mandar para quem vai produzir. */
-export function briefingText(item: Pick<CalendarItem, "title" | "format" | "hook" | "script" | "visual_idea" | "signals">): string {
+export function briefingText(item: Pick<CalendarItem, "title" | "format" | "hook" | "script" | "visual_idea" | "signals"> & { creative_direction?: CreativeDirection | null }): string {
   const b = item.signals?.briefing || {};
+  const d = item.creative_direction || {};
   return [
     `PAUTA: ${item.title}`,
     `FORMATO: ${item.format}`,
+    d.concept ? `CONCEITO: ${d.concept}` : "",
+    d.texts ? `TEXTOS NECESSÁRIOS:\n${d.texts}` : "",
+    d.references ? `REFERÊNCIAS:\n${d.references}` : "",
+    d.instructions ? `INSTRUÇÕES PARA A PEÇA:\n${d.instructions}` : "",
     b.angle ? `ÂNGULO: ${CONTENT_ANGLES[b.angle] || b.angle}` : "",
     b.summary ? `RESUMO: ${b.summary}` : "",
     b.objective ? `OBJETIVO: ${b.objective}` : "",
@@ -89,6 +95,8 @@ export type CalendarItem = {
   collaborators?: string[];
   /** Produtos da loja do Instagram marcados no post (publicados junto). */
   product_tags?: ProductTag[];
+  /** Reels: capa, onde aparece, teste, áudio e primeiro comentário (vão junto na publicação). */
+  reels_options?: ReelsOptions;
   /** Equipe: nova versão preparada pela IA para o ajuste que o cliente pediu (só sugestão; a equipe aplica). */
   ai_suggestion?: AiSuggestion | null;
   /** Equipe validou o agendamento depois da aprovação do cliente. */
@@ -97,15 +105,45 @@ export type CalendarItem = {
   publish_status?: "publicando" | "publicado" | "falhou" | "simulado" | "manual" | null;
   publish_error?: string | null;
   published_permalink?: string | null;
+  published_at?: string | null;
   reviewed_by: string | null; reviewed_at: string | null; updated_at?: string;
   /** O cliente editou pelo painel; a equipe confere (tarefa no CRM). */
   client_edited_at?: string | null; client_edited_fields?: string[];
   /** Arte anexada, na ordem dos slides; URLs assinadas de curta duração. */
   /** Impulsionamento previsto no plano do Mídia On salvo para o mês (só na tela). */
   boost?: { start: string; end: string; budget: number; why: string };
+  /** Direcionamento Criativo da peça (equipe; migração 000140). Não vem para o cliente. */
+  creative_direction?: CreativeDirection | null;
 };
 
-export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags">>;
+/** Orientação específica de produção desta peça. Não substitui o briefing da campanha nem a Matriz Tática. */
+export type CreativeDirection = { concept?: string; texts?: string; references?: string; instructions?: string;
+  /** Briefing existente escolhido como referência (a tarefa lê do briefing; nada é copiado). */
+  brief_id?: string | null };
+export const CREATIVE_DIRECTION_FIELDS: { key: Exclude<keyof CreativeDirection, "brief_id">; label: string; placeholder: string; rows: number; max: number }[] = [
+  { key: "concept", label: "Título / conceito", placeholder: "A ideia da peça em uma frase", rows: 1, max: 300 },
+  { key: "texts", label: "Textos necessários", placeholder: "Capa, slides, falas, CTA (um por linha)", rows: 3, max: 3000 },
+  { key: "references", label: "Referências", placeholder: "Links ou descrição do estilo", rows: 2, max: 2000 },
+  { key: "instructions", label: "Instruções para a peça", placeholder: "Composição, enquadramento, ritmo, o que evitar", rows: 3, max: 3000 },
+];
+/** Sem campos vazios (e sem brief_id nulo): é o que vai para o servidor e o que se compara para saber se mudou. */
+export function cleanDirection(d?: CreativeDirection | null): CreativeDirection {
+  const out: CreativeDirection = {};
+  for (const { key } of CREATIVE_DIRECTION_FIELDS) { const v = (d?.[key] || "").trim(); if (v) out[key] = v; }
+  if (d?.brief_id) out.brief_id = d.brief_id;
+  return out;
+}
+/** A IA só sugere: nada é gravado até a pessoa escolher o que usar e salvar a pauta. */
+export function suggestCreativeDirection(itemId: string, current: CreativeDirection, instruction?: string) {
+  const text = cleanDirection(current);
+  delete text.brief_id;
+  return http<{ suggestion: CreativeDirection; based_on: BasedOn }>(base(`/calendar/items/${encodeURIComponent(itemId)}/creative-direction/suggest`),
+    { method: "POST", body: JSON.stringify({ current: text, instruction: instruction?.trim() || undefined }), timeoutMs: 100_000 });
+}
+
+export type ItemPatch = Partial<Pick<CalendarItem, "scheduled_at" | "channel" | "format" | "pillar" | "title" | "hook" | "caption_draft" | "rationale" | "status" | "review_note" | "art_url" | "collaborators" | "product_tags" | "reels_options">> & { creative_direction?: CreativeDirection;
+  /** "Editar peça": briefing da peça editado pela equipe (texto vazio apaga o campo). */
+  script?: string; visual_idea?: string; briefing?: StudioBriefing };
 
 /** Importar calendário pronto (PowerPoint/texto): a IA organiza, a equipe revisa e confirma. */
 export type ImportRow = { slide?: number; date: string; time: string; format: StudioFormat; title: string; caption: string; art_url: string; issues?: string[] };
@@ -161,11 +199,43 @@ export function dismissSuggestion(id: string) { return http<{ ok: boolean }>(ite
 
 // ---------------------------------------------------------------- produtos da loja (Instagram Shopping)
 /** Produto marcado: slide = arte do carrossel (0 = primeira); x/y de 0.01 a 1 a partir do canto de cima (só imagem). */
+/** Opções do Reels no Instagram. Vazio = como antes (primeiro frame, Feed conforme a conta, sem teste). */
+export type ReelsOptions = {
+  /** "frame" = um momento do vídeo (thumb_offset_ms); "image" = JPG feito pela equipe (cover_url). */
+  cover_mode?: "frame" | "image";
+  thumb_offset_ms?: number;
+  cover_url?: string;
+  /** true = aparece também no Feed e na grade do perfil; false = só na aba Reels. */
+  share_to_feed?: boolean;
+  /** Reels de teste: primeiro só para quem não segue. manual = a equipe decide; auto = vai se performar bem. */
+  trial?: "off" | "manual" | "auto";
+  audio_name?: string;
+  first_comment?: string;
+  /** Música da biblioteca do Instagram (Audio API). Volumes de 1 a 100. */
+  music?: ReelsMusic;
+  /** Stories interativos: exigem finalização manual no Instagram; nunca vão automaticamente pela API. */
+  story_sticker?: "poll" | "question" | "quiz" | "emoji_slider" | "link" | "countdown" | "music";
+  story_instruction?: string;
+  /** Centro do sticker na prévia, em % da área 9:16 (0–100). */
+  story_sticker_position?: { x: number; y: number };
+  /** Escala visual do sticker em %, de 60 a 140 (padrão 100). */
+  story_sticker_scale?: number;
+};
+export type ReelsMusic = { audio_id: string; title?: string; artist?: string | null; cover?: string | null; audio_volume?: number; video_volume?: number };
+export type ReelsAudio = { audio_id: string; title: string; artist: string | null; duration_ms: number | null; cover: string | null;
+  preview_url: string | null; type: "music" | "original_sound" };
+export function searchReelsAudio(q: string, type: "music" | "original_sound" = "music") {
+  const params = new URLSearchParams({ q, type });
+  return http<{ audio: ReelsAudio[] }>(base(`/calendar/audio?${params.toString()}`), { timeoutMs: 30_000 });
+}
+
 export type ProductTag = { product_id: string; name?: string | null; image_url?: string | null; slide: number; x: number; y: number };
 export type ShopStatus = { ready: boolean; eligible: boolean | null; catalogs: { id: string; name: string | null; shop_name: string | null; product_count: number | null }[];
   missing_scopes: string[]; message: string | null };
 export type ShopProduct = { product_id: string; name: string; image_url: string | null; sku: string | null; review_status: string | null;
-  variants: { product_id: string; name: string | null }[] };
+  variants: { product_id: string; name: string | null }[];
+  /** Link e preço no catálogo (podem faltar se a conexão não lê o catálogo). Usados nos anúncios da Mídia On. */
+  url?: string | null; price?: string | null };
 export function getShop() { return http<ShopStatus>(base("/calendar/shop"), { timeoutMs: 30_000 }); }
 export function searchShopProducts(q: string, catalogId?: string) {
   const params = new URLSearchParams({ q, ...(catalogId ? { catalog_id: catalogId } : {}) });
@@ -177,6 +247,9 @@ export function createCalendarItem(item: Required<Pick<CalendarItem, "scheduled_
 }
 export function deleteCalendarItem(id: string) {
   return http(base(`/calendar/items/${encodeURIComponent(id)}`), { method: "DELETE" });
+}
+export function deleteApprovalContent(id: string) {
+  return http<{ ok: true }>(base(`/calendar/items/${encodeURIComponent(id)}/approval-content`), { method: "DELETE" });
 }
 
 const SP = "America/Sao_Paulo";
@@ -327,14 +400,21 @@ export type CentralAlert = { level: "atencao" | "info"; module: string; text: st
 export type CentralView = {
   month: string; agency: boolean;
   numbers: { start: string; end: string | null; investimento?: number | null; faturamento?: number | null; pedidos?: number | null; retorno?: number | null;
-    vendas_midia_paga?: number | null; melhor_campanha?: { campanha: string; pedidos: number; vendas: number } | null } | null;
+    ticket_medio?: number | null; vendas_midia_paga?: number | null; melhor_campanha?: { campanha: string; pedidos: number; vendas: number } | null;
+    previous?: { start: string; end: string; investimento?: number | null; faturamento?: number | null; pedidos?: number | null; ticket_medio?: number | null;
+      retorno?: number | null; vendas_midia_paga?: number | null } | null } | null;
   calendar: { total: number; counts: Record<string, number>; waiting_client: number; off_brand: { id: string; title: string; issues: number }[];
     upcoming: { id: string; title: string; format: StudioFormat; scheduled_at: string; stage: string; pillar: string | null }[] } | null;
   media: { objetivo: string | null; verba: number | null; elapsed_days: number; days_in_month: number;
     channels: { channel: string; label: string; planned_spend: number | null; spent: number; expected_to_date: number | null; projected_spend: number; pace: number | null; roas: number | null; cpa: number | null }[] } | null;
+  social: { start: string; end: string; reach: number | null; interactions: number | null; new_followers: number | null; days: number;
+    previous: { start: string; end: string; reach: number | null; interactions: number | null; new_followers: number | null; days: number } | null } | null;
   clipping: { week: { current: Record<string, number>; previous: Record<string, number>; marca_variacao: number };
     latest: { id: string; title: string; source: string | null; url: string; kind: string; sentiment: string | null }[] } | null;
-  tasks: { available: boolean; reason?: string; open?: number; late?: number; next?: { title: string; due_date: string | null; status: string }[] } | null;
+  tasks: { available: boolean; reason?: string; open?: number; late?: number; stalled?: number; rework?: number;
+    next?: { title: string; due_date: string | null; status: string }[];
+    workload?: { departments: { name: string; tasks: number }[]; people: { name: string; tasks: number; late: number; rework: number }[] } } | null;
+  approval_history: { months: { month: string; approved: number; internal_changes: number; client_changes: number }[]; definition: string } | null;
   campaigns?: { id: string; name: string; status: string; objective: string | null; start: string | null; end: string | null; posts_no_calendario: number }[] | null;
   alerts: CentralAlert[];
 };
@@ -384,9 +464,14 @@ export type KnowledgeKind = "institucional" | "produto" | "campanha" | "tom_de_v
 export type BrandDocumentStatus = "pendente" | "aprendido" | "falhou";
 export type BrandDocument = { id: string; name: string; kind: KnowledgeKind; summary: string | null; facts_added: number; truncated: boolean; created_at: string;
   status?: BrandDocumentStatus; error?: string | null; chars_total?: number };
-export type TeachResult = { ok: true; document: BrandDocument; knowledge: string; sources: number; warning?: string };
+export type TeachResult = { ok: true; document: BrandDocument; knowledge: string; sources: number; warning?: string;
+  /** Leitura das páginas pela IA (PDF escaneado). */
+  ocr?: { pages_read: number; pages_total: number; pages_limit: number; partial: boolean } };
 export type BrandKnowledge = { knowledge: string; sources: number; updated_at: string | null; documents: BrandDocument[] };
 export function getKnowledge() { return http<BrandKnowledge>(base("/knowledge")); }
+/** A IA lê os documentos da Biblioteca que ainda não viraram Conhecimento da marca (até 4 por rodada). */
+export type LibraryLearn = { running: boolean; read: { name: string; status: string }[]; skipped: { name: string; reason: string }[]; left: number | null };
+export function learnFromLibrary() { return http<LibraryLearn>(base("/library/learn"), { method: "POST", timeoutMs: 600_000 }); }
 export function saveKnowledge(knowledge: string) { return http<{ ok: true; knowledge: string; sources: number }>(base("/knowledge"), { method: "PUT", body: JSON.stringify({ knowledge }) }); }
 export const KNOWLEDGE_MAX_BYTES = 10 * 1024 * 1024;
 async function fileBase64(file: File): Promise<string> {
@@ -418,19 +503,46 @@ export function clearBrandAgent() { return http<{ ok: true }>(base("/brand-agent
 // Mugoverso IA: responde tudo do mundo do cliente, lendo todo o contexto dele (dados, material, saúde, concorrentes, clipping…).
 export type MugoIACoverage = { read: string[]; gaps: string[] };
 export type MugoIAWebSource = { title: string; url: string; researched_at: string; snippet?: string };
-export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string };
+/** Proposta de criação da Mugô IA: o botão Criar vira rascunho na ferramenta (nunca envia nem publica). */
+export type MugoIAAction = { tipo: "email" | "campanha_meta" | "briefing" | "whatsapp_modelo"; status: "proposta" | "criado"; titulo: string; pedido: string;
+  assunto?: string; preheader?: string; email_titulo?: string; email_texto?: string; botao?: string;
+  objetivo?: string; verba_diaria?: number; dias?: number; wa_corpo?: string; wa_rodape?: string; wa_nome?: string; wa_botao_texto?: string; wa_botao_url?: string;
+  criado?: { id: string; name?: string; route: AppRoute; label: string; status?: string; fotos?: number; espacos?: number } };
+export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction; acoes?: MugoIAAction[] };
 export type MugoIAMessage = { id: string | null; role: "user" | "assistant"; content: string; created_at?: string; meta?: MugoIAMeta };
-export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string };
+export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction; acoes?: MugoIAAction[] };
+/** Peças de uma resposta (pacote novo ou a proposta única das respostas antigas). */
+export function mugoIAActions(meta?: MugoIAMeta): MugoIAAction[] {
+  return meta?.acoes?.length ? meta.acoes : meta?.acao ? [meta.acao] : [];
+}
+export function createFromMugoIA(messageId: string, item = 0, edits?: { wa_botao_texto?: string; wa_botao_url?: string }) {
+  return http<{ ok: true; acao: MugoIAAction; item: number; already: boolean }>(
+    base(`/mugo-ia/${encodeURIComponent(messageId)}/criar?item=${item}`),
+    { method: "POST", timeoutMs: 180_000, ...(edits ? { body: JSON.stringify(edits) } : {}) });
+}
 export function getMugoIA() { return http<{ messages: MugoIAMessage[] }>(base("/mugo-ia")); }
-export function askMugoIA(question: string) {
-  return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question }), timeoutMs: 120_000 });
+export function askMugoIA(question: string, screen?: string) {
+  // Modelo forte que raciocina: dá mais tempo para a resposta (pesquisa + leitura + peças).
+  return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question, ...(screen ? { screen } : {}) }), timeoutMs: 210_000 });
 }
 export function clearMugoIA() { return http<{ ok: true }>(base("/mugo-ia"), { method: "DELETE" }); }
 
-export async function teachFromFile(file: File, kind: KnowledgeKind) {
+/** ``ocr``: PDF escaneado, a IA lê as páginas (até 20); só quando a pessoa pede. */
+export async function teachFromFile(file: File, kind: KnowledgeKind, options: { ocr?: boolean } = {}) {
   if (file.size > KNOWLEDGE_MAX_BYTES) throw new Error("Arquivo grande demais (até 10 MB). Divida em partes.");
   return http<TeachResult>(base("/knowledge/documents"),
-    { method: "POST", body: JSON.stringify({ file_name: file.name, kind, content_base64: await fileBase64(file) }), timeoutMs: 180_000 });
+    { method: "POST", body: JSON.stringify({ file_name: file.name, kind, content_base64: await fileBase64(file), ...(options.ocr ? { ocr: true } : {}) }),
+      timeoutMs: options.ocr ? 300_000 : 180_000 });
+}
+/** Importar do Google Drive (pasta/arquivo) ou do Canva (link público): listar o que tem e baixar um arquivo por vez. */
+export type CloudFile = { id: string; name: string; mime: string; size: number | null; path: string; supported: boolean; reason: string | null };
+export function listCloudImport(url: string) {
+  return http<{ source: "drive" | "canva"; files: CloudFile[]; truncated: boolean }>(base("/knowledge/import/list"),
+    { method: "POST", body: JSON.stringify({ url }), timeoutMs: 60_000 });
+}
+export function fetchCloudImport(source: "drive" | "canva", file: CloudFile) {
+  return http<{ file_name: string; mime: string; content_base64: string; needs_ocr: boolean }>(base("/knowledge/import/file"),
+    { method: "POST", body: JSON.stringify({ source, id: file.id, name: file.name, mime: file.mime }), timeoutMs: 120_000 });
 }
 export function teachFromText(text: string, kind: KnowledgeKind, title = "Texto colado") {
   return http<TeachResult>(base("/knowledge/documents"),

@@ -31,7 +31,7 @@ SHOP_DOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.myshopify\.com$"
 # Escopos pedidos ao Shopify. `read_all_orders` amplia a janela histórica,
 # mas não é requisito para que uma autorização válida seja persistida e possa
 # ler pedidos recentes, clientes e produtos.
-SHOPIFY_SCOPES = ["read_orders", "read_all_orders", "read_customers", "read_products"]
+SHOPIFY_SCOPES = ["read_orders", "read_all_orders", "read_customers", "read_products", "read_discounts"]
 SHOPIFY_REQUIRED_CONNECTION_SCOPES = ["read_orders", "read_customers", "read_products"]
 SHOPIFY_PRODUCTION_REDIRECT_URI = "https://api.dados.mugoagencia.com.br/api/oauth/shopify/callback"
 SHOPIFY_WEBHOOK_TOPICS = [

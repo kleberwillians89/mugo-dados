@@ -53,8 +53,40 @@ def _value(item: Dict[str, Any], key: str) -> str:
     return str(raw or "").strip()
 
 
-def build_text(item: Dict[str, Any], role: str, note: Optional[str] = None) -> str:
-    """Briefing para a função, em texto curto (vai na observação da tarefa)."""
+# Direcionamento Criativo da peça (escrito pela equipe no Calendário): vale para toda função e vem primeiro.
+DIRECTION_FIELDS: Tuple[Tuple[str, str], ...] = (("concept", "Título / conceito"), ("texts", "Textos necessários"),
+                                                  ("references", "Referências"), ("instructions", "Instruções para a peça"))
+
+
+def direction_text(item: Dict[str, Any]) -> str:
+    d = item.get("creative_direction") if isinstance(item.get("creative_direction"), dict) else {}
+    lines = []
+    for key, label in DIRECTION_FIELDS:
+        value = str(d.get(key) or "").strip()
+        if value:
+            lines.append(f"{label}:\n{value}" if "\n" in value or len(value) > 80 else f"{label}: {value}")
+    return ("DIRECIONAMENTO CRIATIVO\n" + "\n".join(lines))[:1800] if lines else ""
+
+
+def reference_text(brief: Optional[Dict[str, Any]]) -> str:
+    """Briefing da campanha como referência (não substitui o direcionamento da peça)."""
+    b = (brief or {}).get("brief") if isinstance((brief or {}).get("brief"), dict) else (brief or {})
+    if not b or not (b.get("title") or b.get("summary")):
+        return ""
+    parts = [f"BRIEFING DE REFERÊNCIA: {str(b.get('title') or '').strip()}".rstrip(": ")]
+    for key, label in (("summary", "Resumo"), ("objective", "Objetivo"), ("key_message", "Mensagem"), ("audience", "Público"), ("deadline", "Prazo")):
+        if str(b.get(key) or "").strip():
+            parts.append(f"{label}: {str(b[key]).strip()}")
+    for key, label in (("deliverables", "Entregáveis"), ("avoid", "Não fazer")):
+        values = [str(x).strip() for x in b.get(key) or [] if str(x or "").strip()]
+        if values:
+            parts.append(f"{label}: " + " · ".join(values))
+    return "\n".join(parts)[:1000]
+
+
+def build_text(item: Dict[str, Any], role: str, note: Optional[str] = None, reference: Optional[Dict[str, Any]] = None) -> str:
+    """Briefing para a função, em texto curto (vai na observação da tarefa).
+    Ordem: post → pedido → direcionamento criativo → o que a função precisa → briefing de referência."""
     when = ""
     try:
         at = datetime.fromisoformat(str(item.get("scheduled_at")).replace("Z", "+00:00")).astimezone(SAO_PAULO)
@@ -65,11 +97,47 @@ def build_text(item: Dict[str, Any], role: str, note: Optional[str] = None) -> s
     parts = [head]
     if note and note.strip():
         parts.append(f"Pedido: {note.strip()[:600]}")
+    direction = direction_text(item)
+    if direction:
+        parts.append(direction)
+    ref = reference_text(reference)
+    body: List[str] = []
     for key, label in FIELDS[role]:
         value = _value(item, key)
         if value:
-            parts.append(f"{label}:\n{value}" if "\n" in value or len(value) > 80 else f"{label}: {value}")
+            body.append(f"{label}:\n{value}" if "\n" in value or len(value) > 80 else f"{label}: {value}")
+    # O briefing de referência sempre cabe: o que corta, se passar de 4000, é o fim dos campos da função.
+    room = 4000 - len("\n\n".join(parts)) - (len(ref) + 2 if ref else 0) - 2
+    text = "\n\n".join(body)
+    if body and room > 0:
+        parts.append(text[:room])
+    if ref:
+        parts.append(ref)
     return "\n\n".join(parts)[:4000]
+
+
+async def reference_brief(client_id: str, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Briefing existente que acompanha a peça: o escolhido no Direcionamento Criativo ou, se a pauta veio da
+    Matriz, o briefing vinculado à Matriz (só leitura). Sem briefing ou em falha: None (a tarefa sai igual)."""
+    from .ig_supabase import sb_select
+    direction = item.get("creative_direction") if isinstance(item.get("creative_direction"), dict) else {}
+    try:
+        if direction.get("brief_id"):
+            rows = await sb_select("studio_briefs", select="id,brief", limit=1,
+                                   filters={"client_id": f"eq.{client_id}", "id": f"eq.{direction['brief_id']}"})
+            if rows:
+                return rows[0]
+        if item.get("matrix_opportunity_id"):
+            ops = await sb_select("studio_matrix_opportunities", select="matrix_id", limit=1,
+                                  filters={"client_id": f"eq.{client_id}", "id": f"eq.{item['matrix_opportunity_id']}"})
+            if ops and ops[0].get("matrix_id"):
+                matrices = await sb_select("studio_content_matrices", select="brief_snapshot", limit=1,
+                                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{ops[0]['matrix_id']}"})
+                if matrices and isinstance(matrices[0].get("brief_snapshot"), dict):
+                    return matrices[0]["brief_snapshot"]
+    except Exception as exc:  # noqa: BLE001 — referência é bônus; nunca impede o envio
+        print(f"[studio][briefing_send] reference_unavailable client_id={client_id} {type(exc).__name__}")
+    return None
 
 
 def default_due(item: Dict[str, Any], *, today: Optional[date] = None) -> Optional[str]:
@@ -93,10 +161,11 @@ async def send_briefing(client_id: str, item_id: str, *, role: str, user_id: str
     if not rows:
         raise StudioError("ITEM_NOT_FOUND")
     item = rows[0]
+    reference = await reference_brief(client_id, item)
     who = (assignee_name or "").strip()[:80] or ROLES[role]
     task = await create_task(client_id, {
         "title": f"{ROLES[role]}: {str(item.get('title') or 'post')[:150]}",
-        "notes": build_text(item, role, note), "category": ROLES[role], "status": "pending", "priority": "medium",
+        "notes": build_text(item, role, note, reference), "category": ROLES[role], "status": "pending", "priority": "medium",
         "due_date": due_date or default_due(item), "assignee_name": who, "assignee_user_id": assignee_user_id,
         "visible_to_client": role in ("cliente", "dono"), "needs_client_approval": False,
     }, user_id=user_id, client_view=False)

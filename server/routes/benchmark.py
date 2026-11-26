@@ -143,38 +143,22 @@ async def overview(
         ],
     }
 
-def _competitor_fields(body: "CompetitorCreate") -> Dict[str, Any]:
-    """facebook_page só vai quando preenchido (a coluna vem da 000111; sem ela o resto continua funcionando)."""
-    data = body.model_dump()
-    if not data.get("facebook_page"):
-        data.pop("facebook_page", None)
-    return data
-
-
 @router.post("/competitors", status_code=201)
 async def add_competitor(
     client_id: str, body: CompetitorCreate,
     authorization: Optional[str] = Header(default=None),
 ) -> Dict[str, Any]:
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
-    existing = await sb_select("benchmark_competitors",
-        filters={"client_id": f"eq.{cid}", "name": f"eq.{body.name}"}, limit=1)
-    if existing and existing[0].get("active", True):
-        raise HTTPException(status_code=409, detail="Este concorrente já foi cadastrado.")
-    if existing:
-        # Removido antes: volta com os dados novos (as evidências antigas continuam ligadas a ele).
-        rows = await sb_update("benchmark_competitors", filters={"client_id": f"eq.{cid}", "id": f"eq.{existing[0]['id']}"},
-                               patch={**_competitor_fields(body), "active": True, "updated_at": datetime.now(timezone.utc).isoformat()})
-        return rows[0] if rows else existing[0]
     from services import saas
     try:
-        await saas.require(cid, "competitors")
+        status, saved = await benchmark.register_competitor(cid, body.model_dump())
     except saas.QuotaError as exc:
         raise HTTPException(status_code=402, detail=exc.message) from None
-    saved = await sb_insert("benchmark_competitors", {"client_id": cid, **_competitor_fields(body)})
-    if not saved:
-        raise HTTPException(status_code=502, detail="Não foi possível salvar o concorrente.")
-    return saved
+    except RuntimeError:
+        raise HTTPException(status_code=502, detail="Não foi possível salvar o concorrente.") from None
+    if status == "ja_cadastrado":
+        raise HTTPException(status_code=409, detail="Este concorrente já foi cadastrado.")
+    return saved or {}
 
 @router.post("/evidence", status_code=201)
 async def add_evidence(

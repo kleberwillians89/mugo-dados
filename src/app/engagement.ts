@@ -33,8 +33,10 @@ export const saveReplyTone = (reply_tone: string) =>
 export const refreshInbox = () => http<{ comments: number; can: { reply: boolean; direct: boolean } }>(base("/refresh"), { method: "POST", timeoutMs: 90_000 });
 export const suggestReply = (commentId: string) =>
   http<{ reply: string; needs_human: boolean; reason: string; guard: GuardIssue[] }>(base(`/comments/${encodeURIComponent(commentId)}/suggest`), { method: "POST", timeoutMs: 60_000 });
-export const sendReply = (commentId: string, text: string, direct: boolean) =>
-  http<{ status: string }>(base(`/comments/${encodeURIComponent(commentId)}/reply`), { method: "POST", body: JSON.stringify({ text, direct }) });
+/** ``aiOriginal``: o que a IA sugeriu, quando a resposta nasceu da sugestão (a diferença ensina a IA). */
+export const sendReply = (commentId: string, text: string, direct: boolean, aiOriginal?: string | null) =>
+  http<{ status: string }>(base(`/comments/${encodeURIComponent(commentId)}/reply`), { method: "POST",
+    body: JSON.stringify(aiOriginal ? { text, direct, ai_original: aiOriginal } : { text, direct }) });
 export type RuleStats = { comments: number; direct_sent: number; direct_simulated: number; direct_failed: number; reply_sent: number; last_at: string | null };
 export const listRules = () => http<{ rules: EngagementRule[]; stats?: Record<string, RuleStats>; autoreply_enabled: boolean }>(base("/rules"));
 export const saveRule = (input: RuleInput, id?: string) =>

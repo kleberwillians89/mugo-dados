@@ -12,14 +12,13 @@ describe("mobile product experience contracts", () => {
     expect(app).toContain("<AppNavigation");
     expect(nav).toContain('className="appTopbar"');
     expect(nav).toContain('aria-controls="app-sidebar"');
-    // O grupo "Visão Geral" abre o Dashboard; Saúde da Marca permanece em Estratégia.
-    expect(nav.match(/label: "Visão Geral"/g)?.length).toBe(1);
+    // A navegação móvel usa os mesmos pontos de entrada transversais do desktop.
+    expect(nav.match(/label: "Início"/g)?.length).toBe(1);
     expect(nav.match(/label: "Dashboard"/g)?.length).toBe(1);
-    expect(nav).toMatch(/id: "estrategia"[\s\S]*?routes: \["clipping", "brand_health"/);
-    expect(nav).not.toContain('label: "Central da Marca"');
-    expect(nav).not.toContain('label: "IA da marca"');
-    expect(nav).toContain("Ecommerce");
-    expect(nav).toContain("Social Media");
+    expect(nav.match(/label: "Meu trabalho"/g)).toBeNull();  // saiu do menu: o Kanban do Início é o acesso às tarefas
+    expect(nav.match(/label: "Mugô IA"/g)?.length).toBe(1);
+    expect(nav.match(/label: "Biblioteca"/g)?.length).toBe(1);
+    expect(nav).not.toContain('label: "Fornecedores"');
     expect(nav).not.toContain('{ route: "calendar", label: "Calendário" }');
     expect(css).toContain("env(safe-area-inset-top)");
     expect(css).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.appSidebar\{[\s\S]*?transform: translateX\(-100%\)/);

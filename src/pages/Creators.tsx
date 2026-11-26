@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import CreatorFinder from "../components/creators/CreatorFinder";
+import MediaKits, { MediaKitModal } from "../components/creators/MediaKits";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
   CREATOR_NETWORKS, CREATOR_SOURCES, ITEM_STATUS, addToShortlist, compareCreators, createShortlist, creatorCompact, creatorNumber, deleteCreator,
   getCreatorUsage, getShortlist, listCreators, listShortlists, lookupCreator, refreshCreator, removeFromShortlist,
-  searchCreators, suggestCreators, updateShortlistItem,
-  type Creator, type CreatorNetwork, type CreatorSuggestion, type CreatorUsage, type ItemStatus, type Shortlist, type ShortlistItem,
+  kitPayload, kitSummary, listMediaKits, saveMediaKit, searchCreators, suggestCreators, updateShortlistItem,
+  type MediaKit, type Creator, type CreatorNetwork, type CreatorSuggestion, type CreatorUsage, type ItemStatus, type Shortlist, type ShortlistItem,
 } from "../app/creators";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
@@ -18,9 +20,10 @@ const MISSING_LABEL: Record<string, string> = {
 const NETWORK_OPTIONS = Object.entries(CREATOR_NETWORKS).map(([id, label]) => ({ id, label }));
 // TikTok e descoberta usam créditos Apify da Mugô: só a agência.
 const CLIENT_NETWORK_OPTIONS = NETWORK_OPTIONS.filter((o) => o.id !== "tiktok");
+const TAB_OPTIONS = [{ id: "criadores", label: "Criadores" }, { id: "kits", label: "CRM criadores" }];
 const CAMPAIGN_OPTIONS = [{ id: "influencer", label: "Influência" }, { id: "ugc", label: "UGC" }];
 type Busy = null | "lookup" | "search" | "suggest" | "other";
-type SuggestResult = { suggestions: CreatorSuggestion[]; discarded: string[]; context_available: boolean };
+type SuggestResult = { suggestions: CreatorSuggestion[]; discarded: string[]; filtered?: Record<string, string[]>; context_available: boolean };
 
 function message(cause: unknown, fallback: string) {
   return cause instanceof Error ? cause.message : fallback;
@@ -57,10 +60,23 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
   const clientId = getActiveClientId();
   const clientName = getActiveClientName();
   const [network, setNetwork] = useState<CreatorNetwork>("instagram");
-  const [handle, setHandle] = useState("");
   const [query, setQuery] = useState("");
   const [creators, setCreators] = useState<Creator[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
+  const [bankView, setBankView] = useState<"cards" | "tabela">("cards");
+  const [tab, setTab] = useState<"criadores" | "kits">("criadores");
+  // Mídia kit e valores (por marca): carregados uma vez, abertos numa gaveta a partir do card, da tabela ou da aba.
+  const [kits, setKits] = useState<Record<string, MediaKit>>({});
+  const [kitsLoading, setKitsLoading] = useState(true);
+  const [kitOpen, setKitOpen] = useState<Creator | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setKits({}); setKitsLoading(true); setKitOpen(null);
+    listMediaKits().then((r) => { if (alive) setKits(Object.fromEntries(r.kits.map((k) => [k.creator_id, k]))); })
+      .catch(() => { if (alive) setKits({}); })
+      .finally(() => { if (alive) setKitsLoading(false); });
+    return () => { alive = false; };
+  }, [clientId]);
   const [selected, setSelected] = useState<string[]>([]);
   const [comparison, setComparison] = useState<Creator[] | null>(null);
   const [shortlists, setShortlists] = useState<Shortlist[]>([]);
@@ -124,10 +140,9 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
     }, "Não foi possível excluir.");
   }
 
-  function onLookup(event: FormEvent) {
-    event.preventDefault();
-    if (!handle.trim()) return;
-    run("lookup", async () => { upsertLocal([await lookupCreator(network, handle)]); setNotes([]); setHandle(""); }, "Não foi possível consultar o perfil.");
+  function lookupHandle(value: string) {
+    if (!value.trim()) return;
+    run("lookup", async () => { upsertLocal([await lookupCreator(network, value)]); setNotes([]); }, "Não foi possível consultar o perfil.");
   }
 
   function onSearch(event: FormEvent) {
@@ -149,7 +164,7 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
       : busy === "lookup" ? "Consultando o perfil…" : busy ? "Salvando…" : null;
   const activeListName = shortlists.find((s) => s.id === activeList)?.name;
 
-  return <Shell title="Criadores" variant="editorial"><div className="ds-page creatorsPage">
+  return <Shell title="Criadores" variant="editorial"><div className="ds-page creatorsPage mugoBrand">
     <div className="creatorIntro">
       <PageHeader company={clientName} title="Criadores" />
       <p>Descubra, analise e selecione criadores UGC e influenciadores. Métricas públicas com fonte e data; campos ausentes são sinalizados, nunca estimados.</p>
@@ -160,16 +175,25 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
       </ul> : null}
     </div>
 
+    <SegmentedControl ariaLabel="Seção" options={TAB_OPTIONS} value={tab} onSelect={(id) => setTab(id as "criadores" | "kits")} />
+    {kitOpen ? <MediaKitModal key={kitOpen.id} creator={kitOpen} kit={kits[kitOpen.id]} canAct={canAct}
+      onSaved={(kit) => setKits((k) => ({ ...k, [kit.creator_id]: kit }))} onClose={() => setKitOpen(null)} /> : null}
+    {tab === "kits" ? <div className="creatorWork">
+      {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
+      <MediaKits creators={creators} kits={kits} loading={kitsLoading} canAct={canAct} onOpen={setKitOpen}
+      onStatus={async (creator, status) => {
+        setError(null);
+        try {
+          const saved = await saveMediaKit(creator.id, { ...kitPayload(kits[creator.id]), status });
+          setKits((k) => ({ ...k, [creator.id]: { ...saved, creator_id: creator.id } }));
+        } catch (cause) { setError(message(cause, "Não foi possível mudar o status.")); }
+      }} /></div> :
     <div className="creatorWork">
       {canAct ? <div className="creatorPanels">
         <section className="creatorCard" aria-labelledby="creator-find">
           <header><h2 id="creator-find">Encontrar criadores</h2>
             <SegmentedControl ariaLabel="Rede" options={isAgency ? NETWORK_OPTIONS : CLIENT_NETWORK_OPTIONS} value={network} onSelect={(id) => setNetwork(id as CreatorNetwork)} /></header>
-          <form onSubmit={onLookup} className="creatorRow">
-            <label className="ds-field">Analisar perfil
-              <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@criador ou link do perfil" /></label>
-            <button className="ds-button is-primary" disabled={Boolean(busy)}>Analisar</button>
-          </form>
+          <CreatorFinder network={network} isAgency={isAgency} busy={Boolean(busy)} onPick={lookupHandle} />
           {isAgency ? <form onSubmit={onSearch} className="creatorRow">
             <label className="ds-field">Descobrir por {network === "youtube" ? "palavra-chave" : "hashtag"}
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={network === "youtube" ? "vinhos, harmonização" : "#vinhonacional"} /></label>
@@ -201,15 +225,17 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
         <header><h2 id="creator-ai-result">Sugestões da IA · {aiResult.suggestions.length}</h2>
           <button type="button" className="ds-button" onClick={() => setAiResult(null)}>Fechar</button></header>
         {!aiResult.context_available ? <p className="creatorMuted">O contexto de negócio desta empresa não está preenchido (Empresas → editar), por isso as sugestões ficam mais genéricas.</p> : null}
-        {!aiResult.suggestions.length ? <p>Nenhuma indicação foi confirmada na Meta. Detalhe o briefing e tente de novo.</p> :
-          <div className="creatorSuggestGrid">{aiResult.suggestions.map(({ creator, reason }) => <article key={creator.id} className="creatorSuggest">
+        {!aiResult.suggestions.length ? <p>Nenhuma indicação passou na conferência da Meta e nos filtros de porte, atividade e afinidade. Detalhe o briefing e tente de novo.</p> :
+          <div className="creatorSuggestGrid">{aiResult.suggestions.map(({ creator, reason, fit }) => <article key={creator.id} className="creatorSuggest">
             <Identity creator={creator} />
-            <dl><div><dt>Seguidores</dt><dd>{creatorCompact(creator.followers)}</dd></div><div><dt>Engajamento</dt><dd><Engagement value={creator.engagement_rate} /></dd></div></dl>
+            <dl><div><dt>Seguidores</dt><dd>{creatorCompact(creator.followers)}</dd></div><div><dt>Engajamento</dt><dd><Engagement value={creator.engagement_rate} /></dd></div>
+              {typeof fit === "number" ? <div><dt>Afinidade</dt><dd>{fit}/10</dd></div> : null}</dl>
             <p>{reason}</p>
             {!canAct ? null : activeList ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => addTo(creator.id)}>+ {activeListName}</button>
               : <small className="creatorMuted">Escolha uma shortlist para adicionar.</small>}
           </article>)}</div>}
         {aiResult.discarded.length ? <p className="creatorMuted">Descartados (não encontrados ou não profissionais na Meta): {aiResult.discarded.map((h) => `@${h}`).join(", ")}</p> : null}
+        {Object.entries(aiResult.filtered || {}).map(([why, handles]) => handles.length ? <p key={why} className="creatorMuted">Fora por {why}: {handles.map((h) => `@${h}`).join(", ")}</p> : null)}
       </section> : null}
 
       <div className="creatorToolbar">
@@ -262,9 +288,34 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
       </section> : null}
 
       <section className="creatorCard" aria-labelledby="creator-bank">
-        <header><h2 id="creator-bank">Criadores da {clientName || "marca"} · {creators.length}</h2></header>
+        <header className="creatorBankHead"><h2 id="creator-bank">Criadores da {clientName || "marca"} · {creators.length}</h2>
+          {creators.length ? <div role="group" aria-label="Ver como" className="creatorViewToggle">
+            <button type="button" className={`ds-button${bankView === "cards" ? " is-primary" : ""}`} aria-pressed={bankView === "cards"} onClick={() => setBankView("cards")}>Cards</button>
+            <button type="button" className={`ds-button${bankView === "tabela" ? " is-primary" : ""}`} aria-pressed={bankView === "tabela"} onClick={() => setBankView("tabela")}>Tabela</button>
+          </div> : null}</header>
         {!creators.length ? <p className="creatorMuted">{isAgency ? "Nenhum criador pesquisado para esta marca ainda. Analise um @, descubra por hashtag ou peça sugestões à IA. O que cada marca pesquisa fica só nela."
           : canAct ? "Nenhum criador da sua empresa ainda. Analise um @ ou peça sugestões à IA." : "A Mugô ainda não selecionou criadores para a sua empresa."}</p> :
+          bankView === "cards" ? <div className="creatorCards">{creators.map((creator) => <article key={creator.id} className="creatorBankCard">
+            <div className="creatorBankTop">
+              <input type="checkbox" checked={selected.includes(creator.id)} onChange={() => toggle(creator.id)} aria-label={`Selecionar @${creator.handle}`} />
+              <Identity creator={creator} />
+            </div>
+            <dl className="creatorTrio">
+              <div><dt>Seguidores</dt><dd title={creatorNumber(creator.followers)}>{creatorCompact(creator.followers)}</dd></div>
+              <div><dt>Curtidas/post</dt><dd>{creatorCompact(creator.avg_likes)}</dd></div>
+              <div><dt>Engajamento</dt><dd title={creator.engagement_method || undefined}><Engagement value={creator.engagement_rate} /></dd></div>
+            </dl>
+            <small className="creatorMuted">{CREATOR_SOURCES[creator.source] || creator.source} · {new Date(creator.collected_at).toLocaleDateString("pt-BR")} · {creator.sample_size} posts</small>
+            {creator.missing_fields?.length ? <small className="creatorMissing">Sem {creator.missing_fields.map((f) => MISSING_LABEL[f] || f).join(", ")}</small> : null}
+            <small className="creatorMuted">{kitSummary(kits[creator.id])}</small>
+            <button type="button" className="ds-button" onClick={() => setKitOpen(creator)}>Abrir mídia kit</button>
+            {canAct ? <div className="creatorActions creatorCardActions">
+              <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} title={activeList ? undefined : "Escolha uma shortlist acima"}
+                onClick={() => activeList ? addTo(creator.id) : setError("Escolha ou crie uma shortlist acima para adicionar o criador.")}>+ Shortlist</button>
+              <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => run("other", async () => upsertLocal([await refreshCreator(creator.id)]), "Não foi possível atualizar o perfil.")}>Atualizar</button>
+              <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => remove([creator.id])}>Excluir</button>
+            </div> : null}
+          </article>)}</div> :
           <div className="creatorScroll"><table className="ds-table creatorTable">
             <thead><tr><th><input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? [] : creators.map((c) => c.id))} aria-label="Selecionar todos" /></th><th>Criador</th><th className="is-number">Seguidores</th><th className="is-number">Curtidas</th><th className="is-number">Comentários</th><th className="is-number">Engajamento</th><th>Dados</th><th aria-label="Ações" /></tr></thead>
             <tbody>{creators.map((creator) => <tr key={creator.id}>
@@ -278,15 +329,18 @@ export default function Creators({ isAgency = false, canAct = false }: { isAgenc
                 <small>{CREATOR_SOURCES[creator.source] || creator.source} · {new Date(creator.collected_at).toLocaleDateString("pt-BR")} · {creator.sample_size} posts</small>
                 {creator.missing_fields?.length ? <small className="creatorMissing">Sem {creator.missing_fields.map((f) => MISSING_LABEL[f] || f).join(", ")}</small> : null}
               </td>
-              <td>{canAct ? <div className="creatorActions">
+              <td><div className="creatorActions">
+                <button type="button" className="ds-button" onClick={() => setKitOpen(creator)}>Abrir mídia kit</button>
+                {canAct ? <>
                 <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => run("other", async () => upsertLocal([await refreshCreator(creator.id)]), "Não foi possível atualizar o perfil.")}>Atualizar</button>
                 <button type="button" className="ds-button" disabled={Boolean(busy)} title={activeList ? undefined : "Escolha uma shortlist acima"}
                   onClick={() => activeList ? addTo(creator.id) : setError("Escolha ou crie uma shortlist acima para adicionar o criador.")}>+ Shortlist</button>
                 <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => remove([creator.id])}>Excluir</button>
-              </div> : null}</td>
+                </> : null}
+              </div></td>
             </tr>)}</tbody>
           </table></div>}
       </section>
-    </div>
+    </div>}
   </div></Shell>;
 }

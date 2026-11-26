@@ -27,6 +27,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+import httpx
+
 from .ig_supabase import sb_insert_many, sb_rpc, sb_select, sb_update, sb_upsert
 from .studio_calendar import StudioError
 
@@ -126,6 +128,33 @@ def net_sentiment(split: Dict[str, int]) -> Optional[int]:
     return round((split.get("positivo", 0) - split.get("negativo", 0)) / analyzed * 100)
 
 
+PRIOR_MENTIONS = 20  # menções neutras imaginárias: amostra pequena não vira nota extrema (ajuste de confiança)
+SOURCE_WEIGHT = {"news": 1.0, "comments": 0.5, "direct": 1.0}  # comentário no próprio perfil pesa metade (é fã)
+
+
+def splits_by_source(rows: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("source") or "news"), []).append(row)
+    return {src: _split(r) for src, r in grouped.items()}
+
+
+def weighted_net(splits: Dict[str, Dict[str, int]]) -> Optional[int]:
+    """Sentimento líquido para NOTA: peso por fonte e ajuste de confiança (encolhe para o neutro).
+
+    O número mostrado como "sentimento líquido" continua o bruto; este é só o que entra nas notas."""
+    pos = neg = analyzed = 0.0
+    for source, split in splits.items():
+        w = SOURCE_WEIGHT.get(source, 1.0)
+        pos += w * split.get("positivo", 0)
+        neg += w * split.get("negativo", 0)
+        analyzed += w * sum(split.get(s, 0) for s in SENTIMENTS)
+    if not analyzed:
+        return None
+    value = (pos - neg) / (analyzed + PRIOR_MENTIONS) * 100
+    return int(value + 0.5) if value >= 0 else -int(-value + 0.5)
+
+
 def alert_score(alerts: List[Dict[str, Any]]) -> int:
     penalty = sum(25 if a.get("severity") == "alto" else 10 for a in alerts if a.get("status", "aberto") == "aberto")
     return max(0, 100 - penalty)
@@ -193,7 +222,8 @@ async def summary(client_id: str, *, start: date, end: date, grain: str, sources
     split, prev_split = _split(cur), _split(prev)
     total, prev_total = sum(split.values()), sum(prev_split.values())
     net, prev_net = net_sentiment(split), net_sentiment(prev_split)
-    index, prev_index = health_index(net, alerts), health_index(prev_net, alerts)
+    index = health_index(weighted_net(splits_by_source(cur)), alerts)
+    prev_index = health_index(weighted_net(splits_by_source(prev)), alerts)
     analyzed = total - split["sem_analise"]
 
     by_bucket: Dict[str, List[Dict[str, Any]]] = {}
@@ -506,7 +536,7 @@ async def classify_pending(client_id: str, *, limit: int = CLASSIFY_PER_RUN) -> 
                     tag = {"sentiment": "neutro", "theme": None}
                 if not tag:
                     continue
-                await sb_update(table, filters={"id": f"eq.{row['id']}", "client_id": f"eq.{client_id}"},
+                await sb_update(table, filters={"id": f"eq.{row['id']}", "client_id": f"eq.{client_id}", "analyzed_at": "is.null"},
                                 patch={**tag, "analyzed_at": now}, returning="minimal")
                 out["classified"] += 1
     return out
@@ -557,6 +587,7 @@ REVIEW_SOURCES = {
     "direct": ("ig_dm_messages", "id,username,text,created_at,sentiment,theme", "created_at"),
 }
 REVIEW_FIELDS = "sentiment_ai,health_excluded,reviewed_at"
+THEME_REVIEW_FIELDS = "theme_ai,theme_reviewed"
 MENTION_FILTERS = ("todos", "sem_analise", "fora", "revisados") + SENTIMENTS
 MAX_MENTION_PAGE = 50
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
@@ -622,6 +653,15 @@ async def list_mentions(client_id: str, *, start: date, end: date, source: str, 
         if show in ("fora", "revisados"):
             return {"items": [], "has_more": False, "review_enabled": False}
         rows, review = await sb_select(table, select=fields, filters=filters, **query), False
+    themes = {}
+    if review and rows:
+        try:
+            theme_rows = await sb_select(table, select=f"id,{THEME_REVIEW_FIELDS}",
+                                         filters={**filters, "id": f"in.({','.join(str(r['id']) for r in rows)})"}, limit=len(rows))
+            themes = {str(r["id"]): r for r in theme_rows}
+        except httpx.HTTPStatusError as exc:
+            if "theme_reviewed" not in exc.response.text and "theme_ai" not in exc.response.text:
+                raise
     own = await _own_username(client_id) if source == "comments" else None
     posts = await _posts(client_id, sorted({str(r["media_id"]) for r in rows if r.get("media_id")})) if source == "comments" else {}
     items = []
@@ -629,7 +669,10 @@ async def list_mentions(client_id: str, *, start: date, end: date, source: str, 
         if own and str(r.get("username") or "").lower() == own:
             continue  # resposta da própria marca no post: não é menção
         post = posts.get(str(r.get("media_id") or ""))
+        theme_review = themes.get(str(r["id"]), {})
         items.append({
+            "theme_ai": theme_review.get("theme_ai") if theme_review.get("theme_reviewed") else r.get("theme"),
+            "can_edit_theme": bool(theme_review),
             "id": str(r["id"]), "source": source, "network": "instagram",
             "at": r.get(at_col) or r.get("created_at"),
             "author": f"@{r['username']}" if r.get("username") else None,
@@ -643,7 +686,8 @@ async def list_mentions(client_id: str, *, start: date, end: date, source: str, 
 
 
 async def review_mention(client_id: str, *, source: str, mention_id: str, user_id: str,
-                         sentiment: Optional[str] = None, excluded: Optional[bool] = None, reset: bool = False) -> Dict[str, Any]:
+                         sentiment: Optional[str] = None, excluded: Optional[bool] = None, reset: bool = False,
+                         theme: Optional[str] = None) -> Dict[str, Any]:
     """Equipe corrige o sentimento e/ou tira da avaliação. ``reset`` volta ao que a IA disse."""
     if source not in REVIEW_SOURCES or not _valid_id(source, mention_id):
         raise StudioError("MENTION_NOT_FOUND", "Comentário não encontrado.")
@@ -652,14 +696,18 @@ async def review_mention(client_id: str, *, source: str, mention_id: str, user_i
     table = REVIEW_SOURCES[source][0]
     key = {"id": f"eq.{mention_id}", "client_id": f"eq.{client_id}"}
     try:
-        rows = await sb_select(table, select="id,sentiment,analyzed_at,sentiment_ai,health_excluded,reviewed_at", filters=key, limit=1)
+        rows = await sb_select(table, select="*", filters=key, limit=1)
     except Exception as exc:  # noqa: BLE001
         raise StudioError("REVIEW_UNAVAILABLE", "A revisão de comentários ainda não foi ativada no banco (migration 000115).") from exc
     if not rows:
         raise StudioError("MENTION_NOT_FOUND", "Comentário não encontrado.")
     row = rows[0]
+    if "reviewed_at" not in row:
+        raise StudioError("REVIEW_UNAVAILABLE", "A revisão de comentários depende da migration 000115.")
     reviewed = bool(row.get("reviewed_at"))
     ai = row.get("sentiment_ai") if reviewed else row.get("sentiment")
+    if theme is not None and "theme_reviewed" not in row:
+        raise StudioError("REVIEW_UNAVAILABLE", "A edição de assunto depende da migration 000143.")
     now = _now().isoformat()
     if reset:
         patch: Dict[str, Any] = {"sentiment": ai, "sentiment_ai": None, "health_excluded": False,
@@ -672,7 +720,14 @@ async def review_mention(client_id: str, *, source: str, mention_id: str, user_i
             patch["health_excluded"] = bool(excluded)
         if not row.get("analyzed_at"):
             patch["analyzed_at"] = now  # a IA não sobrescreve o que a equipe revisou
+    if reset and row.get("theme_reviewed"):
+        patch.update(theme=row.get("theme_ai"), theme_ai=None, theme_reviewed=False)
+    elif not reset and theme is not None:
+        patch.update(theme=_short(theme, 80), theme_reviewed=True,
+                     theme_ai=row.get("theme_ai") if row.get("theme_reviewed") else row.get("theme"))
     await sb_update(table, filters=key, patch=patch, returning="minimal")
     final = {**row, **patch}
     return {"id": mention_id, "source": source, "sentiment": final.get("sentiment"),
-            "sentiment_ai": ai, "excluded": bool(final.get("health_excluded")), "reviewed_at": final.get("reviewed_at")}
+            "sentiment_ai": ai, "theme": final.get("theme"),
+            "theme_ai": final.get("theme_ai") if final.get("theme_reviewed") else final.get("theme"),
+            "excluded": bool(final.get("health_excluded")), "reviewed_at": final.get("reviewed_at")}

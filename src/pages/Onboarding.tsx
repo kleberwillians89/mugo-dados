@@ -1,4 +1,6 @@
 import { DataFreshness } from "../components/data/DataFreshness";
+import MetaPermissionsPanel from "../components/meta/MetaPermissionsPanel";
+import QuietBoundary from "../components/meta/QuietBoundary";
 import { DATA_HEALTH_CHANGED } from "../app/dataHealth";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -71,6 +73,7 @@ import { navigateToExternalAuthorization } from "../app/externalNavigation";
 import AssetCombobox from "../components/AssetCombobox";
 import FbitsIntegrationPanel from "../components/FbitsIntegrationPanel";
 import StatusBadge, { type StatusTone } from "../components/StatusBadge";
+import AiSettingsPanel from "../components/AiSettingsPanel";
 import { PlatformLogo } from "../components/BrandLogo";
 import { getIntegrationPlatformBrand } from "../app/brandRegistry";
 import {
@@ -1470,6 +1473,8 @@ export default function Onboarding({
           </div>
         </header>
 
+        {canManageConnections ? <AiSettingsPanel /> : null}
+
         <ChannelsPanel canManage={canManageConnections} />
         <p className="integrationsLead">
           Cada conexão vale só para {getActiveClientName()}. Desconectar uma conta preserva o histórico já importado.
@@ -1873,6 +1878,8 @@ export default function Onboarding({
               );
             })}
           </div>
+
+          <QuietBoundary name="meta-permissions"><MetaPermissionsPanel /></QuietBoundary>
 
           {INTEGRATION_REGISTRY.some((definition) => definition.availability !== "available") ? (
             <div className="onboardingComingSoon">

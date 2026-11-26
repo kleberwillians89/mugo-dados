@@ -57,3 +57,5 @@ export function artSlides(value?: string | null): string[] {
 export function isDriveFolder(url: string): boolean {
   return artKind(url) === "drive" && /\/drive\/(u\/\d+\/)?folders\//.test(url);
 }
+
+export const ART_URL_MAX_LENGTH = 4000;

@@ -438,38 +438,19 @@ def build_prompt(
 
 
 async def call_llm(prompt: str) -> Dict[str, Any]:
-    from .ai_summary import _extract_output_text
-
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-    if not api_key:
-        raise StudioError("AI_PROVIDER_NOT_CONFIGURED")
-    payload = {
-        "model": (os.getenv("OPENAI_MODEL") or "gpt-4.1-mini").strip(),
-        "instructions": "Você é social media sênior de agência. Escreve pautas específicas da marca e nunca inventa dados.\n\n" + CREATIVE_GUIDANCE,
-        "input": prompt,
-        "temperature": float(os.getenv("STUDIO_CALENDAR_TEMPERATURE") or 0.8),
-        "text": {"format": {"type": "json_schema", "name": LLM_SCHEMA["name"], "schema": LLM_SCHEMA["schema"], "strict": True}},
-    }
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post("https://api.openai.com/v1/responses",
-                                         headers={"Authorization": f"Bearer {api_key}"}, json=payload)
-    except httpx.TimeoutException:
-        from .ai_usage import track
-        track(feature="studio_calendar_month", model=payload["model"], error_code="timeout")
-        raise StudioError("AI_PROVIDER_TIMEOUT") from None
-    from .ai_usage import track_response
-    track_response(response, feature="studio_calendar_month", model=payload["model"])
-    if response.status_code >= 400:
-        print(f"[studio][llm] status={response.status_code}")
-        from .studio_llm import provider_error_detail
-        detail = provider_error_detail(response)
-        from .studio_llm import provider_error_code
-        raise StudioError(provider_error_code(detail), detail)
-    try:
-        return json.loads(_extract_output_text(response.json()))
-    except (ValueError, TypeError):
-        raise StudioError("AI_INVALID_OUTPUT") from None
+    from .studio_llm import llm_json
+    from .tenant import _REQUEST_CLIENT
+    return await llm_json(
+        instructions="Você é social media sênior de agência. Escreve pautas específicas da marca e nunca inventa dados.",
+        prompt=prompt,
+        schema_name=LLM_SCHEMA["name"],
+        schema=LLM_SCHEMA["schema"],
+        temperature=float(os.getenv("STUDIO_CALENDAR_TEMPERATURE") or 0.8),
+        timeout=120,
+        client_id=_REQUEST_CLIENT.get(),
+        guidance=True,
+        max_output_tokens=8192,
+    )
 
 
 def validate_items(
@@ -548,7 +529,7 @@ def validate_items(
 async def list_items(client_id: str, month: date) -> List[Dict[str, Any]]:
     return await sb_select(
         ITEMS_TABLE, select="*",
-        filters={"client_id": f"eq.{client_id}", "month": f"eq.{month.isoformat()}"},
+        filters={"client_id": f"eq.{client_id}", "month": f"eq.{month.isoformat()}", "deleted_at": "is.null"},
         order="scheduled_at.asc", limit=200,
     )
 
@@ -676,7 +657,66 @@ SCRIPT_HINTS = {
 }
 
 
-EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags")
+EDITABLE = ("scheduled_at", "channel", "format", "pillar", "title", "hook", "caption_draft", "rationale", "status", "review_note", "art_url", "collaborators", "product_tags", "reels_options", "creative_direction",
+            "script", "visual_idea", "briefing")
+
+# Briefing da peça editado pela equipe ("Editar peça"): só estes campos, com tamanho fixo. Vai para signals.briefing.
+BRIEFING_TEXT_LIMITS = {"angle": 60, "summary": 1500, "objective": 1500, "key_message": 1500, "tone": 600, "target_audience": 1500}
+BRIEFING_LIST_FIELDS = ("deliverables", "tech_requirements")
+
+
+def clean_piece_briefing(value: Any) -> Dict[str, Any]:
+    """Campos conhecidos do briefing; texto vazio = apagar o campo (vira None, tirado no merge)."""
+    data = value if isinstance(value, dict) else {}
+    out: Dict[str, Any] = {}
+    for key, limit in BRIEFING_TEXT_LIMITS.items():
+        if key in data:
+            text = str(data.get(key) or "").strip()[:limit]
+            out[key] = text or None
+    for key in BRIEFING_LIST_FIELDS:
+        if key in data:
+            items = [str(x).strip()[:300] for x in (data.get(key) or []) if str(x or "").strip()][:20]
+            out[key] = items or None
+    return out
+
+
+async def _merge_briefing(client_id: str, item_id: str, briefing: Dict[str, Any]) -> Dict[str, Any]:
+    """Junta a edição ao signals atual sem perder as outras chaves (sinais da IA, matriz, etc.)."""
+    rows = await sb_select(ITEMS_TABLE, select="signals", limit=1,
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"})
+    if not rows:
+        raise StudioError("ITEM_NOT_FOUND")
+    signals = dict(rows[0].get("signals") or {}) if isinstance(rows[0].get("signals"), dict) else {}
+    current = dict(signals.get("briefing") or {}) if isinstance(signals.get("briefing"), dict) else {}
+    for key, value in briefing.items():
+        if value is None:
+            current.pop(key, None)
+        else:
+            current[key] = value
+    signals["briefing"] = current
+    return signals
+
+# Direcionamento Criativo da peça (migração 000140): orientação de produção escrita pela equipe (com ou sem IA).
+CREATIVE_DIRECTION_LIMITS = {"concept": 300, "texts": 3000, "references": 2000, "instructions": 3000}
+_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def clean_creative_direction(value: Any) -> Dict[str, Any]:
+    """Só os campos conhecidos, com tamanho fixo. Texto vazio sai; {} limpa o direcionamento.
+    ``brief_id`` = briefing existente escolhido como referência (não é copiado: a tarefa lê do briefing)."""
+    data = value if isinstance(value, dict) else {}
+    out: Dict[str, Any] = {}
+    for key, limit in CREATIVE_DIRECTION_LIMITS.items():
+        text = str(data.get(key) or "").replace("\r\n", "\n").strip()[:limit]
+        if text:
+            out[key] = text
+    brief_id = str(data.get("brief_id") or "").strip()
+    if brief_id and _UUID.match(brief_id):
+        out["brief_id"] = brief_id.lower()
+    return out
+
+
+ART_URL_MAX_LENGTH = 4000
 
 
 def clean_art_url(value: Any) -> Optional[str]:
@@ -688,9 +728,34 @@ def clean_art_url(value: Any) -> Optional[str]:
     if len(links) > 12 or any(not re.match(r"^https://\S+$", link) for link in links):
         raise StudioError("ART_URL_INVALID")
     text = "\n".join(links)
-    if len(text) > 4000:  # migração 000072 (antes 1000): cabe carrossel de arquivos enviados pelo modal
+    if len(text) > ART_URL_MAX_LENGTH:  # migração 000072 (antes 1000): cabe carrossel de arquivos enviados pelo modal
         raise StudioError("ART_URL_INVALID")
     return text
+
+
+def _same_instant(a: Any, b: Any) -> bool:
+    try:
+        return datetime.fromisoformat(str(a).replace("Z", "+00:00")) == datetime.fromisoformat(str(b).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+
+
+async def _schedule_changed(client_id: str, item_id: str, clean: Dict[str, Any]) -> bool:
+    """O agendamento confirmado só cai quando a data/hora ou a plataforma MUDAM de verdade (ou a pauta sai de
+    aprovado). A tela manda a data em todo "Salvar": trocar a música ou a capa não pode desagendar o post."""
+    if clean.get("status", "aprovado") != "aprovado":
+        return True
+    if "scheduled_at" not in clean and "channel" not in clean:
+        return False
+    try:
+        rows = await sb_select(ITEMS_TABLE, select="scheduled_at,channel", limit=1,
+                               filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
+    except Exception:  # noqa: BLE001 — na dúvida, desagenda (comportamento antigo, mais seguro)
+        return True
+    current = rows[0] if rows else {}
+    if "scheduled_at" in clean and not _same_instant(current.get("scheduled_at"), clean["scheduled_at"]):
+        return True
+    return "channel" in clean and str(current.get("channel") or "instagram") != clean["channel"]
 
 
 async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, user_id: str) -> Dict[str, Any]:
@@ -703,6 +768,14 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     if "product_tags" in clean:
         from .ig_shop import clean_product_tags
         clean["product_tags"] = clean_product_tags(clean["product_tags"])
+    if "reels_options" in clean:
+        from .ig_reels import clean_reels_options
+        clean["reels_options"] = clean_reels_options(clean["reels_options"])
+    if "creative_direction" in clean:
+        clean["creative_direction"] = clean_creative_direction(clean["creative_direction"])
+    for key, limit in (("script", 6000), ("visual_idea", 3000)):
+        if key in clean:
+            clean[key] = str(clean[key] or "").strip()[:limit] or None
     if "status" in clean:
         if clean["status"] not in STATUSES:
             raise StudioError("STATUS_INVALID")
@@ -721,6 +794,10 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
             when = when.replace(tzinfo=SAO_PAULO)
         clean["scheduled_at"] = when.isoformat()
         clean["month"] = when.astimezone(SAO_PAULO).date().replace(day=1).isoformat()
+    if "briefing" in clean:
+        edit = clean_piece_briefing(clean.pop("briefing"))
+        if edit:
+            clean["signals"] = await _merge_briefing(client_id, item_id, edit)
     if not clean:
         raise StudioError("EMPTY_PATCH")
     before = None
@@ -732,8 +809,8 @@ async def update_item(client_id: str, item_id: str, patch: Dict[str, Any], *, us
             before = found[0] if found else None
         except Exception as exc:  # noqa: BLE001
             print(f"[studio_calendar] estado_anterior_indisponivel {type(exc).__name__}")
-    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}
-    if "scheduled_at" in clean or "channel" in clean or clean.get("status", "aprovado") != "aprovado":
+    filters = {"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"}
+    if await _schedule_changed(client_id, item_id, clean):
         # Data ou plataforma mudou, ou saiu de "aprovado": o agendamento confirmado não vale mais.
         try:
             rows = await sb_update(ITEMS_TABLE, filters=filters, patch={**clean, "schedule_confirmed_at": None, "schedule_confirmed_by": None,
@@ -761,7 +838,8 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
     """Equipe valida o agendamento de um post que o cliente aprovou, na data/horário sugeridos (ou ajustados).
     now=True: publica agora (o horário vira agora e o job dos próximos 5 min publica).
     Antes de agendar, confere se a arte publica sozinha (link do Canva, pasta do Drive, formato x arte)."""
-    rows = await sb_select(ITEMS_TABLE, select="*", limit=1, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
+    rows = await sb_select(ITEMS_TABLE, select="*", limit=1,
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"})
     if not rows:
         raise StudioError("ITEM_NOT_FOUND")
     item = rows[0]
@@ -772,7 +850,10 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
         from .ig_publish import media_for
         _plan, problem = media_for(item)
         if problem:
-            raise StudioError("SCHEDULE_ART_INVALID", problem)
+            from .ig_publish import story_manual_instruction, _media_plan
+            # Interação nativa é manual, mas a mídia ainda precisa ser válida antes de agendar.
+            if not story_manual_instruction(item) or _media_plan(item)[0] is None:
+                raise StudioError("SCHEDULE_ART_INVALID", problem)
     patch: Dict[str, Any] = {"schedule_confirmed_at": datetime.now(timezone.utc).isoformat(), "schedule_confirmed_by": user_id}
     if now:
         moment = datetime.now(timezone.utc)
@@ -782,7 +863,8 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
         when = datetime.fromisoformat(str(item["scheduled_at"]).replace("Z", "+00:00"))
         if when <= datetime.now(timezone.utc):
             raise StudioError("SCHEDULE_IN_PAST")
-    updated = await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "status": "eq.aprovado"},
+    updated = await sb_update(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}",
+                                                    "status": "eq.aprovado", "deleted_at": "is.null"},
                               patch=patch)
     if not updated:
         raise StudioError("SCHEDULE_NEEDS_APPROVAL")
@@ -819,6 +901,15 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, ori
     if data.get("product_tags"):
         from .ig_shop import clean_product_tags
         row["product_tags"] = clean_product_tags(data["product_tags"])
+    if data.get("reels_options"):
+        from .ig_reels import clean_reels_options
+        options = clean_reels_options(data["reels_options"])
+        if options:  # só manda a coluna (migração 000131) quando a tela escolheu algo
+            row["reels_options"] = options
+    if data.get("creative_direction"):
+        direction = clean_creative_direction(data["creative_direction"])
+        if direction:  # só manda a coluna (migração 000140) quando a equipe escreveu algo
+            row["creative_direction"] = direction
     rows = await sb_insert_many(ITEMS_TABLE, [row], returning="representation")
     if not rows:
         raise StudioError("CREATE_FAILED")
@@ -829,3 +920,26 @@ async def delete_item(client_id: str, item_id: str) -> None:
     rows = await sb_delete(ITEMS_TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
     if not rows:
         raise StudioError("ITEM_NOT_FOUND")
+
+
+async def delete_approval_item(client_id: str, item_id: str, *, user_id: str, actor_name: str) -> None:
+    """Retira uma pauta pendente das aprovações sem apagar seu histórico ou arquivos.
+
+    A checagem e a atualização repetem tenant, estado e ausência de exclusão para que uma aprovação
+    concorrente nunca seja apagada por um clique antigo da fila.
+    """
+    rows = await sb_select(ITEMS_TABLE, select="id,status,deleted_at", limit=1,
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"})
+    if not rows:
+        raise StudioError("ITEM_NOT_FOUND")
+    if rows[0].get("status") != "em_revisao":
+        raise StudioError("ITEM_NOT_PENDING")
+    removed = await sb_update(ITEMS_TABLE,
+                              filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}",
+                                       "status": "eq.em_revisao", "deleted_at": "is.null"},
+                              patch={"deleted_at": datetime.now(timezone.utc).isoformat(), "deleted_by": user_id})
+    if not removed:
+        raise StudioError("ITEM_NOT_PENDING")
+    from .studio_history import record
+    await record(client_id, item_id, "excluiu o conteúdo da fila de aprovação",
+                 actor_name=actor_name, actor_id=user_id, side="mugo")

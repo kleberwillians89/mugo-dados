@@ -29,9 +29,18 @@ class MediaTests(unittest.TestCase):
         story = ip.media_for({**ITEM, "format": "stories"})[0]
         self.assertEqual(story["fields"], {"media_type": "STORIES", "image_url": "https://cdn.roove.com/arte.jpg"})
 
+    def test_interactive_story_never_creates_meta_container(self):
+        for sticker in ("poll", "question", "quiz", "emoji_slider", "link", "countdown", "music"):
+            item = {**ITEM, "format": "stories", "reels_options": {"story_sticker": sticker, "story_instruction": "Adicionar interação"}}
+            plan, message = ip.media_for(item)
+            self.assertIsNone(plan)
+            self.assertIn("publique manualmente", message)
+        # Story comum continua automático, sem regressão.
+        self.assertIsNotNone(ip.media_for({**ITEM, "format": "stories"})[0])
+
     def test_manual_cases(self):
         for item in ({**ITEM, "art_url": "https://www.canva.com/design/abc/view"}, {**ITEM, "art_url": ""},
-                     {**ITEM, "art_url": "https://cdn.x/arte.png"}, {**ITEM, "format": "carrossel"},
+                     {**ITEM, "art_url": "https://cdn.x/arte.pdf"}, {**ITEM, "format": "carrossel"},
                      {**ITEM, "format": "reels"}):
             plan, manual = ip.media_for(item)
             self.assertIsNone(plan)
@@ -76,6 +85,14 @@ class PublishItemTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("permissão de publicar", sets[-1][1]["publish_error"])
         result, sets, _ = await self.run_item(enabled=True, publish=AsyncMock(side_effect=StudioError("IG_PUBLISH_FAILED", "Only photo or video can be accepted")))
         self.assertEqual(sets[-1][1]["publish_error"], "Only photo or video can be accepted")
+
+    async def test_interactive_story_never_calls_meta(self):
+        item = {**ITEM, "format": "stories", "reels_options": {"story_sticker": "poll", "story_instruction": "Sim ou não?"}}
+        result, sets, publish = await self.run_item(enabled=True, item=item)
+        self.assertEqual(result, "manual")
+        self.assertEqual(sets[0][1]["publish_status"], "manual")
+        self.assertIn("enquete", sets[0][1]["publish_error"])
+        publish.assert_not_awaited()
 
     async def test_manual_link_is_not_locked(self):
         result, sets, _ = await self.run_item(enabled=True, item={**ITEM, "art_url": "https://www.canva.com/design/x"})
@@ -125,3 +142,33 @@ class GraphFlowTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JpegConversionTests(unittest.IsolatedAsyncioTestCase):
+    def test_png_is_accepted_and_marked(self):
+        plan, manual = ip.media_for({**ITEM, "format": "carrossel", "art_url": "https://s/carousel1.png\nhttps://s/carousel2.png"})
+        self.assertIsNone(manual)
+        self.assertEqual(plan["type"], "carousel")
+
+    async def test_png_becomes_public_jpeg(self):
+        from io import BytesIO
+        from unittest.mock import AsyncMock, patch
+        from PIL import Image
+        buf = BytesIO(); Image.new("RGBA", (2000, 2500), (10, 20, 30, 0)).save(buf, "PNG")
+        png = buf.getvalue()
+
+        class Client:
+            def __init__(self, **kw): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def get(self, url): return type("R", (), {"status_code": 200, "content": png})()
+        upload = AsyncMock(return_value="https://s/public/x.jpg")
+        plan = {"type": "carousel", "fields": {"media_type": "CAROUSEL"},
+                "children": [{"image_url": "https://s/1.png"}, {"image_url": "https://s/2.jpg"}]}
+        with patch.object(ip.httpx, "AsyncClient", Client), patch("services.ig_supabase.sb_upload_public", upload):
+            changed = await ip.ensure_jpeg(plan, "roove")
+        self.assertEqual(changed, 1)
+        self.assertEqual([c["image_url"] for c in plan["children"]], ["https://s/public/x.jpg", "https://s/2.jpg"])
+        data = upload.await_args.args[1]
+        self.assertEqual(Image.open(BytesIO(data)).format, "JPEG")
+        self.assertEqual(Image.open(BytesIO(data)).size, (1440, 1800))

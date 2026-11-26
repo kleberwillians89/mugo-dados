@@ -41,8 +41,8 @@ def client_can_see(item: Dict[str, Any], open_ids: Set[str]) -> bool:
 
 async def client_items(client_id: str, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     open_ids = await open_request_item_ids(client_id)
-    # A sugestão da IA para o ajuste é interna da equipe.
-    return [{k: v for k, v in i.items() if k != "ai_suggestion"} for i in items if client_can_see(i, open_ids)]
+    # A sugestão da IA para o ajuste e o direcionamento criativo da peça são internos da equipe.
+    return [{k: v for k, v in i.items() if k not in ("ai_suggestion", "creative_direction")} for i in items if client_can_see(i, open_ids)]
 
 
 def _same(field: str, old: Any, new: Any) -> bool:
@@ -60,7 +60,8 @@ async def client_edit(client_id: str, item_id: str, patch: Dict[str, Any], *, us
     extra = set(patch) - CLIENT_FIELDS
     if extra:
         raise StudioError("CLIENT_FIELD_NOT_ALLOWED")
-    rows = await sb_select(ITEMS_TABLE, select="*", filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"}, limit=1)
+    rows = await sb_select(ITEMS_TABLE, select="*",
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"}, limit=1)
     if not rows or not client_can_see(rows[0], await open_request_item_ids(client_id)):
         raise StudioError("ITEM_NOT_FOUND")
     current = rows[0]

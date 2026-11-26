@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Plus } from "lucide-react";
 import { formatDateTimeSaoPaulo } from "../../app/dataFormat";
+import { getActiveClientId } from "../../app/activeClient";
 import {
-  cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, previewAudience, previewEmail, scheduleCampaign,
+  cancelCampaign, createCampaign, deleteCampaign, getCampaign, importEmailConsents, listCampaigns, listRelationshipLists, preflightCampaign, previewAudience, previewEmail, scheduleCampaign,
   SEGMENT_LABEL, sendTestEmail, STATUS_LABEL, updateCampaign, VARIABLE_HINT,
-  type Audience, type AudiencePreview, type Campaign, type CampaignStats, type CampaignSummary, type HtmlReport, type Segment,
+  type Audience, type AudiencePreview, type RelationshipList, type Campaign, type CampaignStats, type CampaignSummary, type HtmlReport, type Segment,
 } from "../../app/emailMarketing";
 import BlockEditor from "./BlockEditor";
 import EmailPreview from "./EmailPreview";
+import KanbanTaskStart from "../work/KanbanTaskStart";
+import { createEmailFromTask, type LinkedCampaign, type TaskContext } from "../../app/taskWork";
 import HtmlInput from "./HtmlInput";
 
 const pct = (value: number | null | undefined) => (value == null ? "—" : `${value.toLocaleString("pt-BR")}%`);
@@ -28,29 +31,44 @@ function StatsRow({ stats }: { stats: Partial<CampaignStats> | null | undefined 
 }
 
 export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: boolean; onBack: () => void }) {
+  const tenant = getActiveClientId();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [stats, setStats] = useState<CampaignStats | null>(null);
   const [mode, setMode] = useState<"blocos" | "html">("blocos");
   const [audience, setAudience] = useState<AudiencePreview | null>(null);
+  const [savedLists, setSavedLists] = useState<RelationshipList[]>([]);
   const [report, setReport] = useState<HtmlReport | null>(null);
+  const [consentFile, setConsentFile] = useState<File | null>(null);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [testTo, setTestTo] = useState("");
   const [when, setWhen] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
+    setUploading(false);
+    setCampaign(null); setAudience(null); setStats(null);
+    setConsentFile(null); setConsentConfirmed(false);
     getCampaign(id).then((out) => {
       if (!alive) return;
       setCampaign(out.campaign); setStats(out.stats); setMode(out.campaign.custom_html ? "html" : "blocos");
     }).catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : "Campanha não encontrada."); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, tenant]);
+
+  useEffect(() => {
+    let alive = true;
+    listRelationshipLists().then((result) => { if (alive) setSavedLists(result.lists); })
+      .catch(() => { if (alive) setSavedLists([]); });
+    return () => { alive = false; };
+  }, [tenant]);
 
   const editable = canEdit && !!campaign && ["rascunho", "agendada"].includes(campaign.status);
   const change = (patch: Partial<Campaign>) => setCampaign((current) => (current ? { ...current, ...patch } : current));
-  const setAud = (patch: Partial<Audience>) => campaign && change({ audience: { ...campaign.audience, ...patch } });
+  const setAud = (patch: Partial<Audience>) => { setAudience(null); if (campaign) change({ audience: { ...campaign.audience, ...patch } }); };
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label); setError(""); setMessage("");
@@ -69,7 +87,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   return (
     <div className="emEditor">
       <div className="emEditorTop">
-        <button type="button" className="ds-button" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /> Campanhas</button>
+        <button type="button" className="ds-button" disabled={uploading} onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /> Campanhas</button>
         <span className={`emPill is-${campaign.status}`}>{STATUS_LABEL[campaign.status]}</span>
       </div>
       <div className="emEditorGrid">
@@ -89,11 +107,11 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
               <h3>Conteúdo</h3>
               <div className="ds-segmented" role="group" aria-label="Modo de edição">
                 <button type="button" aria-pressed={mode === "blocos"} onClick={() => setMode("blocos")} disabled={!editable}>Blocos</button>
-                <button type="button" aria-pressed={mode === "html"} onClick={() => setMode("html")} disabled={!editable}>HTML próprio</button>
+                <button type="button" aria-pressed={mode === "html"} onClick={() => setMode("html")} disabled={!editable || uploading}>HTML próprio</button>
               </div>
             </header>
             {mode === "blocos" ? (
-              <BlockEditor design={campaign.design} disabled={!editable} onChange={(design) => change({ design })} />
+              <BlockEditor key={`${tenant}:${id}`} allowImageUpload onUploadPending={setUploading} design={campaign.design} disabled={!editable || !!busy} onChange={(design) => change({ design })} />
             ) : (
               <HtmlInput value={campaign.custom_html || ""} disabled={!editable} report={report} hint={`Variáveis: ${VARIABLE_HINT}`}
                 onChange={(custom_html) => change({ custom_html })} />
@@ -104,30 +122,58 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             <h3>Para quem</h3>
             <div className="emAudience">
               <select aria-label="Público" value={campaign.audience.segment} disabled={!editable}
-                onChange={(e) => setAud({ segment: e.target.value as Segment, only_consent: e.target.value !== "todos" })}>
+                onChange={(e) => setAud({ segment: e.target.value as Segment, only_consent: true,
+                  list_id: e.target.value === "lista" ? savedLists[0]?.id : undefined })}>
                 {(Object.keys(SEGMENT_LABEL) as Segment[]).map((s) => <option key={s} value={s}>{SEGMENT_LABEL[s]}</option>)}
               </select>
               {["compraram", "sem_compra"].includes(campaign.audience.segment) ? (
                 <label className="emInline">há <input type="number" min={1} max={730} value={campaign.audience.days} disabled={!editable}
                   onChange={(e) => setAud({ days: Number(e.target.value) || 90 })} /> dias</label>
               ) : null}
-              {campaign.audience.segment !== "consentimento" ? (
-                <label className="emInline"><input type="checkbox" checked={campaign.audience.only_consent} disabled={!editable}
-                  onChange={(e) => setAud({ only_consent: e.target.checked })} /> Só quem aceitou receber e-mails</label>
+              {campaign.audience.segment === "lista" ? (
+                <select aria-label="Lista de Relacionamento" value={campaign.audience.list_id || ""} disabled={!editable}
+                  onChange={(e) => setAud({ list_id: e.target.value })}>
+                  <option value="">Selecione uma lista</option>
+                  {savedLists.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+                </select>
+              ) : null}
+              {campaign.audience.segment === "leads_unificados" ? (
+                <p className="emHint">Reúne Excel/CSV, captação e conversas do WhatsApp, com um envio por e-mail.</p>
+              ) : null}
+              <p className="emHint">Segurança de marketing: somente contatos com aceite comprovado
+                na plataforma conectada. Importar uma lista não cria consentimento.</p>
+              {editable && ["planilha", "leads_unificados"].includes(campaign.audience.segment) ? (
+                <div>
+                  <label>Planilha de aceites de e-mail <input type="file" accept=".xlsx,.csv"
+                    onChange={(event) => { setConsentFile(event.target.files?.[0] ?? null); setConsentConfirmed(false); }} /></label>
+                  <label><input type="checkbox" checked={consentConfirmed}
+                    onChange={(event) => setConsentConfirmed(event.target.checked)} />
+                    A coluna de aceite corresponde a receber marketing por e-mail desta marca.</label>
+                  <button type="button" className="ds-button" disabled={uploading || !!busy || !consentFile || !consentConfirmed}
+                    onClick={() => void run("import", async () => {
+                      const result = await importEmailConsents(consentFile!);
+                      setAudience(await previewAudience(campaign.audience));
+                      setMessage(`${int(result.with_consent)} aceites registrados na planilha. Confira o público elegível abaixo.`);
+                    })}>Importar aceites</button>
+                </div>
               ) : null}
               {canEdit ? (
-                <button type="button" className="ds-button" disabled={!!busy}
+                <button type="button" className="ds-button" disabled={uploading || !!busy}
                   onClick={() => void run("audience", async () => setAudience(await previewAudience(campaign.audience)))}>
                   {busy === "audience" ? "Contando…" : "Contar público"}</button>
               ) : null}
             </div>
             {audience ? (
-              <p className="emAudienceCount"><strong>{int(audience.count)}</strong> pessoas recebem · base com e-mail {int(audience.base)}
-                {audience.consent_known ? ` · ${int(audience.with_consent)} aceitaram marketing` : " · a loja não informa consentimento"}
-                {audience.blocked ? ` · ${int(audience.blocked)} descadastrados/bounce ficam de fora` : ""}</p>
+              <p className="emAudienceCount"><strong>{int(audience.count)}</strong> {audience.count === 1 ? "pessoa recebe" : "pessoas recebem"}
+                {audience.source_count != null ? ` · ${int(audience.source_count)} e-mails identificados na origem` : (
+                  <> · base com e-mail {int(audience.base)}
+                    {audience.consent_known ? ` · ${int(audience.with_consent)} aceitaram marketing` : " · a loja não informa consentimento"}
+                    {audience.blocked ? ` · ${int(audience.blocked)} descadastrados/bounce ficam de fora` : ""}</>
+                )}</p>
             ) : null}
-            {!campaign.audience.only_consent ? (
-              <p className="emNotice">Enviar para quem não aceitou receber e-mails é responsabilidade da marca (LGPD). O descadastro em 1 clique vai em todos.</p>
+            {!audience?.consent_known && audience ? (
+              <p className="emNotice">A fonte não informa consentimento de marketing.
+                A campanha ficará sem destinatários elegíveis até existir uma fonte verificável.</p>
             ) : null}
           </section>
 
@@ -138,7 +184,7 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             <section className="emCard emSendBox">
               <div className="emInlineRow">
                 <input type="email" aria-label="E-mail para teste" placeholder="seu@email.com" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
-                <button type="button" className="ds-button" disabled={!!busy || !testTo}
+                <button type="button" className="ds-button" disabled={uploading || !!busy || !testTo}
                   onClick={() => void run("test", async () => {
                     await updateCampaign(id, payload()!);
                     const out = await sendTestEmail(id, testTo);
@@ -147,20 +193,29 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
               </div>
               <div className="emInlineRow">
                 <input type="datetime-local" aria-label="Agendar para" value={when} onChange={(e) => setWhen(e.target.value)} />
-                <button type="button" className="ds-button is-primary" disabled={!!busy}
+                <button type="button" className="ds-button is-primary" disabled={uploading || !!busy}
                   onClick={() => void run("send", async () => {
                     await updateCampaign(id, payload()!);
+                    const check = await preflightCampaign(id);
+                    setAudience(check.audience);
+                    if (!check.ready) throw new Error(check.blockers.join(" "));
                     const at = when ? new Date(when).toISOString() : null;
+                    const warning = check.warnings.length ? `\n\nAtenção: ${check.warnings.join(" ")}` : "";
+                    const confirmed = window.confirm(
+                      `Confirmar ${at ? "agendamento" : "envio"} para ${check.audience.count.toLocaleString("pt-BR")} contatos elegíveis?\n\n` +
+                      `Campanha: ${check.name}\nAssunto: ${check.subject}${warning}`
+                    );
+                    if (!confirmed) return;
                     const out = await scheduleCampaign(id, at);
                     setCampaign(out.campaign);
                     setMessage(at ? "Campanha agendada." : "Campanha na fila: o envio começa em até 5 minutos.");
                   })}>{busy === "send" ? "Confirmando…" : when ? "Agendar envio" : "Enviar agora"}</button>
-                <button type="button" className="ds-button" disabled={!!busy} onClick={() => void save()}>{busy === "save" ? "Salvando…" : "Salvar"}</button>
+                <button type="button" className="ds-button" disabled={uploading || !!busy} onClick={() => void save()}>{busy === "save" ? "Salvando…" : "Salvar"}</button>
               </div>
             </section>
           ) : null}
           {canEdit && ["agendada", "enviando"].includes(campaign.status) ? (
-            <button type="button" className="ds-button is-danger" disabled={!!busy}
+            <button type="button" className="ds-button is-danger" disabled={uploading || !!busy}
               onClick={() => void run("cancel", async () => setCampaign((await cancelCampaign(id)).campaign))}>Cancelar envio</button>
           ) : null}
           <StatsRow stats={stats || campaign.stats} />
@@ -173,16 +228,59 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   );
 }
 
+/** Nova campanha a partir de uma tarefa: retomar o que já existe, gerar com a IA ou escrever. Sempre rascunho. */
+function EmailFromTaskActions({ ctx, deliverable, onOpen }: { ctx: TaskContext; deliverable: string; onOpen: (id: string) => void }) {
+  const [busy, setBusy] = useState<"" | "ia" | "branco">("");
+  const [error, setError] = useState("");
+  const [existing, setExisting] = useState<LinkedCampaign[]>(() => (ctx.existing || []).filter((c) => !deliverable || c.deliverable === deliverable));
+  useEffect(() => { setExisting((ctx.existing || []).filter((c) => !deliverable || c.deliverable === deliverable)); }, [ctx, deliverable]);
+  async function create(mode: "ia" | "branco", newVersion = false) {
+    setBusy(mode); setError("");
+    try {
+      const out = await createEmailFromTask(ctx.task.id, { deliverable, mode, new_version: newVersion });
+      if (out.created) onOpen(out.created.id);
+      else setExisting(out.existing);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível criar agora.");
+    } finally { setBusy(""); }
+  }
+  return <div className="kwActions" style={{ display: "grid", gap: 10 }}>
+    {existing.length ? <div className="kwExisting" role="status">
+      <p><b>Esta tarefa já tem {existing.length > 1 ? `${existing.length} campanhas de e-mail` : "uma campanha de e-mail"}{deliverable ? ` para “${deliverable}”` : ""}.</b></p>
+      <div className="kwActions">
+        {existing.map((c) => <button key={c.id} type="button" className="ds-button is-primary" onClick={() => onOpen(c.id)}>
+          Abrir “{c.name}” ({STATUS_LABEL[c.status as keyof typeof STATUS_LABEL] || c.status})</button>)}
+        <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void create("ia", true)}>
+          {busy === "ia" ? "Criando…" : "Criar outra versão com a IA"}</button>
+      </div>
+    </div> : <div className="kwActions">
+      <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !deliverable} onClick={() => void create("ia")}>
+        {busy === "ia" ? "Escrevendo o e-mail com o briefing…" : "Criar conteúdo com este briefing"}</button>
+      <button type="button" className="ds-button" disabled={Boolean(busy) || !deliverable} onClick={() => void create("branco")}>
+        {busy === "branco" ? "Abrindo…" : "Escrever eu mesmo"}</button>
+    </div>}
+    {!deliverable ? <small className="kwMuted">Escolha o que vai criar.</small> : null}
+    <small className="kwMuted">Sai como rascunho no editor: você revisa antes de qualquer envio. A tarefa não muda de etapa.</small>
+    {error ? <p className="kwError" role="alert">{error}</p> : null}
+  </div>;
+}
+
 export default function CampaignsPanel({ canEdit }: { canEdit: boolean }) {
   const [list, setList] = useState<CampaignSummary[] | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  // ?campanha=<id>: abre direto a campanha (ex.: o "Abrir" de um rascunho criado pela Mugô IA).
+  const [open, setOpen] = useState<string | null>(() => (typeof window === "undefined" ? null
+    : new URLSearchParams(window.location.search).get("campanha")));
   const [error, setError] = useState("");
+  const [starting, setStarting] = useState<null | "escolher" | "tarefa">(null);
 
   const load = useCallback(() => listCampaigns().then((out) => setList(out.campaigns))
     .catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível ler as campanhas.")), []);
   useEffect(() => { if (!open) void load(); }, [open, load]);
 
   if (open) return <CampaignEditor id={open} canEdit={canEdit} onBack={() => setOpen(null)} />;
+  const blank = async () => {
+    try { setOpen((await createCampaign({})).campaign.id); setStarting(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar."); }
+  };
   return (
     <section className="emCard">
       <header className="emCardHead">
@@ -191,11 +289,18 @@ export default function CampaignsPanel({ canEdit }: { canEdit: boolean }) {
           <p className="emMuted">Monte o e-mail por blocos (ou cole seu HTML), escolha o público e envie pelo Resend.</p>
         </div>
         {canEdit ? (
-          <button type="button" className="ds-button is-primary" onClick={async () => {
-            try { setOpen((await createCampaign({})).campaign.id); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar."); }
-          }}><Plus size={15} aria-hidden="true" /> Nova campanha</button>
+          <button type="button" className="ds-button is-primary" onClick={() => setStarting("escolher")}><Plus size={15} aria-hidden="true" /> Nova campanha</button>
         ) : null}
       </header>
+      {starting === "escolher" ? <div className="kwStart" role="group" aria-label="Nova campanha">
+        <strong>Usar briefing de uma tarefa?</strong>
+        <div className="kwActions">
+          <button type="button" className="ds-button is-primary" onClick={() => setStarting("tarefa")}>Selecionar tarefa do Kanban</button>
+          <button type="button" className="ds-button" onClick={() => void blank()}>Criar sem tarefa</button>
+          <button type="button" className="ds-link is-quiet" onClick={() => setStarting(null)}>Cancelar</button>
+        </div>
+      </div> : starting === "tarefa" ? <KanbanTaskStart module="email_marketing" onCancel={() => setStarting(null)}
+        actions={(ctx, deliverable) => <EmailFromTaskActions ctx={ctx} deliverable={deliverable} onOpen={(id) => { setStarting(null); setOpen(id); }} />} /> : null}
       {error ? <p className="emError" role="alert">{error}</p> : null}
       {list && list.length === 0 ? <p className="emEmpty">Nenhuma campanha ainda.</p> : null}
       {list && list.length ? (

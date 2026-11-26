@@ -34,7 +34,16 @@ class Permissions(Strict):
 class NewMember(Permissions):
     name: str = Field(default="", max_length=120)
     login: str = Field(min_length=3, max_length=200)
-    password: str = Field(min_length=8, max_length=200)
+    # Só usada se a conta for NOVA; conta que já existe é vinculada sem tocar na senha.
+    password: Optional[str] = Field(default=None, max_length=200)
+
+
+class LinkMember(Strict):
+    user_id: str = Field(min_length=36, max_length=36)
+    preset: Optional[str] = Field(default=None, max_length=40)
+    view_all: bool = False
+    access_total: bool = False
+    codes: Optional[List[str]] = Field(default=None, max_length=200)
 
 
 class StatusInput(Strict):
@@ -80,8 +89,9 @@ async def team_members(client_id: Optional[str] = Query(default=None),
                        x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
                        authorization: Optional[str] = Header(default=None)):
     cid = await require_client_read(client_id or x_client_id, authorization)
+    include_internal = await is_agency_user(authorization, cid)
     try:
-        return await team_admin.list_members(cid)
+        return await team_admin.list_members(cid, include_internal=include_internal)
     except AccessError as exc:
         raise _fail(exc) from None
 
@@ -99,6 +109,31 @@ async def team_create(body: NewMember, client_id: Optional[str] = Query(default=
         raise _fail(exc) from None
 
 
+@router.get("/linkable")
+async def team_linkable(q: str = Query(default="", max_length=80), client_id: Optional[str] = Query(default=None),
+                        x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+                        authorization: Optional[str] = Header(default=None)):
+    """Contas já existentes para vincular a esta empresa (só equipe Mugô)."""
+    cid, actor = await _manager(client_id or x_client_id, authorization)
+    try:
+        return await team_admin.search_linkable(client_id=cid, actor=actor, query=q)
+    except AccessError as exc:
+        raise _fail(exc) from None
+
+
+@router.post("/members/link", status_code=201)
+async def team_link(body: LinkMember, client_id: Optional[str] = Query(default=None),
+                    x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+                    authorization: Optional[str] = Header(default=None)):
+    """Vincula uma conta existente (sem senha, sem nova conta, sem mexer em papel global)."""
+    cid, actor = await _manager(client_id or x_client_id, authorization)
+    try:
+        return await team_admin.link_existing(client_id=cid, actor=actor, user_id=body.user_id, preset=body.preset,
+                                              view_all=body.view_all, access_total=body.access_total, codes=body.codes)
+    except AccessError as exc:
+        raise _fail(exc) from None
+
+
 @router.put("/members/{user_id}")
 async def team_update(user_id: str, body: Permissions, client_id: Optional[str] = Query(default=None),
                       x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
@@ -109,6 +144,40 @@ async def team_update(user_id: str, body: Permissions, client_id: Optional[str] 
                                                    view_all=body.view_all, access_total=body.access_total, codes=body.codes)
     except AccessError as exc:
         raise _fail(exc) from None
+
+
+class Departments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    departments: List[str] = Field(default_factory=list, max_length=20)
+
+
+@router.get("/departments")
+async def team_departments(client_id: Optional[str] = Query(default=None),
+                           x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+                           authorization: Optional[str] = Header(default=None)):
+    """Áreas de cada integrante desta empresa (para a Nova tarefa e para a tela de Usuários)."""
+    from services.member_departments import DEPARTMENTS, departments_of
+    cid = await require_client_read(client_id or x_client_id, authorization)
+    include_internal = await is_agency_user(authorization, cid)
+    members = (await team_admin.list_members(cid, include_internal=include_internal)).get("items") or []
+    return {"catalog": list(DEPARTMENTS), "by_user": await departments_of([str(m.get("user_id") or "") for m in members])}
+
+
+@router.put("/members/{user_id}/departments")
+async def team_set_departments(user_id: str, body: Departments, client_id: Optional[str] = Query(default=None),
+                               x_client_id: Optional[str] = Header(default=None, alias="X-Client-Id"),
+                               authorization: Optional[str] = Header(default=None)):
+    """Define as áreas de um integrante desta empresa (só quem administra usuários)."""
+    from services.member_departments import set_departments
+    cid, actor = await _manager(client_id or x_client_id, authorization)
+    include_internal = await is_agency_user(authorization, cid)
+    members = (await team_admin.list_members(cid, include_internal=include_internal)).get("items") or []
+    if not any(str(m.get("user_id")) == user_id for m in members):
+        raise HTTPException(status_code=404, detail="Usuário não encontrado nesta empresa.")
+    try:
+        return {"user_id": user_id, "departments": await set_departments(user_id, body.departments, actor_id=actor.get("user_id"))}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 @router.post("/members/{user_id}/status")

@@ -47,11 +47,14 @@ class BridgeReplyTests(unittest.IsolatedAsyncioTestCase):
                     await ws.brand_reply("ruah", CONV, "oi", author="x")
             self.assertEqual(err.exception.code, code)
 
-    async def test_crm_mugo_number_is_not_answered_here(self):
-        with patch.object(ws, "bridge_for", return_value=None), patch.object(ws.whatsapp_native, "active_number_ids", AsyncMock(return_value=[])):
-            with self.assertRaises(StudioError) as err:
-                await ws.brand_reply("mugo", CONV, "oi", author="x")
-        self.assertEqual(err.exception.code, "REPLY_UNSUPPORTED")
+    async def test_crm_mugo_number_uses_scoped_reply_with_request_id(self):
+        send = AsyncMock(return_value={"status": "accepted"})
+        with patch.object(ws, "bridge_for", return_value=None), \
+             patch.object(ws.whatsapp_native, "active_number_ids", AsyncMock(return_value=[])), \
+             patch("services.crm_whatsapp_templates.reply", send):
+            result = await ws.brand_reply("mugo", CONV, " oi ", author="x", request_id=CONV)
+        self.assertEqual(result, {"status": "accepted"})
+        send.assert_awaited_once_with("mugo", CONV, "oi", CONV)
 
 
 class NativeReplyTests(unittest.IsolatedAsyncioTestCase):

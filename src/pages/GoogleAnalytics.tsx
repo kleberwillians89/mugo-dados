@@ -1,4 +1,5 @@
 import { useDataHealth } from "../app/DataHealthContext";
+import { siteHeadline } from "../app/plainHeadlines";
 import { useProviderRefresh } from "../hooks/useProviderRefresh";
 import { DataFreshness, ProviderRefreshNotice } from "../components/data/DataFreshness";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
@@ -10,7 +11,7 @@ import useGa4Readiness from "../hooks/dashboard/useGa4Readiness";
 import useDashboardGa4 from "../hooks/dashboard/useDashboardGa4";
 import useCampaignsRanking from "../hooks/dashboard/useCampaignsRanking";
 import useClientIntegrations from "../hooks/useClientIntegrations";
-import { refreshProviderData } from "../app/api";
+import { getGa4Hourly, refreshProviderData } from "../app/api";
 import { describeSyncError, runExclusiveSync } from "../app/syncOrchestrator";
 import {
   getCampaignDisplayName,
@@ -137,6 +138,79 @@ function formatCustomerId(value: string | null | undefined): string {
 }
 
 /** Conexão em uso, do contrato canônico: a escolhida para a empresa ou a única. */
+function HourlyTraffic({
+  clientId, connectionId, start, end,
+}: { clientId: string; connectionId?: string; start: string; end: string }) {
+  const [report, setReport] = useState<Awaited<ReturnType<typeof getGa4Hourly>>>();
+  const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [showProgress, setShowProgress] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getGa4Hourly({ start, end }, { clientId, connectionId, signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setReport(data); })
+      .catch(() => { if (!controller.signal.aborted) setError(true); });
+    return () => controller.abort();
+  }, [clientId, connectionId, start, end, attempt]);
+
+  let total = 0;
+  const hours = report?.hours.map((row) => {
+    total += row.sessions;
+    return { ...row, cumulativeSessions: total, label: `${String(row.hour).padStart(2, "0")}h` };
+  });
+  const peak = hours?.length ? hours.reduce((highest, row) => row.sessions > highest.sessions ? row : highest) : null;
+
+  return (
+    <section className="ds-section" aria-labelledby="ga4-hourly-title">
+      <h2 id="ga4-hourly-title" className="ds-sectionTitle">Acessos ao site por horário</h2>
+      {error ? (
+        <p className="ds-caption">
+          Não foi possível consultar os horários no GA4.{" "}
+          <button type="button" onClick={() => { setError(false); setAttempt((count) => count + 1); }}>Tentar novamente</button>
+        </p>
+      ) : !report || !hours ? <p role="status" className="ds-caption">Carregando acessos por horário…</p> : (
+        <>
+          <p className="ds-caption">
+            {formatInteger(total)} sessões registradas no período.
+            {peak && peak.sessions > 0 ? ` Pico às ${peak.label}, com ${formatInteger(peak.sessions)} sessões.` : ""}
+            {report.time_zone ? ` Fuso do GA4: ${report.time_zone}.` : ""}
+          </p>
+          {!report.complete ? <p className="ds-caption">O GA4 retornou dados parciais para esse período.</p> : null}
+          <button
+            className="ds-button"
+            style={{ alignSelf: "flex-start" }}
+            type="button"
+            aria-pressed={showProgress}
+            onClick={() => setShowProgress((value) => !value)}
+          >
+            {showProgress ? "Ver sessões por hora" : "Ver progresso acumulado"}
+          </button>
+          <TrendChart
+            data={hours}
+            xKey="label"
+            formatX={(value) => String(value)}
+            primaryKey={showProgress ? "cumulativeSessions" : "sessions"}
+            formatY={formatCompactInteger}
+            ariaLabel={showProgress ? "Sessões acumuladas ao longo das horas" : "Sessões do site por hora no período selecionado"}
+            testId="ga4-hourly-chart"
+            renderTooltip={(row) => (
+              <>
+                <strong>{row.label}</strong>
+                <dl>
+                  <dt>Sessões</dt><dd>{formatInteger(row.sessions)}</dd>
+                  {showProgress ? <><dt>Sessões acumuladas</dt><dd>{formatInteger(row.cumulativeSessions)}</dd></> : null}
+                  <dt>Compras no GA4</dt><dd>{formatInteger(row.purchases)}</dd>
+                </dl>
+              </>
+            )}
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
 function pickIntegration(connections: ClientIntegrationConnection[] | null, provider: "ga4" | "google_ads", clientId: string) {
   const items = (connections || []).filter((item) => item.provider === provider);
   const selectedId = getSelectedConnectionId(clientId, provider);
@@ -685,6 +759,7 @@ export default function GoogleAnalytics({
                   <DataNotice tone="warning" title="Dados anteriores mantidos">A última base carregada continua visível.</DataNotice>
                 ) : null}
 
+                <p className="plainHeadline" role="status">{siteHeadline(ga4Report.summary)}</p>
                 {/* AQUISIÇÃO → COMPORTAMENTO → CONVERSÃO, só com o que a fonte trouxe. */}
                 <section className="ds-summary" id="google-summary" aria-label="Resumo do site">
                   <HeroFigure
@@ -756,6 +831,14 @@ export default function GoogleAnalytics({
                     <p className="ds-emptyLine">Selecione um período com mais de um dia para ver a evolução das sessões.</p>
                   )}
                 </section>
+
+                <HourlyTraffic
+                  key={JSON.stringify([activeGa4ClientId, ga4Integration?.connection_id, selectedRange.start, selectedRange.end])}
+                  clientId={activeGa4ClientId}
+                  connectionId={ga4Integration?.connection_id}
+                  start={selectedRange.start}
+                  end={selectedRange.end}
+                />
 
                 <section className="ds-section" aria-labelledby="ga4-acquisition-title">
                   <div className="ds-sectionHeadText">

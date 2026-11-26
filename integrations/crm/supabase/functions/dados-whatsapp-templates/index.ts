@@ -69,10 +69,57 @@ Deno.serve(async (request: Request) => {
       return respond({ ok: true, data: { connected: true, provider: "mugozap_crm",
         templates_supported: true } });
 
+    const replyWorkerKey = Deno.env.get("TASK_COMMAND_WORKER_KEY") || "";
+    const replyMemberId = Deno.env.get("DADOS_WHATSAPP_REPLY_TEAM_MEMBER_ID") || "";
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
+    const replyEnabled = Boolean(orgLink.data && replyWorkerKey && uuid.test(replyMemberId) && anonKey);
+
     // Read CRM-owned conversations with the SAME explicit tenant-to-org and
     // CRM connection checks used above for templates. No token leaves CRM.
     const mode = new URL(request.url).searchParams.get("mode") || "";
     const connectionId = String(connection.id);
+    if (request.method === "POST" && mode === "reply") {
+      if (!replyEnabled) return error("REPLY_UNSUPPORTED", 409);
+      const input = await request.json().catch(() => null);
+      const conversationId = String(input?.conversation_id || "");
+      const message = typeof input?.text === "string" ? input.text.trim() : "";
+      const sendId = String(input?.request_id || "");
+      if (!uuid.test(conversationId) || !uuid.test(sendId) || !message || message.length > 4000)
+        return error("INVALID_REPLY", 422);
+      const member = await admin.from("team_members").select("id")
+        .eq("id", replyMemberId).eq("organization_id", organizationId).eq("active", true).maybeSingle();
+      if (member.error) return error("REPLY_CHECK_FAILED", 503);
+      if (!member.data) return error("REPLY_UNSUPPORTED", 409);
+      const owned = await admin.from("whatsapp_conversations").select("wa_id,service_window_expires_at")
+        .eq("id", conversationId).eq("organization_id", organizationId).eq("connection_id", connectionId).maybeSingle();
+      if (owned.error) return error("CONVERSATION_LOOKUP_FAILED", 503);
+      if (!owned.data) return error("CONVERSATION_NOT_FOUND", 404);
+      const expiresAt = Date.parse(owned.data.service_window_expires_at || "");
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return error("OUTSIDE_WINDOW", 409);
+
+      try {
+        const response = await fetch(supabaseUrl + "/functions/v1/mugozap-api", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + anonKey, apikey: anonKey,
+            "Content-Type": "application/json", "X-Task-Command-Worker-Key": replyWorkerKey },
+          body: JSON.stringify({ operation: "send_manual_message", payload: {
+            team_member_id: replyMemberId, conversationId, waId: owned.data.wa_id, text: message,
+            idempotencyKey: "dados-reply-" + conversationId + "-" + sendId,
+          } }),
+          signal: AbortSignal.timeout(35000),
+        });
+        const result = await response.json();
+        if (response.ok && result?.ok && result.data?.provider_message_id)
+          return respond({ ok: true, data: { status: "accepted" } });
+        if (result?.code === "SERVICE_WINDOW_CLOSED") return error("OUTSIDE_WINDOW", 409);
+        if (result?.code === "CONVERSATION_NOT_FOUND") return error("CONVERSATION_NOT_FOUND", 404);
+        if (response.status >= 500 || ["SEND_OUTCOME_UNKNOWN", "MESSAGE_PERSISTENCE_UNCONFIRMED"].includes(result?.code))
+          return error("SEND_OUTCOME_UNKNOWN", 502);
+        return error("SEND_FAILED", 502);
+      } catch {
+        return error("SEND_OUTCOME_UNKNOWN", 502);
+      }
+    }
     if (request.method === "GET" && ["conversations", "messages", "leads"].includes(mode)) {
       if (mode === "messages") {
         const conversationId = String(new URL(request.url).searchParams.get("conversation_id") || "");
@@ -149,6 +196,7 @@ Deno.serve(async (request: Request) => {
       };
       return respond({ ok: true, data: {
         connected: true,
+        reply_enabled: replyEnabled,
         conversations: conversations.map((c: any) => {
           const contact: any = byContact.get(c.contact_id) || {};
           const msg = latest.get(c.id);
@@ -190,7 +238,7 @@ Deno.serve(async (request: Request) => {
       return respond({ ok: true, data: { templates } });
     }
 
-    // This endpoint creates a model for Meta review. It NEVER sends WhatsApp messages.
+    // A POST without a mode creates a model for Meta review.
     const input: any = await request.json().catch(() => null);
     const name = String(input?.name || "");
     const category = String(input?.category || "");

@@ -1,27 +1,26 @@
 import { Sparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, useEffectEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, useEffectEvent } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  CONTENT_LANGUAGES, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, type ContentLanguage, createCalendarItem, getPublisher, deleteCalendarItem, getBrandProfile,
-  BRAND_PROFILE_SAVED, decideCalendarItem, getCalendar, listToText, localParts, saveBrandProfile, sendForApproval, textToList, toSaoPauloIso, updateCalendarItem,
-  basedOnText, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
+  STUDIO_STATUS, createCalendarItem, getPublisher, deleteCalendarItem, getBrandProfile,
+  BRAND_PROFILE_SAVED, decideCalendarItem, getCalendar, localParts, saveBrandProfile, sendForApproval, toSaoPauloIso, updateCalendarItem,
+  basedOnText, cleanDirection, confirmSchedule, createContact, listContacts, retryPublish, strategyChat, suggestBrandProfile, getProfileSuggestion, resolveProfileSuggestion, sourcesText,
   type ApprovalCreated, type BasedOn, type ChatTurn, type ClientContact,
-  type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioFormat, type StudioStatus, type WhatsappChannel,
+  type BrandProfile, type CalendarItem, type PendingProfileSuggestion, type ProfileSuggestionResult, type StudioStatus, type WhatsappChannel,
 } from "../app/studio";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import Drawer from "../components/Drawer";
+import BrandProfileFields from "../components/studio/BrandProfileFields";
 import ClientHub from "../components/studio/ClientHub";
 import ImportCalendar from "../components/studio/ImportCalendar";
 import PostModal from "../components/studio/PostModal";
-import { listLibrary, previewKind } from "../app/library";
-import { artList } from "../app/artLinks";
 import MeetingsStrip from "../components/studio/MeetingsStrip";
 import ApprovalDelivery from "../components/studio/ApprovalDelivery";
 import Approval from "./Approval";
 import { DayView, MonthView, WeekView } from "../components/studio/CalendarViews";
-import { addDays, draftFrom, fromKey, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
+import { addDays, draftFrom, fromKey, pieceFrom, piecePatch, mondayOf, todayKey, type PostDraft, type ViewMode } from "../app/studioCalendar";
 import { getPlan as getMediaPlan, type BoostPost } from "../app/media";
 import "../styles/studio.css";
 
@@ -30,10 +29,10 @@ const monthOf = (dayKey: string) => dayKey.slice(0, 7);
 const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const dayLabel = (key: string) => fromKey(key).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 
-function firstOfNextMonth() {
+/** Abre sempre no mês de hoje (no celular, na semana de hoje). */
+function firstOfThisMonth() {
   const now = new Date();
-  const d = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
 export default function Calendar({ canManage, isAgency = false, embedded = false, openProfileRequest = 0, showBrandContext = true }: { canManage: boolean; isAgency?: boolean; embedded?: boolean; openProfileRequest?: number; showBrandContext?: boolean }) {
@@ -46,7 +45,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   // /aprovacao (endereço antigo) abre direto o Fluxo de aprovação.
   const [view, setView] = useState<ViewMode>(() => (typeof window !== "undefined" && window.location.pathname.startsWith("/aprovacao") ? "fluxo" : isMobile ? "semana" : "mes"));
   // No celular abre na 1ª semana cheia do próximo mês (a semana do dia 1º costuma ser quase toda do mês anterior).
-  const [cursor, setCursor] = useState(() => { const first = firstOfNextMonth(); return isMobile ? addDays(mondayOf(first), mondayOf(first) === first ? 0 : 7) : first; });
+  const [cursor, setCursor] = useState(() => (isMobile ? mondayOf(todayKey()) : firstOfThisMonth()));
   const month = monthOf(cursor);
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,13 +54,6 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   const [notes, setNotes] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [modal, setModal] = useState<{ item: CalendarItem | null; draft: PostDraft } | null>(null);
-  const librarySelectionHandled = useRef(false);
-  const [libraryTransfer, setLibraryTransfer] = useState<{ urls: string[]; names: string[] } | null>(null);
-  const [libraryTargetMonth, setLibraryTargetMonth] = useState(() => todayKey().slice(0, 7));
-  const [libraryTargets, setLibraryTargets] = useState<CalendarItem[]>([]);
-  const [libraryTargetsLoading, setLibraryTargetsLoading] = useState(false);
-  const [libraryTargetError, setLibraryTargetError] = useState<string | null>(null);
-  const [libraryReplaceArt, setLibraryReplaceArt] = useState(false);
   const [profile, setProfile] = useState<BrandProfile | null>(null);
   const [publisherUrl, setPublisherUrl] = useState<string | null>(null);
   // Business Suite já na Página desta marca; troca junto com a empresa ativa.
@@ -74,6 +66,8 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   }, [team, clientId]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [filter, setFilter] = useState<StudioStatus | "todos">("todos");
+  // Pilares da Matriz aparecem no Calendário: legenda com quantos posts de cada pilar no mês, e filtro.
+  const [pillarFilter, setPillarFilter] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState<{ selected: string[]; contact_name: string; contact_phone: string; message: string; contact_id: string; send_whatsapp: boolean; notify_team?: boolean } | null>(null);
   const [contacts, setContacts] = useState<{ list: ClientContact[]; channel: WhatsappChannel }>({ list: [], channel: "nao_configurado" });
@@ -98,75 +92,6 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   }, [months, clientId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { getBrandProfile().then((d) => setProfile(d.profile)).catch(() => undefined); }, [clientId]);
-  // Biblioteca → Calendário: resolve IDs dentro da empresa e permite escolher
-  // uma pauta existente, sem criar publicações duplicadas.
-  useEffect(() => {
-    if (!team || embedded || librarySelectionHandled.current || !window.location.pathname.startsWith("/calendario")) return;
-    const raw = new URLSearchParams(window.location.search).get("library_ids");
-    if (!raw) return;
-    librarySelectionHandled.current = true;
-    const requested = [...new Set(raw.split(",").filter((id) =>
-      /^[0-9a-f-]{36}$/i.test(id)))].slice(0, 12);
-    if (!requested.length) {
-      setError("Nenhuma imagem válida foi selecionada na Biblioteca.");
-      return;
-    }
-    let alive = true;
-    void listLibrary().then((result) => {
-      if (!alive || getActiveClientId() !== clientId) return;
-      const byId = new Map(result.items.filter((it) =>
-        it.kind === "arquivo" && previewKind(it) === "image").map((it) => [it.id, it]));
-      const selected = requested.map((id) => byId.get(id)).filter((it) => it !== undefined);
-      if (selected.length !== requested.length) {
-        setError("Algumas imagens não pertencem a esta empresa ou não estão mais disponíveis. Selecione novamente.");
-        return;
-      }
-      setLibraryTransfer({ urls: selected.map((it) => it.url), names: selected.map((it) => it.title) });
-      window.history.replaceState(window.history.state, "", window.location.pathname);
-    }).catch(() => { if (alive) setError("Não foi possível recuperar as imagens da Biblioteca."); });
-    return () => { alive = false; };
-  }, [team, embedded, clientId]);
-
-  // Busca a pauta no mês escolhido, independentemente do mês visível ao fundo.
-  useEffect(() => {
-    if (!libraryTransfer) return;
-    let alive = true;
-    setLibraryTargetsLoading(true);
-    setLibraryTargetError(null);
-    void getCalendar(libraryTargetMonth).then((r) => {
-      if (!alive || getActiveClientId() !== clientId) return;
-      setLibraryTargets(r.items.filter((item) => !["aprovado", "publicado"].includes(item.status))
-        .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)));
-    }).catch((cause) => {
-      if (alive) setLibraryTargetError(message(cause, "Não foi possível carregar as publicações."));
-    }).finally(() => { if (alive) setLibraryTargetsLoading(false); });
-    return () => { alive = false; };
-  }, [libraryTransfer, libraryTargetMonth, clientId]);
-
-  function choosePublication(item: CalendarItem) {
-    if (!libraryTransfer || ["aprovado", "publicado"].includes(item.status)) return;
-    const existing = artList(item.art_url);
-    const combined = libraryReplaceArt ? libraryTransfer.urls : [...existing, ...libraryTransfer.urls];
-    const unique = [...new Set(combined)];
-    if (unique.length > 12) {
-      setLibraryTargetError("Este post ficaria com mais de 12 imagens. Marque 'Substituir artes' para trocar as imagens existentes.");
-      return;
-    }
-    const art_url = unique.join("\n");
-    if (art_url.length > 1000) {
-      setLibraryTargetError("Os links ultrapassam o limite permitido. Selecione menos imagens.");
-      return;
-    }
-    setLibraryTransfer(null);
-    setLibraryTargets([]);
-    setLibraryReplaceArt(false);
-    setError(null);
-    setCursor(item.scheduled_at.slice(0, 10));
-    setView("dia");
-    setModal({ item, draft: { ...draftFrom(item), art_url,
-      ...(unique.length > 1 && item.format === "imagem" ? { format: "carrossel" as const } : {}) } });
-  }
-
   // Pedido de fora ("abrir perfil da marca"): reage só a um pedido novo, usando o openProfile/team atuais.
   const onProfileRequest = useEffectEvent(() => { if (team) void openProfile(); });
   useEffect(() => { if (openProfileRequest > 0) onProfileRequest(); }, [openProfileRequest]);
@@ -187,8 +112,13 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     return () => { alive = false; };
   }, [months, clientId]);
   const withBoost = useCallback((i: CalendarItem): CalendarItem => (boosts[i.id] ? { ...i, boost: { start: boosts[i.id].start, end: boosts[i.id].end, budget: boosts[i.id].budget, why: boosts[i.id].why } } : i), [boosts]);
-  const visible = useMemo(() => items.filter((i) => filter === "todos" || i.status === filter).map(withBoost), [items, filter, withBoost]);
+  const visible = useMemo(() => items.filter((i) => (filter === "todos" || i.status === filter) && (!pillarFilter || (i.pillar || "") === pillarFilter)).map(withBoost), [items, filter, pillarFilter, withBoost]);
   const monthItems = useMemo(() => items.filter((i) => i.month.startsWith(month)), [items, month]);
+  const pillarCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of monthItems) if (i.pillar?.trim() && (isAgency || i.status !== "rascunho")) counts.set(i.pillar.trim(), (counts.get(i.pillar.trim()) || 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [monthItems, isAgency]);
   const counts = useMemo(() => {
     const c: Record<string, number> = { todos: monthItems.length };
     for (const item of monthItems) c[item.status] = (c[item.status] || 0) + 1;
@@ -219,7 +149,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
   function openNew(at: string) {
     setError(null);
     const [date, time] = at.includes("T") ? at.split("T") : [at, "19:00"];
-    setModal({ item: null, draft: { date, time, channel: "instagram", format: "reels", pillar: "", title: "", hook: "", caption_draft: "", rationale: "", art_url: "" } });
+    setModal({ item: null, draft: { date, time, channel: "instagram", format: "imagem", pillar: "", title: "", hook: "", caption_draft: "", rationale: "", art_url: "" } });
   }
 
   async function saveDraft(draft: PostDraft) {
@@ -228,7 +158,13 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
       art_url: (draft.art_url || "").trim(),
       // Colaboradores só vão quando mudam (não registra "marcou" a cada salvar).
       ...(JSON.stringify(draft.collaborators || []) !== JSON.stringify(modal?.item?.collaborators || []) ? { collaborators: draft.collaborators || [] } : {}),
-      ...(JSON.stringify(draft.product_tags || []) !== JSON.stringify(modal?.item?.product_tags || []) ? { product_tags: draft.product_tags || [] } : {}) };
+      ...(JSON.stringify(draft.product_tags || []) !== JSON.stringify(modal?.item?.product_tags || []) ? { product_tags: draft.product_tags || [] } : {}),
+      // Opções do Reels também só vão quando mudam (a coluna é da migração 000131).
+      ...(JSON.stringify(draft.reels_options || {}) !== JSON.stringify(modal?.item?.reels_options || {}) ? { reels_options: draft.reels_options || {} } : {}),
+      // Direcionamento Criativo: salva junto com a pauta, só quando muda (a coluna é da migração 000140).
+      ...(JSON.stringify(cleanDirection(draft.creative_direction)) !== JSON.stringify(cleanDirection(modal?.item?.creative_direction)) ? { creative_direction: cleanDirection(draft.creative_direction) } : {}),
+      // Briefing da peça ("Editar peça"): só vai quando mudou.
+      ...(modal?.item && draft.piece && JSON.stringify(draft.piece) !== JSON.stringify(pieceFrom(modal.item)) ? piecePatch(draft.piece) : {}) };
     // Cliente só manda o que pode mudar (texto e data); o resto fica como a Mugô deixou.
     const clientBody = { scheduled_at: body.scheduled_at, title: body.title, hook: body.hook, caption_draft: body.caption_draft };
     const current = modal?.item;
@@ -377,6 +313,12 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
         </button>
       ))}
     </div> : null}
+    {view !== "fluxo" && pillarCounts.length ? <div className="calPillars" role="group" aria-label="Pilares da Matriz neste mês">
+      <span>Pilares da Matriz</span>
+      {pillarCounts.map(([name, n]) => <button key={name} type="button" aria-pressed={pillarFilter === name} className={pillarFilter === name ? "is-active" : ""}
+        onClick={() => setPillarFilter(pillarFilter === name ? null : name)}>{name} <b>{n}</b></button>)}
+      {pillarFilter ? <button type="button" className="ds-link" onClick={() => setPillarFilter(null)}>Ver todos</button> : null}
+    </div> : null}
     {error && !modal ? <p role="alert" className="studioError">{error}</p> : null}
     {notes.length ? <ul className="studioNotes">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : null}
     {loading && !items.length ? <p>Carregando calendário…</p> : null}
@@ -392,40 +334,6 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
     {view === "fluxo" ? <Approval embedded month={month} tabs={["funil"]} canManage={canManage} isAgency={isAgency}
       onOpenItem={(id) => { const it = items.find((i) => i.id === id); if (it) openItem(it); }} onChanged={() => void load()} /> : null}
 
-
-    {libraryTransfer && team ? <div className="libTargetOverlay" role="dialog" aria-modal="true" aria-label="Escolher publicação do Calendário">
-      <section className="libTargetPicker">
-        <header className="libTargetPickerHead">
-          <div>
-            <h2>Qual publicação deve receber estas imagens?</h2>
-            <p>{libraryTransfer.urls.length} {libraryTransfer.urls.length === 1 ? "imagem selecionada" : "imagens selecionadas"} da Biblioteca de {clientName}.</p>
-          </div>
-          <button className="ds-button" type="button" onClick={() => setLibraryTransfer(null)}>Cancelar</button>
-        </header>
-        <div className="libTargetThumbs">{libraryTransfer.urls.map((url, i) =>
-          <img key={url} src={url} alt={libraryTransfer.names[i]} loading="lazy" />)}</div>
-        <div className="libTargetOptions">
-          <label>Publicações de
-            <input type="month" value={libraryTargetMonth} onChange={(event) => setLibraryTargetMonth(event.target.value)} />
-          </label>
-          <label className="libTargetCheck">
-            <input type="checkbox" checked={libraryReplaceArt} onChange={(event) => {
-              setLibraryReplaceArt(event.target.checked); setLibraryTargetError(null);
-            }} /> Substituir imagens existentes (caso contrário, adicionar ao final)
-          </label>
-        </div>
-        {libraryTargetError ? <p className="studioError" role="alert">{libraryTargetError}</p> : null}
-        {libraryTargetsLoading ? <p>Carregando publicações…</p>
-          : libraryTargets.length ? <div className="libTargetPosts">{libraryTargets.map((item) => <button
-            key={item.id} type="button" onClick={() => choosePublication(item)}>
-            <strong>{item.title}</strong>
-            <small>{localParts(item.scheduled_at).date} · {STUDIO_STATUS[item.status]} · {STUDIO_FORMATS[item.format]}
-              {artList(item.art_url).length ? " · " + artList(item.art_url).length + " arte(s)" : ""}</small>
-          </button>)}</div>
-          : <p>Nenhuma pauta editável neste mês. Escolha outro mês ou crie a pauta diretamente no Calendário.</p>}
-        <small>Publicações aprovadas ou já publicadas não aparecem aqui para preservar a aprovação. Após escolher, confira as imagens e clique em Salvar alterações.</small>
-      </section>
-    </div> : null}
 
     {modal ? <PostModal key={modal.item ? `${modal.item.id}:${modal.item.updated_at || ""}:${modal.item.status}` : "new"} item={modal.item} initial={modal.draft} handle={handle} pillars={(profile?.pillars || []).map((p) => p.name)}
       canManage={canManage} clientMode={!isAgency} busy={Boolean(busy)} error={error} onClose={() => setModal(null)} onSave={saveDraft} onStatus={setStatus} onDelete={removeCurrent}
@@ -521,67 +429,7 @@ export default function Calendar({ canManage, isAgency = false, embedded = false
             <ul className="aiList">{suggestion.notes.map((n) => <li key={n}>{n}</li>)}</ul>
             <p className="aiWhy">Revise os campos abaixo e clique em <b>Salvar perfil</b>.</p></div> : null}
         </div>
-        <label>Idioma das publicações e das respostas de comentário
-          <select value={profile.content_language || "pt-BR"} onChange={(e) => setProfile({ ...profile, content_language: e.target.value as ContentLanguage })}>
-            {Object.entries(CONTENT_LANGUAGES).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
-          </select>
-          {profile.content_language && profile.content_language !== "pt-BR"
-            ? <small className="libHint">Legendas, roteiros, hashtags e respostas saem em {CONTENT_LANGUAGES[profile.content_language].toLowerCase()}. Pautas e justificativas continuam em português para a equipe.</small> : null}
-        </label>
-        <label>Tom de voz<textarea rows={3} maxLength={1000} value={profile.tone_of_voice} onChange={(e) => setProfile({ ...profile, tone_of_voice: e.target.value })} /></label>
-        <label>Personalidade<input maxLength={500} value={profile.personality} onChange={(e) => setProfile({ ...profile, personality: e.target.value })} /></label>
-        <label>Público<textarea rows={2} maxLength={1000} value={profile.audience} onChange={(e) => setProfile({ ...profile, audience: e.target.value })} /></label>
-        <fieldset className="studioPillars"><legend>Pilares de conteúdo (peso em %)</legend>
-          {profile.pillars.map((p, idx) => <div key={idx} className="studioPillarRow">
-            <input aria-label="Nome do pilar" required maxLength={80} value={p.name} onChange={(e) => setProfile({ ...profile, pillars: profile.pillars.map((x, i) => (i === idx ? { ...x, name: e.target.value } : x)) })} />
-            <input aria-label="Peso" type="number" min={0} max={100} value={p.weight} onChange={(e) => setProfile({ ...profile, pillars: profile.pillars.map((x, i) => (i === idx ? { ...x, weight: Number(e.target.value) } : x)) })} />
-            <input aria-label="Descrição" maxLength={400} placeholder="O que entra neste pilar" value={p.description} onChange={(e) => setProfile({ ...profile, pillars: profile.pillars.map((x, i) => (i === idx ? { ...x, description: e.target.value } : x)) })} />
-            <button type="button" className="studioLink" aria-label="Remover pilar" onClick={() => setProfile({ ...profile, pillars: profile.pillars.filter((_, i) => i !== idx) })}>Remover</button>
-          </div>)}
-          {profile.pillars.length < 8 ? <button type="button" className="ds-button" onClick={() => setProfile({ ...profile, pillars: [...profile.pillars, { name: "", weight: 0, description: "" }] })}>+ Pilar</button> : null}
-        </fieldset>
-        <label>Palavras para usar (separe por vírgula)<input value={listToText(profile.keywords_use)} onChange={(e) => setProfile({ ...profile, keywords_use: textToList(e.target.value) })} /></label>
-        <label>Palavras proibidas<input value={listToText(profile.keywords_avoid)} onChange={(e) => setProfile({ ...profile, keywords_avoid: textToList(e.target.value) })} /></label>
-        <label>Hashtags<input value={listToText(profile.hashtags)} onChange={(e) => setProfile({ ...profile, hashtags: textToList(e.target.value) })} /></label>
-        <label>Restrições (o que nunca pode ser dito ou prometido)<textarea rows={3} maxLength={1500} value={profile.restrictions} onChange={(e) => setProfile({ ...profile, restrictions: e.target.value })} /></label>
-        <label>Identidade visual (cores, composição, estilo de foto e de arte)<textarea rows={3} maxLength={1500} value={profile.visual_identity || ""} placeholder="A IA preenche olhando as imagens dos posts mais curtidos." onChange={(e) => setProfile({ ...profile, visual_identity: e.target.value })} /></label>
-        <div className="studioRow is-top">
-          <label>Posts por semana<input type="number" min={1} max={14} value={profile.posts_per_week} onChange={(e) => setProfile({ ...profile, posts_per_week: Number(e.target.value) })} /></label>
-          <fieldset><legend>Formatos</legend>{Object.entries(STUDIO_FORMATS).map(([k, v]) => <label key={k} className="studioCheck">
-            <input type="checkbox" checked={profile.formats_enabled.includes(k as StudioFormat)} onChange={(e) => setProfile({ ...profile, formats_enabled: e.target.checked ? [...profile.formats_enabled, k as StudioFormat] : profile.formats_enabled.filter((f) => f !== k) })} />{v}</label>)}</fieldset>
-        </div>
-        <fieldset><legend>Plataformas do planejamento editorial</legend>
-          <p className="libHint">Independem das contas conectadas. Sem frequência específica, o total semanal é distribuído entre as redes conforme a estratégia.</p>
-          {Object.entries(STUDIO_CHANNELS).map(([key, label]) => {
-            const channel = key as keyof typeof STUDIO_CHANNELS;
-            const selected = (profile.editorial_platforms || []).includes(channel);
-            const frequencies = profile.posts_per_week_by_platform || {};
-            return <div key={channel} className="studioRow">
-              <label className="studioCheck"><input type="checkbox" checked={selected} onChange={(e) => {
-                const editorial_platforms = e.target.checked
-                  ? [...(profile.editorial_platforms || []), channel]
-                  : (profile.editorial_platforms || []).filter((item) => item !== channel);
-                const posts_per_week_by_platform = { ...frequencies };
-                if (!e.target.checked) delete posts_per_week_by_platform[channel];
-                setProfile({ ...profile, editorial_platforms, posts_per_week_by_platform });
-              }} />{label}</label>
-              {selected ? <label>Posts/semana nesta rede (opcional)<input type="number" min={1} max={14}
-                value={frequencies[channel] ?? ""} placeholder="Distribuição automática" onChange={(e) => {
-                  const posts_per_week_by_platform = { ...frequencies };
-                  if (e.target.value) posts_per_week_by_platform[channel] = Number(e.target.value); else delete posts_per_week_by_platform[channel];
-                  setProfile({ ...profile, posts_per_week_by_platform });
-                }} /></label> : null}
-            </div>;
-          })}
-        </fieldset>
-        <fieldset><legend>Datas da marca (MM-DD todo ano, ou AAAA-MM-DD)</legend>
-          {profile.custom_dates.map((d, idx) => <div key={idx} className="studioDateRow">
-            <input aria-label="Data" required pattern="(\d{4}-)?\d{2}-\d{2}" placeholder="11-03" value={d.date} onChange={(e) => setProfile({ ...profile, custom_dates: profile.custom_dates.map((x, i) => (i === idx ? { ...x, date: e.target.value } : x)) })} />
-            <input aria-label="Nome da data" required maxLength={80} placeholder="Aniversário da marca" value={d.label} onChange={(e) => setProfile({ ...profile, custom_dates: profile.custom_dates.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x)) })} />
-            <button type="button" className="studioLink" aria-label="Remover data" onClick={() => setProfile({ ...profile, custom_dates: profile.custom_dates.filter((_, i) => i !== idx) })}>Remover</button>
-          </div>)}
-          <button type="button" className="ds-button" onClick={() => setProfile({ ...profile, custom_dates: [...profile.custom_dates, { date: "", label: "" }] })}>+ Data</button>
-        </fieldset>
+        <BrandProfileFields profile={profile} onChange={setProfile} />
         {error ? <p role="alert">{error}</p> : null}
         <div className="studioActions"><button type="button" className="ds-button" onClick={() => setProfileOpen(false)}>Cancelar</button><button className="ds-button is-primary" disabled={Boolean(busy)}>{busy === "profile-save" ? "Salvando…" : "Salvar perfil"}</button></div>
       </form> : null}

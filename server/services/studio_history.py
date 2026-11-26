@@ -6,6 +6,7 @@ se a migração 000080 não estiver aplicada ou o banco falhar, só não registr
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 from zoneinfo import ZoneInfo
@@ -41,6 +42,8 @@ def _same(key: str, old: Any, new: Any) -> bool:
     if key == "product_tags":
         ids = lambda tags: [(str(t.get("product_id")), int(t.get("slide") or 0), t.get("x"), t.get("y")) for t in (tags or []) if isinstance(t, dict)]  # noqa: E731
         return ids(old) == ids(new)
+    if key in ("reels_options", "creative_direction"):
+        return json.dumps(old or {}, sort_keys=True) == json.dumps(new or {}, sort_keys=True)
     return (str(old).strip() if old is not None else "") == (str(new).strip() if new is not None else "")
 
 
@@ -71,6 +74,12 @@ def describe_patch(patch: Dict[str, Any]) -> List[str]:
     if "product_tags" in patch:
         count = len(patch.get("product_tags") or [])
         out.append(f"marcou {count} produto{'s' if count > 1 else ''} da loja" if count else "tirou os produtos marcados")
+    if "reels_options" in patch:
+        out.append("ajustou a capa e as opções do Reels")
+    if any(k in patch for k in ("script", "visual_idea", "briefing")):
+        out.append("editou o briefing da peça")
+    if "creative_direction" in patch:
+        out.append("editou o direcionamento criativo" if patch.get("creative_direction") else "limpou o direcionamento criativo")
     edited = [label for key, label in TEXT_FIELDS.items() if key in patch]
     if edited:
         out.append(f"editou {', '.join(edited)}")

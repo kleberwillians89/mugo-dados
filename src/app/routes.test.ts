@@ -3,6 +3,54 @@ import { approvalTokenFromPath, getAppRouteFromPath, getPathForRoute, getPublicA
 import { canViewAppRoute } from "./teamRules";
 
 describe("platform routes", () => {
+  it("mapeia a nova entrada e os quatro processos sem substituir URLs existentes", () => {
+    expect(getAppRouteFromPath("/")).toBe("home");
+    expect(getAppRouteFromPath("/inicio")).toBe("home");
+    expect(getPathForRoute("home")).toBe("/inicio");
+    expect(getAppRouteFromPath("/planejar")).toBe("process_planning");
+    expect(getPathForRoute("process_planning")).toBe("/planejar");
+    expect(getAppRouteFromPath("/criar-conteudo")).toBe("process_content");
+    expect(getPathForRoute("process_content")).toBe("/criar-conteudo");
+    expect(getAppRouteFromPath("/lancar-campanha")).toBe("process_campaign");
+    expect(getPathForRoute("process_campaign")).toBe("/lancar-campanha");
+    expect(getAppRouteFromPath("/analisar-resultados")).toBe("process_analysis");
+    expect(getPathForRoute("process_analysis")).toBe("/analisar-resultados");
+    expect(getAppRouteFromPath("/planejamento")).toBe("planning");
+    expect(getAppRouteFromPath("/calendario")).toBe("calendar");
+    expect(getAppRouteFromPath("/central")).toBe("central");
+    expect(getAppRouteFromPath("/aprovacao-interna")).toBe("internal_approval");
+    expect(getPathForRoute("internal_approval")).toBe("/aprovacao-interna");
+    expect(getAppRouteFromPath("/aprovacao-final")).toBe("final_approval");
+    expect(getPathForRoute("final_approval")).toBe("/aprovacao-final");
+  });
+
+  it("separa as aprovações pelas permissões existentes", () => {
+    expect(canViewAppRoute("internal_approval", (code) => code === "tasks.approve")).toBe(true);
+    expect(canViewAppRoute("internal_approval", (code) => code === "calendar.view")).toBe(false);
+    expect(canViewAppRoute("final_approval", (code) => code === "calendar.view")).toBe(true);
+    expect(canViewAppRoute("final_approval", () => false)).toBe(false);
+  });
+
+  it("libera cada página de processo somente quando alguma ferramenta filha é permitida", () => {
+    expect(canViewAppRoute("home", () => false)).toBe(true);
+    expect(canViewAppRoute("process_planning", (code) => code === "clipping.view")).toBe(true);
+    expect(canViewAppRoute("process_planning", () => false)).toBe(false);
+    expect(canViewAppRoute("process_content", (code) => code === "creators.view")).toBe(true);
+    expect(canViewAppRoute("process_content", () => false)).toBe(false);
+    expect(canViewAppRoute("process_campaign", (code) => code === "media.view")).toBe(true);
+    expect(canViewAppRoute("process_campaign", () => false)).toBe(false);
+    expect(canViewAppRoute("process_analysis", (code) => code === "ecommerce.view")).toBe(true);
+    expect(canViewAppRoute("process_analysis", (code) => code === "engagement.view")).toBe(false);  // Comentários foi para Relacionamento
+    expect(canViewAppRoute("process_relationship", (code) => code === "engagement.view")).toBe(true);
+    expect(canViewAppRoute("process_relationship", () => false)).toBe(false);
+    expect(canViewAppRoute("process_social", (code) => code === "meta.view")).toBe(true);
+    expect(canViewAppRoute("process_social", () => false)).toBe(false);
+    expect(getAppRouteFromPath("/relacionamento")).toBe("process_relationship");
+    expect(getPathForRoute("process_social")).toBe("/redes-sociais");
+    expect(canViewAppRoute("process_analysis", (code) => code === "origins.view")).toBe(true);
+    expect(canViewAppRoute("process_analysis", () => false)).toBe(false);
+  });
+
   it("distinguishes goals from the existing Meta route", () => {
     expect(getAppRouteFromPath("/metas")).toBe("goals");
     expect(getAppRouteFromPath("/meta")).toBe("meta");
@@ -65,7 +113,7 @@ describe("platform routes", () => {
   });
 
   it("keeps tenant reports on their existing routes", () => {
-    expect(getAppRouteFromPath("/")).toBe("meta");
+    expect(getAppRouteFromPath("/")).toBe("home");
     expect(getAppRouteFromPath("/dashboard")).toBe("meta");
     expect(getAppRouteFromPath("/overview")).toBe("meta");
     expect(getAppRouteFromPath("/visao-geral")).toBe("meta");
@@ -78,6 +126,7 @@ describe("platform routes", () => {
     expect(getPathForRoute("origins")).toBe("/crm");
     expect(getAppRouteFromPath("/saude-integracoes")).toBe("integration_health");
     expect(getPathForRoute("integration_health")).toBe("/saude-integracoes");
+    expect(getAppRouteFromPath("/captacao")).toBe("capture");
     expect(getAppRouteFromPath("/email-marketing")).toBe("email_marketing");
     expect(getAppRouteFromPath("/crm/ltv")).toBe("customer_value");
     expect(getAppRouteFromPath("/acoes-ia")).toBe("ai_actions");
@@ -85,6 +134,7 @@ describe("platform routes", () => {
     expect(getAppRouteFromPath("/admin/planos")).toBe("plans_admin");
     expect(getPathForRoute("ai_actions")).toBe("/acoes-ia");
     expect(getPathForRoute("customer_value")).toBe("/crm/ltv");
+    expect(getPathForRoute("capture")).toBe("/captacao");
     expect(getPathForRoute("email_marketing")).toBe("/email-marketing");
     expect(getAppRouteFromPath("/crm")).toBe("origins");
     expect(getAppRouteFromPath("/crm/clientes")).toBe("customers");

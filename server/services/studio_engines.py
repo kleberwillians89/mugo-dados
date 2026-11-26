@@ -188,7 +188,7 @@ async def strategy_chat(client_id: str, month: str, messages: List[Dict[str, str
         f"DADOS DA MARCA:\n{to_prompt(intel)}\n\n"
         f"CONVERSA (responda à última mensagem):\n{json.dumps(history, ensure_ascii=False)}"
     )
-    data = await llm_json(client_id=client_id, 
+    data = await llm_json(client_id=client_id, tier="forte",
         instructions=("Você é o Head de Estratégia de conteúdo da agência. Direto, específico e provocativo quando ajudar. "
                       "Use os números e aprendizados dos DADOS para justificar; se um dado faltar, diga qual. "
                       "Responda em Markdown curto (até 12 linhas). Em suggested_actions, até 3 próximos passos objetivos."),
@@ -310,7 +310,7 @@ async def generate_briefing(client_id: str, item_id: str, direction: Optional[Di
         + "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
         + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(intel.get('marca'))}"
     )
-    data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_briefing",
+    data = await llm_json(client_id=client_id, tier="forte", instructions=ROLE, prompt=prompt, schema_name="studio_briefing",
                           schema=_briefing_schema(), temperature=0.4)
     briefing = clean_briefing(data)
     if not briefing.get("objective") and not briefing.get("key_message"):
@@ -330,3 +330,45 @@ async def generate_briefing(client_id: str, item_id: str, direction: Optional[Di
             raise
         rows = await sb_update("studio_calendar_items", filters=filters, patch={"signals": signals})
     return {"item": rows[0] if rows else {**item, **patch}, "based_on": coverage(intel)}
+
+
+# ---------------------------------------------------------------- direcionamento criativo da peça (Calendário)
+# A IA só SUGERE: devolve o texto para a pessoa conferir e escolher o que usar. Nada é gravado aqui;
+# o direcionamento só muda quando a equipe confirma e salva a pauta.
+
+DIRECTION_SCHEMA = obj({"concept": STR, "texts": STR, "references": STR, "instructions": STR})
+
+
+async def suggest_creative_direction(client_id: str, item_id: str, current: Optional[Dict[str, Any]] = None,
+                                     instruction: Optional[str] = None) -> Dict[str, Any]:
+    from .studio_calendar import CREATIVE_DIRECTION_LIMITS, clean_creative_direction
+    item = await _load_item(client_id, item_id)
+    throttle(client_id)
+    mine = clean_creative_direction(current or {})
+    mine.pop("brief_id", None)
+    intel = await build_content_intelligence(client_id)
+    refs = await _post_references(client_id, item_id)
+    briefing = (item.get("signals") or {}).get("briefing") if isinstance(item.get("signals"), dict) else None
+    prompt = (
+        "Escreva o DIRECIONAMENTO CRIATIVO desta peça para quem vai produzi-la (designer, editor, redator).\n"
+        "É a orientação específica DESTA peça; não repita o briefing da campanha inteiro.\n"
+        + (f"\nO QUE A EQUIPE JÁ ESCREVEU (mantenha as ideias e o sentido; complete e organize, nunca contradiga):\n"
+           f"{json.dumps(mine, ensure_ascii=False)}\n" if mine else "")
+        + (f"\nPEDIDO DA EQUIPE: {str(instruction).strip()[:600]}\n" if instruction and str(instruction).strip() else "")
+        + f"\nPAUTA:\n{json.dumps(_item_payload(item), ensure_ascii=False)}\n"
+        + (briefing_block(briefing) if isinstance(briefing, dict) else "")
+        + (f"\nREFERÊNCIAS DESTE POST:\n{json.dumps(refs, ensure_ascii=False)}\n" if refs else "")
+        + "\nCAMPOS (curtos, concretos, nada genérico):\n"
+          "- concept: título ou conceito da peça, em até 1 frase.\n"
+          "- texts: os textos que precisam aparecer na peça (capa, slides, falas, CTA), um por linha.\n"
+          "- references: referências de estilo ou de conteúdo, uma por linha (só as que existem nos DADOS ou na pauta).\n"
+          "- instructions: instruções de produção (composição, enquadramento, ritmo, cores da marca, o que evitar).\n"
+          "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja nos DADOS.\n"
+        + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(intel.get('marca'))}"
+    )
+    data = await llm_json(client_id=client_id, instructions=ROLE, prompt=prompt, schema_name="studio_creative_direction",
+                          schema=DIRECTION_SCHEMA, temperature=0.4)
+    suggestion = clean_creative_direction({k: data.get(k) for k in CREATIVE_DIRECTION_LIMITS})
+    if not suggestion:
+        raise StudioError("AI_INVALID_OUTPUT")
+    return {"suggestion": suggestion, "based_on": coverage(intel)}

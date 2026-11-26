@@ -22,6 +22,8 @@ describe("Enviar o briefing para alguém", () => {
   it("escolhe a função e a pessoa e vira tarefa dela", async () => {
     const item = { id: "i1", title: "3 perfumes", visual_idea: "Frascos", signals: { briefing: { objective: "Pedidos de decant" } } } as never;
     await act(async () => { root.render(<BriefingPanel item={item} />); });
+    expect(host.textContent).not.toContain("Gerar briefing com IA");  // a geração saiu da janela do Calendário
+    expect(host.textContent).not.toContain("Refazer com IA");
     await act(async () => { btn("Enviar para…").click(); });
     await act(async () => {});
     const selects = host.querySelectorAll(".briefingSend select");
@@ -31,5 +33,13 @@ describe("Enviar o briefing para alguém", () => {
     await act(async () => { btn("Enviar briefing").click(); });
     expect(studio.sendBriefing).toHaveBeenCalledWith("i1", { role: "designer", assignee_user_id: "u-liliu", assignee_name: "Liliu", due_date: null, note: null });
     expect(host.textContent).toContain("Enviado para Liliu (Designer)");
+    expect(studio.generateBriefing).not.toHaveBeenCalled();
+  });
+
+  it("avisa para salvar quando o direcionamento mudou e ainda não foi salvo", async () => {
+    const item = { id: "i2", title: "Post", creative_direction: { concept: "Ideia" }, signals: {} } as never;
+    await act(async () => { root.render(<BriefingPanel item={item} pending />); });
+    await act(async () => { btn("Enviar para…").click(); });
+    expect(host.textContent).toContain("salve antes de enviar");
   });
 });

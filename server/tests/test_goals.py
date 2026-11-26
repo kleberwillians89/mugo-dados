@@ -81,7 +81,8 @@ class AuthorizationTests(unittest.IsolatedAsyncioTestCase):
         async def membership(uid,requested_client_id=None):
             if requested_client_id!=CID: raise PermissionError("other")
             return CID
-        for target,name,value in [(ig_supabase,"sb_select",AsyncMock(return_value=[{"id":CID}])),(tenant,"require_user_id",AsyncMock(return_value="user")),(tenant,"sb_get_client_memberships",AsyncMock(side_effect=lambda uid:[{"client_id":CID,"role":self.role}])),(tenant,"sb_get_client_id_for_user",AsyncMock(side_effect=membership)),(routes,"require_user_id",AsyncMock(return_value="user")),(routes,"list_goals",AsyncMock(return_value={"client_id":CID,"goals":[]})),(routes,"sb_insert",AsyncMock(return_value={**BODY,"client_id":CID,"id":GID})),(routes,"sb_update",AsyncMock(return_value=[{**BODY,"client_id":CID,"id":GID}])),(routes,"sb_delete",AsyncMock(return_value=[{"id":GID}]))]:
+        for target,name,value in [(ig_supabase,"sb_select",AsyncMock(return_value=[{"id":CID}])),(tenant,"require_user_id",AsyncMock(return_value="user")),(tenant,"sb_get_client_memberships",AsyncMock(side_effect=lambda uid:[{"client_id":CID,"role":self.role}])),(tenant,"sb_get_client_id_for_user",AsyncMock(side_effect=membership)),(routes,"require_user_id",AsyncMock(return_value="user")),(routes,"list_goals",AsyncMock(return_value={"client_id":CID,"goals":[]})),(routes,"sb_insert",AsyncMock(return_value={**BODY,"client_id":CID,"id":GID})),(routes,"sb_update",AsyncMock(return_value=[{**BODY,"client_id":CID,"id":GID}])),(routes,"sb_delete",AsyncMock(return_value=[{"id":GID}])),
+                                 (routes,"sb_select",AsyncMock(return_value=[{**BODY,"client_id":CID,"id":GID}])),(routes,"record_history",AsyncMock())]:
             item=patch.object(target,name,value);item.start();self.addCleanup(item.stop)
         item=patch("services.platform_admin.is_platform_admin",AsyncMock(return_value=False));item.start();self.addCleanup(item.stop)
     async def call(self,method,path="",cid=CID,body=None):
@@ -163,3 +164,122 @@ class ConditionalMetricTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["actual"],30)
         self.assertTrue(result["projection_ready"])
         self.assertEqual([call.kwargs["offset"] for call in select.await_args_list],[0,1,2])
+
+
+class IntelligentGoalTests(unittest.TestCase):
+    def test_required_daily_and_observed_pace(self):
+        goal={**BODY,"target_value":100000,"period_start":"2026-11-01","period_end":"2026-11-30"}
+        r=goals.evaluate_goal(goal,goals.value(34000,"t",True,covered_days=24),date(2026,11,25))
+        self.assertEqual(r["days_left"],6)
+        self.assertAlmostEqual(r["required_daily"],11000)          # faltam 66.000 em 6 dias
+        self.assertAlmostEqual(r["observed_daily"],34000/24)      # média só dos dias com dado
+        self.assertIn("abaixo do necessário",r["pace_note"])
+        self.assertEqual(r["pace_model"],"linear")
+
+    def test_observed_pace_needs_coverage(self):
+        r=goals.evaluate_goal({**BODY,"period_start":"2026-11-01","period_end":"2026-11-30"},goals.value(1000,"t",True,covered_days=2),date(2026,11,10))
+        self.assertIsNone(r["observed_daily"])
+
+    def test_max_goal_uses_ceiling_logic(self):
+        spend={**BODY,"metric":"ad_spend","direction":"max","target_value":3000,"period_start":"2026-11-01","period_end":"2026-11-30"}
+        self.assertEqual(goals.evaluate_goal(spend,goals.value(3200,"t",True),date(2026,11,20))["status"],"ACIMA_DO_TETO")
+        self.assertEqual(goals.evaluate_goal(spend,goals.value(2500,"t",True),date(2026,11,15))["status"],"RISCO_DE_PASSAR")  # projeção 5.000
+        ok=goals.evaluate_goal(spend,goals.value(800,"t",True,covered_days=10),date(2026,11,10))
+        self.assertEqual(ok["status"],"DENTRO_DO_TETO")
+        self.assertAlmostEqual(ok["required_daily"],2200/21)  # pode gastar até isso por dia
+        cpa={**BODY,"metric":"cpa_meta","direction":"max","target_value":60}
+        self.assertEqual(goals.evaluate_goal(cpa,goals.value(55,"t"),date(2026,9,10))["status"],"DENTRO_DO_TETO")
+        self.assertEqual(goals.evaluate_goal(cpa,goals.value(70,"t"),date(2026,9,10))["status"],"ACIMA_DO_TETO")
+
+    def test_ratio_goals_compare_level_not_calendar(self):
+        roas={**BODY,"metric":"roas","target_value":4}
+        early=goals.evaluate_goal(roas,goals.value(4.2,"t"),date(2026,9,2))
+        self.assertEqual(early["status"],"META_ATINGIDA")       # antes: julgado como 105% vs 6% do mês
+        self.assertIsNone(early["required_daily"])
+        self.assertEqual(goals.evaluate_goal(roas,goals.value(3.7,"t"),date(2026,9,20))["status"],"ATENCAO")
+        self.assertEqual(goals.evaluate_goal(roas,goals.value(2,"t"),date(2026,9,20))["status"],"ABAIXO_DA_META")
+
+    def test_driver_targets(self):
+        a=lambda v: {"available": True, "actual": v}
+        out=goals.driver_targets("revenue",100000,{"orders":a(400),"average_ticket":a(200)})
+        self.assertEqual(out,{"orders":500,"average_ticket":250})
+        self.assertEqual(goals.driver_targets("revenue",100000,{"orders":{"available":False},"average_ticket":a(200)}),{"orders":500})
+
+    def test_scenarios_need_history_and_show_uncertainty(self):
+        self.assertIsNone(goals.scenarios("revenue","min",[{"value":100,"coverage":1},{"value":200,"coverage":0.5}]))
+        s=goals.scenarios("revenue","min",[{"value":80000,"coverage":1},{"value":90000,"coverage":0.9},{"value":100000,"coverage":1}])
+        self.assertEqual(s["values"]["conservador"],80000)
+        self.assertGreater(s["values"]["referencia"],90000)     # tendência de alta, com metade do efeito
+        self.assertAlmostEqual(s["values"]["agressivo"],110000)
+        ceiling=goals.scenarios("cpa_meta","max",[{"value":50,"coverage":1},{"value":60,"coverage":1}])
+        self.assertEqual(ceiling["values"]["agressivo"],50)     # teto agressivo é o mais baixo
+
+
+class NewMetricTests(ActualTests):
+    async def test_followers_gained_uses_snapshots_not_total(self):
+        rows={"dashboard_daily_metrics":[{"client_id":CID,"metric_date":"2026-08-31","instagram_followers":1000},
+                                         {"client_id":CID,"metric_date":"2026-09-01","instagram_followers":1030}]}
+        r=await self.setup_rows("followers_gained",rows)
+        self.assertEqual(r["actual"],30)
+        self.assertIn("não é o total",r["origin"])
+        late={"dashboard_daily_metrics":[{"client_id":CID,"metric_date":"2026-09-01","instagram_followers":1030}]}
+        self.assertFalse((await self.setup_rows("followers_gained",late))["available"])
+
+    async def test_conversion_rate_same_source_and_cpa(self):
+        rows={"dashboard_daily_metrics":[{"client_id":CID,"metric_date":"2026-09-01","ga4_sessions":200,"ga4_purchases":4,"meta_spend":120,"meta_purchases":3}]}
+        self.assertEqual((await self.setup_rows("conversion_rate",rows))["actual"],2.0)
+        self.assertEqual((await self.setup_rows("cpa_meta",rows))["actual"],40.0)
+        only_sessions={"dashboard_daily_metrics":[{"client_id":CID,"metric_date":"2026-09-01","ga4_sessions":200}]}
+        self.assertFalse((await self.setup_rows("conversion_rate",only_sessions))["available"])
+        no_purchase={"dashboard_daily_metrics":[{"client_id":CID,"metric_date":"2026-09-01","meta_spend":120,"meta_purchases":0}]}
+        self.assertFalse((await self.setup_rows("cpa_meta",no_purchase))["available"])
+
+
+class GoalInputTests(unittest.TestCase):
+    def test_payload_keeps_old_shape_for_simple_goals_and_ceiling_default(self):
+        self.assertEqual(set(routes.GoalInput(**BODY).payload()), {"metric","label","target_value","period_start","period_end"})
+        self.assertEqual(routes.GoalInput(**{**BODY,"metric":"cpa_meta"}).payload()["direction"],"max")
+        p=routes.GoalInput(**{**BODY,"is_primary":True,"owner_user_id":"u2","direction":"min"}).payload()
+        self.assertTrue(p["is_primary"]); self.assertEqual(p["owner_user_id"],"u2"); self.assertNotIn("direction",p)
+
+
+class SeasonalTests(unittest.TestCase):
+    def rows(self, weekend=2.0, weeks=8, start=date(2026, 9, 7)):
+        from datetime import timedelta
+        out = []
+        for i in range(weeks * 7):
+            d = start + timedelta(days=i)
+            out.append({"metric_date": d.isoformat(), "shopify_orders": 10 * (weekend if d.weekday() >= 5 else 1)})
+        return out
+
+    def test_curve_needs_data_and_relevant_difference(self):
+        curve = goals.weekday_curve(self.rows(), ["shopify_orders"])
+        self.assertAlmostEqual(sum(curve) / 7, 1)
+        self.assertGreater(curve[5], curve[0])
+        self.assertIsNone(goals.weekday_curve(self.rows(weekend=1.05), ["shopify_orders"]))   # diferença pequena: linear
+        self.assertIsNone(goals.weekday_curve(self.rows(weeks=3), ["shopify_orders"]))        # pouco histórico: linear
+
+    def test_apply_curve_changes_expected_pace_and_needed_today(self):
+        goal = {**BODY, "metric": "orders", "target_value": 1000, "period_start": "2026-11-02", "period_end": "2026-11-08"}  # seg a dom
+        base = goals.evaluate_goal(goal, goals.value(300, "t", True, covered_days=5), date(2026, 11, 6))  # sexta
+        curve = [1, 1, 1, 1, 1, 2, 2]
+        out = goals.apply_curve(base, curve, date(2026, 11, 6))
+        self.assertEqual(out["pace_model"], "sazonal")
+        self.assertAlmostEqual(out["elapsed_percent"], 5 / 9 * 100)       # 5 dias fracos de 9 pesos
+        self.assertAlmostEqual(out["required_today"], 700 * 1 / 5)         # sexta peso 1 de (1+2+2)
+        self.assertIs(goals.apply_curve(base, None), base)
+
+
+class EvaluationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_evaluation_keeps_original_target_and_actions(self):
+        goal = {**BODY, "id": GID, "target_value": 120000, "period_end": "2026-09-30", "suggestion": {"key": "referencia", "value": 100000}}
+        history = {"available": True, "events": [
+            {"action": "editada", "before": {"target_value": 100000}, "after": {"target_value": 120000}, "created_at": "2026-09-10"},
+            {"action": "criada", "before": None, "after": {"target_value": 100000}, "created_at": "2026-09-01"}]}
+        with patch.object(goals, "goal_history", AsyncMock(return_value=history)), \
+             patch.object(goals, "sb_select", AsyncMock(return_value=[{"client_id": CID, "items": [{"task_id": "t1"}, {"task_id": None}]}])):
+            out = await goals.goal_evaluation(CID, goal, {"actual": 108000, "status": "ABAIXO_DO_RITMO", "direction": "min"})
+        self.assertEqual((out["original_target"], out["current_target"], out["target_changes"]), (100000, 120000, 1))
+        self.assertAlmostEqual(out["deviation_percent"], -10)
+        self.assertEqual(out["tasks_created"], 1)
+        self.assertTrue(out["ended"])

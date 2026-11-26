@@ -21,7 +21,7 @@ MAX_BODY = 2000
 
 async def _item(client_id: str, item_id: str, *, agency: bool) -> Dict[str, Any]:
     rows = await sb_select(ITEMS_TABLE, select="id,title,status,scheduled_at", limit=1,
-                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}"})
+                           filters={"client_id": f"eq.{client_id}", "id": f"eq.{item_id}", "deleted_at": "is.null"})
     if not rows or (not agency and not client_can_see(rows[0], await open_request_item_ids(client_id))):
         raise StudioError("ITEM_NOT_FOUND")
     return rows[0]

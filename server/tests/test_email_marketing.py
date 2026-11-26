@@ -100,7 +100,7 @@ class AudienceTests(unittest.TestCase):
 
     def test_todos_without_consent_filter(self):
         cs = [contact("a"), contact("b", consent=False)]
-        self.assertEqual(self.pick({"segment": "todos"}, cs), ["a", "b"])
+        self.assertEqual(self.pick({"segment": "todos"}, cs), ["a"])
 
     def test_bought_recently_inactive_and_repeat(self):
         cs = [contact("a", last="2026-11-01T00:00:00Z"), contact("b", last="2026-05-01T00:00:00Z"),
@@ -109,9 +109,84 @@ class AudienceTests(unittest.TestCase):
         self.assertEqual(self.pick({"segment": "sem_compra", "days": 90}, cs), ["b", "d"])
         self.assertEqual(self.pick({"segment": "recompra"}, cs), ["d"])
 
+    def test_lists_never_send_without_optin_and_membership(self):
+        cs = [contact("a"), contact("b", consent=False), contact("c")]
+        aud = {"segment": "lista", "list_id": "b5bf2268-6e12-4e45-935f-1f4b0685197e"}
+        chosen = em.select_audience(cs, aud, blocked=set(),
+            list_hashes={"a" * 32, "b" * 32}, now=self.NOW)
+        self.assertEqual([c["hash"][0] for c in chosen], ["a"])
+
+    def test_first_purchase_only(self):
+        cs = [contact("a", orders=1), contact("b", orders=2), contact("c", consent=False)]
+        self.assertEqual(self.pick({"segment": "primeira_compra"}, cs), ["a"])
+
     def test_clean_audience_bounds(self):
         self.assertEqual(em.clean_audience({"segment": "xx", "days": 99999}), {"segment": "consentimento", "days": 730, "only_consent": True})
-        self.assertFalse(em.clean_audience({"segment": "todos"})["only_consent"])
+        self.assertTrue(em.clean_audience({"segment": "todos"})["only_consent"])
+
+
+class UnifiedLeadAudienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_preview_unifies_origins_and_applies_email_eligibility(self):
+        from services.whatsapp_insights import phone_key
+
+        opted_in = em.email_hash("ana@example.com")
+        blocked = em.email_hash("bia@example.com")
+        spreadsheet_only = em.email_hash("caio@example.com")
+        no_consent = em.email_hash("davi@example.com")
+        phone = "5511999998888"
+        contacts = [
+            {"hash": opted_in, "consent": True, "phone": phone},
+            {"hash": blocked, "consent": True},
+            {"hash": no_consent, "consent": False},
+        ]
+        pages = {
+            "relationship_contacts": [{"email_hash": opted_in}, {"email_hash": spreadsheet_only}],
+            "lead_capture_events": [{"email_ciphertext": email} for email in
+                                    ("ana@example.com", "bia@example.com", "davi@example.com")],
+            "whatsapp_threads": [{"phone_key": phone_key(phone)}],
+        }
+
+        async def paged(table, **kwargs):
+            self.assertEqual(kwargs["filters"]["client_id"], "eq.roove")
+            return pages[table], False
+
+        with patch("services.sales_by_origin._paged", side_effect=paged), \
+             patch("services.crypto.decrypt_secret", side_effect=lambda address: address), \
+             patch.object(em, "load_contacts", return_value=("shopify", contacts)), \
+             patch.object(em, "suppressed", return_value={blocked}):
+            result = await em.audience_preview("roove", {"segment": "leads_unificados"})
+
+        self.assertEqual(result["source_count"], 4)
+        self.assertEqual(result["count"], 1)
+
+
+class ExcelConsentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_import_without_phone_and_conflicting_rows(self):
+        raw = ("Nome,E-mail,Aceita Novidades\nAna,ana@example.com,Sim\n"
+               "Bia,bia@example.com,Sim\nBia,bia@example.com,Não\n"
+               "Caio,caio@example.com,on\n").encode()
+        with patch("services.crypto.encrypt_secret", side_effect=lambda value: f"encrypted:{value}"), \
+             patch.object(em, "sb_upsert") as upsert:
+            result = await em.import_email_consents("roove", "leads.csv", raw, "operator")
+        self.assertEqual(result, {"with_consent": 1, "recorded": 2})
+        rows = upsert.await_args.args[1]
+        self.assertEqual([row["consent"] for row in rows], [True, False])
+        self.assertTrue(all(row["client_id"] == "roove" and row["confirmed_by"] == "operator" for row in rows))
+
+
+class CommerceConsentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_shopify_unsubscribe_overrides_old_accepts_flag(self):
+        from services import commerce_context as cc
+        from services import sales_by_origin as sbo
+        person = {"shopify_customer_id": "123", "email": "ana@exemplo.com",
+                  "phone": None, "first_name": "Ana", "last_name": "S",
+                  "orders_count": 0, "consent": "unsubscribed", "accepts": "true"}
+        with patch.object(cc, "resolve_commerce_provider", AsyncMock(return_value={"provider": "shopify"})), \
+             patch.object(sbo, "_paged", AsyncMock(side_effect=[([person], False), ([], False), ([], False)])):
+            provider, contacts = await em.load_contacts("roove")
+        self.assertEqual(provider, "shopify")
+        self.assertEqual(len(contacts), 1)
+        self.assertIs(contacts[0]["consent"], False)
 
 
 class UnsubscribeTests(unittest.TestCase):
@@ -188,6 +263,35 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
     async def test_unknown_email_is_ignored(self):
         with patch.object(em, "sb_select", AsyncMock(return_value=[])):
             self.assertEqual(await em.handle_event({"type": "email.opened", "data": {"email_id": "x"}}), {"ignored": True})
+
+
+class CampaignPreflightTests(unittest.IsolatedAsyncioTestCase):
+    async def test_empty_audience_blocks_preflight_and_schedule(self):
+        campaign = {"status": "rascunho", "subject": "Novidades", "name": "Novembro",
+                    "audience": {"segment": "consentimento", "only_consent": True}}
+        audience = {"count": 0, "base": 3, "with_consent": 0, "blocked": 1,
+                    "consent_known": True, "audience": em.clean_audience(campaign["audience"])}
+        with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \
+             patch.object(em, "audience_preview", AsyncMock(return_value=audience)), \
+             patch.object(em, "get_settings", AsyncMock(return_value={"from_email": "contato@roove.com.br"})):
+            result = await em.campaign_preflight("roove", "campaign-id")
+            self.assertFalse(result["ready"])
+            self.assertEqual(result["audience"]["count"], 0)
+            with self.assertRaises(em.EmailError) as caught:
+                await em.schedule("roove", "campaign-id", None)
+            self.assertEqual(caught.exception.code, "EMPTY_AUDIENCE")
+
+    async def test_preflight_warns_when_consent_is_not_confirmed(self):
+        campaign = {"status": "rascunho", "subject": "Novidades", "name": "Novembro",
+                    "audience": {"segment": "todos", "only_consent": False}}
+        audience = {"count": 8, "base": 10, "with_consent": 0, "blocked": 2,
+                    "consent_known": False, "audience": em.clean_audience(campaign["audience"])}
+        with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \
+             patch.object(em, "audience_preview", AsyncMock(return_value=audience)), \
+             patch.object(em, "get_settings", AsyncMock(return_value={"from_email": "contato@roove.com.br"})):
+            result = await em.campaign_preflight("roove", "campaign-id")
+        self.assertTrue(result["ready"])
+        self.assertEqual(len(result["warnings"]), 1)
 
 
 class CampaignSendTests(unittest.IsolatedAsyncioTestCase):

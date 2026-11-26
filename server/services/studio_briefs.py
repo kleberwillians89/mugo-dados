@@ -114,11 +114,13 @@ def clean_brief(data: Dict[str, Any]) -> Dict[str, Any]:
 
 async def generate_brief(client_id: str, request: str, links: List[str], *, instruction: Optional[str] = None) -> Dict[str, Any]:
     from .studio_engines import throttle
-    from .studio_intelligence import build_content_intelligence, to_prompt
+    from .studio_intelligence import PLANS_RULE, build_content_intelligence, passages_for, to_prompt
     from .studio_llm import llm_json
     throttle(client_id)
     profile = (await load_profile(client_id))["profile"]
     intel = await build_content_intelligence(client_id)
+    # Trechos dos documentos da marca (planejamento, brand book) ligados a ESTE pedido: o briefing sai com a cara da marca.
+    passages = await passages_for(client_id, request[:600], instruction or "")
     today = datetime.now(SAO_PAULO).date().isoformat()
     prompt = (
         f"HOJE: {today}\nPEDIDO (digitado por quem pediu):\n{request.strip()[:4000]}\n"
@@ -129,7 +131,8 @@ async def generate_brief(client_id: str, request: str, links: List[str], *, inst
           "- mensagem: a única ideia que o público deve guardar.\n- publico: para quem é, 1 frase.\n"
           "- prazo: data AAAA-MM-DD se o pedido indicar (ou a data comercial óbvia); senão vazio.\n"
           "- entregaveis: até 6, curtos (ex.: '4 Reels', 'campanha Meta de vendas', 'landing page').\n"
-          "- nao_fazer: até 4 cuidados (tom, promessa, assunto proibido da marca).\n"
+          "- nao_fazer: até 4 cuidados (tom, promessa, assunto proibido da marca); use as palavras a evitar e as restrições do "
+          "perfil e dos documentos da marca.\n"
           "- meta: como vamos provar o resultado para o cliente, mensurável (ex.: '120 pedidos de decant em 30 dias').\n"
           "- versao_cliente: até 3 linhas, para o CLIENTE ler: o que vamos fazer, para quando e como medimos. Sem jargão.\n"
           "- destinos: só os que fazem sentido (social_media = conteúdo orgânico do mês; midia_on = anúncios pagos; "
@@ -139,9 +142,11 @@ async def generate_brief(client_id: str, request: str, links: List[str], *, inst
           "- midia_objetivo e midia_verba: se houver mídia paga (verba em reais só se o pedido disser; senão vazio).\n"
           "- clipping_termos: termos para monitorar, se fizer sentido.\n- criadores_tipo: influencer, ugc ou nenhum.\n"
           "Sem travessão. Não invente oferta, preço, número ou prazo que não esteja no pedido ou nos DADOS.\n"
+          f"{PLANS_RULE}\n"
+        + (f"\nTRECHOS DOS DOCUMENTOS DA MARCA ligados a este pedido (o nome do documento vem entre colchetes):\n{passages}\n" if passages else "")
         + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}"
     )
-    data = await llm_json(client_id=client_id, prompt=prompt, schema_name="studio_brief", schema=_schema(), temperature=0.4,
+    data = await llm_json(brand="conteudo", client_id=client_id, prompt=prompt, schema_name="studio_brief", schema=_schema(), temperature=0.4,
                           instructions="Você é o atendimento sênior de uma agência: transforma o pedido do cliente em briefing claro, curto e executável.")
     brief = clean_brief(data)
     if not (brief["summary"] or brief["objective"]):

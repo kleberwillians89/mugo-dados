@@ -36,14 +36,25 @@ const click = async (label: string) => {
   await act(async () => { button.click(); });
 };
 
+const open = async (title: string) => {
+  const button = [...host.querySelectorAll(".kanbanTitle")].find((b) => b.textContent === title) as HTMLButtonElement;
+  expect(button, title).toBeTruthy();
+  await act(async () => { button.click(); });
+};
+const drawerButtons = () => [...host.querySelectorAll("[data-drawer] button")].map((b) => b.textContent);
+
 describe("Tarefas com aprovação", () => {
-  it("equipe vê aprovação interna e envia/aprova pelo card", async () => {
+  it("equipe vê aprovação interna; o card só informa e as ações ficam dentro da tarefa", async () => {
     await show(<TaskBoard canManage isAgency />);
     const columns = [...host.querySelectorAll(".kanbanCol header b")].map((b) => b.textContent);
     expect(columns).toEqual(["Pendente", "Em produção", "Ajustes", "Aprovação interna", "Aprovação do cliente", "Aprovada / concluída"]);
-    await click("Enviar p/ aprovação →");
+    expect(host.querySelector(".taskQuick")).toBeNull();
+    expect(host.querySelector(".kanbanCol .taskCard button:not(.kanbanTitle)")).toBeNull();
+    await open("Post in_progress");
+    await click("Enviar para aprovação interna");
     expect(crm.taskApproval).toHaveBeenCalledWith("t-in_progress", "submit", undefined, false);
-    await click("Aprovar ✓");
+    await open("Post internal_review");
+    await click("Aprovar e enviar ao cliente");
     expect(crm.taskApproval).toHaveBeenLastCalledWith(expect.stringMatching(/^t-/), "internal_approve", undefined, false);
   });
 
@@ -58,7 +69,7 @@ describe("Tarefas com aprovação", () => {
     await show(<TaskBoard canManage isAgency />);
     expect(host.textContent).toContain("Ajuste: Black Friday (27/11)");
     expect(host.querySelector(".taskFromCalendar")?.textContent).toBe("Calendário");
-    expect([...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent)).toEqual(["Enviar ao cliente →", "Calendário →"]);
+    expect(host.querySelector(".taskQuick")).toBeNull();
     await act(async () => { (host.querySelector(".kanbanTitle") as HTMLButtonElement).click(); });
     expect(host.querySelector("[data-drawer]")?.textContent).toContain("Ligada a um post do Calendário");
     expect([...host.querySelectorAll("[data-drawer] button")].map((b) => b.textContent)).not.toContain("Enviar para aprovação interna");
@@ -92,8 +103,8 @@ describe("Tarefas com aprovação", () => {
     await click("Tudo + Calendário");
     const column = [...host.querySelectorAll(".kanbanCol")].find((c) => c.querySelector("header b")?.textContent === "Aprovação do cliente")!;
     expect(column.textContent).toContain("Reels Black Friday");
-    expect(column.textContent).toContain("com Gabi");
-    await click("Aprovar / ajuste");
+    expect(column.textContent).toContain("Esperando aprovação do cliente");
+    await open("Reels Black Friday");
     expect(host.querySelector(".phoneFrame")).toBeTruthy();
     expect(host.textContent).toContain("Oferta da semana");
     await click("Pedir ajuste");
@@ -107,7 +118,7 @@ describe("Tarefas com aprovação", () => {
   it("cliente não vê a etapa interna; pede ajuste com comentário pela tarefa aberta", async () => {
     await show(<TaskBoard />);
     expect([...host.querySelectorAll(".kanbanCol header b")].map((b) => b.textContent)).not.toContain("Aprovação interna");
-    await click("Pedir ajuste");
+    await open("Post client_review");
     expect(host.querySelector("[data-drawer]")?.textContent).toContain("julia enviou para aprovação interna");
     const textarea = [...host.querySelectorAll("[data-drawer] textarea")].pop() as HTMLTextAreaElement;
     await act(async () => {
@@ -126,10 +137,10 @@ describe("Tarefas com aprovação", () => {
         task("internal_review", { visible_to_client: false })] }));
     await show(<TaskBoard canManage />);
     expect(host.textContent).toContain("Você vê as tarefas em que é responsável");
-    const labels = [...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent);
-    expect(labels).toContain("Enviar p/ aprovação →");
-    expect(labels).not.toContain("Aprovar ✓");
-    await click("Enviar p/ aprovação →");
+    await open("Post internal_review");
+    expect(drawerButtons()).not.toContain("Aprovar");
+    await open("Post in_progress");
+    await click("Enviar para aprovação interna");
     expect(crm.taskApproval).toHaveBeenCalledWith("t-in_progress", "submit", undefined, false);
   });
 
@@ -138,8 +149,9 @@ describe("Tarefas com aprovação", () => {
       tasks: status === "completed" ? [] : [task("internal_review", { visible_to_client: false })] }));
     crm.updateTask.mockImplementation(async (id: string, input: object) => ({ task: task("internal_review", { id, ...input }) }));
     await show(<TaskBoard canManage />);
-    expect([...host.querySelectorAll(".taskQuick button")].map((b) => b.textContent)).toContain("Aprovar ✓");
-    await act(async () => { (host.querySelector(".kanbanTitle") as HTMLButtonElement).click(); });
+    await open("Post internal_review");
+    expect(drawerButtons()).toContain("Aprovar");
+    await click("Escolher entre todos");  // sem área escolhida, a lista de pessoas só aparece quando pedida
     const choice = [...host.querySelectorAll("[data-drawer] .taskAssigneeOptions label")]
       .find((label) => label.textContent?.includes("Liliu"))?.querySelector("input") as HTMLInputElement;
     expect(choice).toBeTruthy();
@@ -149,5 +161,94 @@ describe("Tarefas com aprovação", () => {
     const sent = crm.updateTask.mock.calls[0][1] as { assignee_user_id: string; assignee_name: string; assignee_user_ids?: string[] };
     expect([sent.assignee_user_id, sent.assignee_name]).toEqual(["u-liliu", "Liliu"]);
     expect(sent.assignee_user_ids).toBeUndefined(); // legacy-safe for a single responsible person
+  });
+});
+
+describe("cartão limpo e Nova tarefa simples (spec do Danilo)", () => {
+  it("card em Ajustes mostra o que mudar, o nome (não o e-mail) e nenhum botão de ação", async () => {
+    crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true, tasks: status === "completed" ? [] : [
+      task("changes", { title: "Ajuste: capa", change_note: "Trocar a foto da capa por uma de produto", category: "Design",
+        assignees: [{ name: "mduda.mugo@gmail.com", color: "#3a7", user_id: "u1" }] })] }));
+    await show(<TaskBoard canManage isAgency />);
+    const card = host.querySelector(".kanbanCol.is-task-changes .taskCard")!;
+    expect(card.textContent).toContain("Ajustar: Trocar a foto da capa por uma de produto");
+    expect(card.textContent).toContain("mduda.mugo");
+    expect(card.textContent).not.toContain("@gmail.com");
+    expect(card.textContent).toContain("Design");
+    expect(card.querySelectorAll("button")).toHaveLength(1);  // só o título, que abre a tarefa
+  });
+
+  it("Nova tarefa: Título → Tarefa → Link → Departamento → Responsáveis → opcionais; nasce Pendente, interna e sem WhatsApp", async () => {
+    crm.listAssignees.mockResolvedValue({ available: true, people: [
+      { user_id: "u-liliu", name: "Liliu", departments: ["Design"] }, { user_id: "u-julia", name: "Julia", departments: ["Social Media"] }] });
+    crm.createTask.mockResolvedValue({ task: task("pending") });
+    await show(<TaskBoard canManage isAgency />);
+    const columnsWithAdd = [...host.querySelectorAll(".kanbanCol")].filter((c) => c.querySelector(".taskAddCard")).map((c) => c.querySelector("header b")?.textContent);
+    expect(columnsWithAdd).toEqual(["Pendente"]);  // ninguém cria tarefa direto em outra etapa
+    await click("+ Nova tarefa");
+    const drawer = host.querySelector("[data-drawer]")!;
+    const labels = [...drawer.querySelectorAll("fieldset label.ds-field, fieldset legend")].map((l) => (l.childNodes[0]?.textContent || "").trim());
+    expect(labels.slice(0, 6)).toEqual(["Título", "Tarefa", "Link da entrega (Drive, Canva, Figma…)", "Departamento", "Responsáveis", "Prioridade"]);
+    for (const gone of ["Etapa", "Visível ao cliente", "Exigir aprovação do cliente", "Avisar responsáveis também pelo WhatsApp"]) expect(drawer.textContent).not.toContain(gone);
+    expect(drawer.textContent).toContain("Escolha o departamento para ver quem é da área.");
+    expect(drawer.textContent).not.toContain("Liliu");
+    const set = async (el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) => act(async () => {
+      const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
+      el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
+    });
+    await set(drawer.querySelector("input[required]") as HTMLInputElement, "Peças de dezembro");
+    await set(drawer.querySelector("textarea") as HTMLTextAreaElement, "3 posts e 2 stories");
+    await set([...drawer.querySelectorAll("select")].find((s) => s.textContent?.includes("Selecione a área")) as HTMLSelectElement, "Design");
+    expect(drawer.textContent).toContain("Liliu");
+    expect(drawer.textContent).not.toContain("Julia");  // só quem é da área, até pedir as outras
+    await act(async () => { ([...drawer.querySelectorAll(".taskAssigneeOptions label")].find((l) => l.textContent?.includes("Liliu"))!.querySelector("input") as HTMLInputElement).click(); });
+    await act(async () => { (drawer.querySelector("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    const sent = crm.createTask.mock.calls[0][0];
+    expect(sent).toMatchObject({ title: "Peças de dezembro", notes: "3 posts e 2 stories", category: "Design", status: "pending", priority: null,
+      due_date: null, send_whatsapp: false, visible_to_client: false, needs_client_approval: false, assignee_user_id: "u-liliu" });
+  });
+
+  it("editar não mexe em etapa, visibilidade nem aprovação; Iniciar e Concluir ficam dentro da tarefa", async () => {
+    crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true, tasks: status === "completed" ? [] : [
+      task("pending", { visible_to_client: true, needs_client_approval: true }), task("in_progress", { visible_to_client: false })] }));
+    crm.updateTask.mockImplementation(async (id: string, input: object) => ({ task: task("pending", { id, ...input }) }));
+    await show(<TaskBoard canManage isAgency />);
+    await open("Post pending");
+    await act(async () => { (host.querySelector("[data-drawer] form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    const edit = crm.updateTask.mock.calls[0][1];
+    for (const key of ["status", "visible_to_client", "needs_client_approval", "send_whatsapp"]) expect(edit).not.toHaveProperty(key);
+    await open("Post pending");
+    await click("Iniciar");
+    expect(crm.updateTask).toHaveBeenLastCalledWith("t-pending", { status: "in_progress" });
+    await open("Post in_progress");
+    await click("Concluir ✓");
+    expect(crm.updateTask).toHaveBeenLastCalledWith("t-in_progress", { status: "completed" });
+  });
+
+  it("hora sem data pede a data antes de salvar", async () => {
+    await show(<TaskBoard canManage isAgency />);
+    await click("+ Nova tarefa");
+    const drawer = host.querySelector("[data-drawer]")!;
+    await act(async () => {
+      const title = drawer.querySelector("input[required]") as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Reunião");
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+      const time = drawer.querySelector('input[type="time"]') as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(time, "10:00");
+      time.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(drawer.textContent).toContain("Para usar a hora, escolha também a data do prazo.");
+    await act(async () => { (drawer.querySelector("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(crm.createTask).not.toHaveBeenCalled();
+  });
+});
+
+describe("estilo do quadro fora do Studio", () => {
+  it("o próprio TaskBoard carrega o CSS (no Início não há tela do Studio para trazê-lo)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(`${process.cwd()}/src/components/studio/TaskBoard.tsx`, "utf8");
+    expect(source).toContain('import "../../styles/studio.css"');
+    expect(readFileSync(`${process.cwd()}/src/styles/studio.css`, "utf8")).toContain(".taskBoard");
   });
 });

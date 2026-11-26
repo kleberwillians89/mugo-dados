@@ -139,6 +139,35 @@ export async function getApiVersion(): Promise<ApiVersion> {
   return http<ApiVersion>("/api/version");
 }
 
+export type AiSettings = {
+  client_id: string;
+  mode: "platform_managed" | "byok";
+  provider: "openai";
+  model: string;
+  credential_status: "platform" | "missing" | "valid" | "invalid" | "unchecked";
+  has_credential: boolean;
+  credential_updated_at?: string | null;
+  validated_at?: string | null;
+};
+
+export type AiModelOption = { provider: "openai"; model: string; max_output_tokens: number };
+
+function aiSettingsPath(suffix = ""): string {
+  return `/api/clients/${encodeURIComponent(getActiveClientId())}/ai-settings${suffix}`;
+}
+
+export function getAiSettings(): Promise<{ settings: AiSettings; models: AiModelOption[] }> {
+  return http(aiSettingsPath());
+}
+
+export function saveAiSettings(input: { mode: AiSettings["mode"]; model: string; api_key?: string }): Promise<{ settings: AiSettings }> {
+  return http(aiSettingsPath(), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+}
+
+export function revokeAiCredential(): Promise<{ settings: AiSettings }> {
+  return http(aiSettingsPath("/credential"), { method: "DELETE" });
+}
+
 export type ClientsResponse = {
   ok: boolean;
   clients: ClientMembership[];
@@ -385,7 +414,7 @@ async function executeHttp<T>(path: string, init: HttpRequestInit = {}): Promise
   }
 
   const headers = toHeaders(init.headers);
-  headers.set("Content-Type", "application/json");
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const activeClientId = getActiveClientId();
   if (activeClientId) headers.set("X-Client-Id", activeClientId);
@@ -2339,6 +2368,19 @@ export async function getGa4Channels(
     { signal: options?.signal }
   );
   return normalizeGa4Channels(raw);
+}
+
+export function getGa4Hourly(
+  period: PeriodQueryInput,
+  options: ClientRequestOptions & { connectionId?: string },
+) {
+  const path = pathWithClientId(pathWithPeriod("/api/google/ga4/hourly", period, 30), options.clientId);
+  const connection = options.connectionId ? `&connection_id=${encodeURIComponent(options.connectionId)}` : "";
+  return http<{
+    hours: Array<{ hour: number; sessions: number; purchases: number }>;
+    time_zone: string | null;
+    complete: boolean;
+  }>(path + connection, { signal: options.signal });
 }
 
 export async function getGa4Campaigns(

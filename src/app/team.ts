@@ -22,8 +22,18 @@ const json = (method: string, body?: unknown) => ({ method, body: body === undef
 export const getTeamCatalog = () => http<TeamCatalog>("/api/team/catalog");
 export const getMyAccess = () => http<MyAccess>("/api/team/me");
 export const listTeamMembers = () => http<{ items: TeamMember[] }>("/api/team/members");
+/** Áreas de cada integrante (Design, Social Media…): a Nova tarefa sugere os responsáveis da área escolhida. */
+export const getTeamDepartments = () => http<{ catalog: string[]; by_user: Record<string, string[]> }>("/api/team/departments");
+export const setMemberDepartments = (userId: string, departments: string[]) =>
+  http<{ user_id: string; departments: string[] }>(`/api/team/members/${encodeURIComponent(userId)}/departments`, json("PUT", { departments }));
 export const createTeamMember = (input: PermissionInput & { name: string; login: string; password: string }) =>
-  http<{ user_id: string; login: string; account_created: boolean }>("/api/team/members", json("POST", input));
+  http<{ user_id: string; login: string; account_created: boolean; password_applied?: boolean }>("/api/team/members", json("POST", input));
+/** Contas que já existem (só a equipe Mugô busca). Vincular nunca cria conta nem troca senha. */
+export type LinkableAccount = { user_id: string; name: string | null; login: string; team: boolean };
+export const searchLinkableAccounts = (q: string) =>
+  http<{ items: LinkableAccount[] }>(`/api/team/linkable?q=${encodeURIComponent(q)}`);
+export const linkExistingMember = (input: { user_id: string } & Partial<PermissionInput>) =>
+  http<{ user_id: string; team_member: boolean; role: string }>("/api/team/members/link", json("POST", input));
 export const updateTeamMember = (userId: string, input: PermissionInput) =>
   http<{ codes: string[] }>(`/api/team/members/${encodeURIComponent(userId)}`, json("PUT", input));
 export const setTeamMemberStatus = (userId: string, status: "active" | "inactive") =>

@@ -76,6 +76,7 @@ async def create_template(client_id: str, *, payload: Dict[str, Any]) -> Dict[st
             name=payload.get("name", ""), category=payload.get("category", ""),
             language=payload.get("language", "pt_BR"), body=payload.get("body", ""),
             examples=payload.get("examples") or [], footer=payload.get("footer") or "",
+            buttons=payload.get("buttons") or None,
         )
     except WhatsAppNativeError as exc:
         raise StudioError("CRM_TEMPLATE_INVALID", exc.message) from None

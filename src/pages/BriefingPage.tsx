@@ -10,7 +10,7 @@ import PageHeader from "../components/data/PageHeader";
 import "../styles/studio.css";
 
 const DESTINATIONS: { key: BriefDestination; label: string; route: AppRoute; hint: string }[] = [
-  { key: "social_media", label: "Social Media", route: "campaigns", hint: "Roda a esteira de agentes com este foco" },
+  { key: "social_media", label: "Social Media", route: "campaigns", hint: "Gera a Matriz e os posts com este foco" },
   { key: "midia_on", label: "Mídia On", route: "media", hint: "Gera a estratégia de mídia paga" },
   { key: "clipping", label: "Clipping", route: "clipping", hint: "Passa a monitorar os termos" },
   { key: "redacao", label: "Redação", route: "redacao", hint: "Abre um documento com o briefing" },
@@ -68,7 +68,7 @@ export default function BriefingPage() {
 
   const current = useMemo(() => briefs.find((b) => b.id === openId) || null, [briefs, openId]);
 
-  return <Shell title="Briefing" variant="editorial"><div className="ds-page studioPage briefPage">
+  return <Shell title="Briefing" variant="editorial"><div className="ds-page studioPage briefPage mugoBrand">
     <PageHeader company={getActiveClientName() || "empresa"} title="Briefing" />
     <section className="briefComposer" aria-label="Novo pedido">
       <label htmlFor="brief-request"><b>O que precisa?</b><span>{team ? "Escreva o pedido como chegou. A IA monta o briefing com o contexto da marca."
@@ -123,11 +123,6 @@ function TeamBrief({ brief, people, busy, run, onChange }: { brief: Brief; peopl
   const [draft, setDraft] = useState<BriefPatch>({});
   const [redo, setRedo] = useState("");
   const waiting = brief.status === "aguardando_equipe";
-  const suggested = new Set((b.destinations || []).map((d) => d.key));
-  const why = (k: BriefDestination) => b.destinations?.find((d) => d.key === k)?.why;
-  const roles = (b.roles || []).map((r) => r.role);
-  const [extra, setExtra] = useState<BriefingRole[]>([]);
-  const rows: BriefingRole[] = [...roles, ...extra.filter((r) => !roles.includes(r))];
 
   async function save() {
     const r = await run("save", () => updateBrief(brief.id, draft), "Não foi possível salvar.");
@@ -173,32 +168,7 @@ function TeamBrief({ brief, people, busy, run, onChange }: { brief: Brief; peopl
       </div>
     </>}
 
-    <section className="briefSection" aria-label="Destinos">
-      <h3>Levar para</h3>
-      <ul className="briefDestinations">{DESTINATIONS.map((d) => {
-        const sent = brief.destinations?.[d.key];
-        return <li key={d.key} className={`${suggested.has(d.key) ? "is-suggested" : ""}${sent?.status === "feito" ? " is-done" : ""}`}>
-          <div><b>{d.label}</b><small>{sent ? sent.detail : why(d.key) || d.hint}</small>
-            {sent?.status === "feito" ? <a href={getPathForRoute(d.route)}>Abrir {d.label} →</a> : null}</div>
-          <button type="button" className={`ds-button${suggested.has(d.key) && !sent ? " is-primary" : ""}`} disabled={busy !== null || waiting}
-            onClick={async () => { const r = await run(`d:${d.key}`, () => sendBrief(brief.id, d.key), "Não foi possível enviar."); if (r) onChange(r.brief); }}>
-            {busy === `d:${d.key}` ? "Enviando…" : sent?.status === "feito" ? "Enviar de novo" : sent?.status === "falhou" ? "Tentar de novo" : "Enviar"}</button>
-        </li>;
-      })}</ul>
-    </section>
-
-    <section className="briefSection" aria-label="Pessoas">
-      <h3>Quem faz o quê</h3>
-      <div className="briefPeople">
-      {rows.map((role) => <PersonRow key={role} role={role} what={b.roles?.find((r) => r.role === role)?.what} people={people}
-        disabled={busy !== null || waiting} done={(brief.tasks || []).filter((t) => t.role === role)}
-        onCreate={async (input) => { const r = await run(`t:${role}`, () => briefTask(brief.id, { role, ...input }), "Não foi possível criar a tarefa."); if (r) onChange(r.brief); return Boolean(r); }} />)}
-      </div>
-      <label className="briefAddRole">Outra função<select value="" onChange={(e) => { if (e.target.value) setExtra([...extra, e.target.value as BriefingRole]); }}>
-        <option value="">Adicionar…</option>
-        {(Object.keys(BRIEFING_ROLES) as BriefingRole[]).filter((r) => !rows.includes(r)).map((r) => <option key={r} value={r}>{BRIEFING_ROLES[r]}</option>)}
-      </select></label>
-    </section>
+    <Forwarding brief={brief} people={people} busy={busy} disabled={busy !== null || waiting} run={run} onChange={onChange} />
 
     <details className="briefSection"><summary>Pedido original</summary><p className="briefRequest">{brief.request}</p>
       {brief.links?.length ? <ul>{brief.links.map((u) => <li key={u}><a href={u} target="_blank" rel="noopener noreferrer">{u}</a></li>)}</ul> : null}</details>
@@ -206,24 +176,98 @@ function TeamBrief({ brief, people, busy, run, onChange }: { brief: Brief; peopl
   </article>;
 }
 
-function PersonRow({ role, what, people, disabled, done, onCreate }: { role: BriefingRole; what?: string; people: Person[] | null; disabled: boolean;
-  done: { name: string }[]; onCreate: (input: { assignee_user_id: string | null; assignee_name: string | null; due_date: string | null; note: string | null }) => Promise<boolean> }) {
+/**
+ * Encaminhamento: um só bloco para levar o briefing a uma tela (Social Media, Mídia On…) e/ou criar a tarefa de quem
+ * faz, com prazo. Usa os mesmos serviços de antes (envio ao destino e tarefa do briefing): nenhum sistema novo de tarefas.
+ */
+function Forwarding({ brief, people, busy, disabled, run, onChange }: { brief: Brief; people: Person[] | null; busy: string | null; disabled: boolean;
+  run: Run; onChange: (b: Brief) => void }) {
+  const b = brief.brief;
+  const sentTo = brief.destinations || {};
+  const tasks = brief.tasks || [];
+  const suggestedDest = (b.destinations || []).filter((d) => DESTINATIONS.some((x) => x.key === d.key));
+  const suggestedRoles = b.roles || [];
+  const firstDest = suggestedDest.find((d) => sentTo[d.key]?.status !== "feito")?.key || "";
+  const firstRole = suggestedRoles.find((r) => !tasks.some((t) => t.role === r.role))?.role || "";
+  const [dest, setDest] = useState<BriefDestination | "">(firstDest);
+  const [role, setRole] = useState<BriefingRole | "">(firstRole);
   const [user, setUser] = useState("");
   const [due, setDue] = useState("");
   const [note, setNote] = useState("");
+  const [done, setDone] = useState<string | null>(null);
   const person = (people || []).find((p) => p.user_id === user);
-  return <div className="briefPerson">
-    <div className="briefPersonRole"><b>{BRIEFING_ROLES[role]}</b>{what ? <small>{what}</small> : null}
-      {done.length ? <small className="studioOk">✓ Tarefa de {done.map((d) => d.name).join(", ")}</small> : null}</div>
-    <div className="briefPersonForm">
-    <select value={user} onChange={(e) => setUser(e.target.value)} aria-label={`Pessoa para ${BRIEFING_ROLES[role]}`} disabled={disabled}>
-      <option value="">{people === null ? "Carregando…" : people.length ? "Quem?" : "Sem integrantes"}</option>
-      {(people || []).map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
-    </select>
-    <input type="date" value={due} onChange={(e) => setDue(e.target.value)} aria-label="Prazo" disabled={disabled} />
-    <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Recado (opcional)" aria-label="Recado" disabled={disabled} />
-    <button type="button" className="ds-button" disabled={disabled || (Boolean(people?.length) && !user)}
-      onClick={async () => { if (await onCreate({ assignee_user_id: person?.user_id || null, assignee_name: person?.name || null, due_date: due || null, note: note.trim() || null })) { setUser(""); setNote(""); } }}>Criar tarefa</button>
+  const destInfo = DESTINATIONS.find((d) => d.key === dest);
+  const destWhy = dest ? suggestedDest.find((d) => d.key === dest)?.why : undefined;
+  const roleWhat = role ? suggestedRoles.find((r) => r.role === role)?.what : undefined;
+  const needsPerson = Boolean(role) && Boolean(people?.length) && !user;
+  const sending = busy === "fwd";
+  const roleOptions = [...suggestedRoles.map((r) => r.role), ...(Object.keys(BRIEFING_ROLES) as BriefingRole[]).filter((r) => !suggestedRoles.some((s) => s.role === r))];
+
+  async function confirm() {
+    setDone(null);
+    const steps: string[] = [];
+    let latest: Brief | null = null;
+    let failed: string | null = null;
+    const ok = await run("fwd", async () => {
+      if (dest) {
+        const sent = (await sendBrief(brief.id, dest)).brief;
+        latest = sent;
+        const label = DESTINATIONS.find((d) => d.key === dest)?.label || dest;
+        // O destino responde "falhou" escrito no próprio destino: não segue para a tarefa sem a pessoa ver.
+        if (sent.destinations?.[dest]?.status === "falhou") { failed = `Não foi possível levar para ${label}: ${sent.destinations[dest]?.detail || "tente de novo"}.`; return true; }
+        steps.push(label);
+      }
+      if (role) {
+        latest = (await briefTask(brief.id, { role, assignee_user_id: person?.user_id || null, assignee_name: person?.name || null,
+          due_date: due || null, note: note.trim() || null })).brief;
+        steps.push(`tarefa de ${person?.name || BRIEFING_ROLES[role]}`);
+      }
+      return true;
+    }, "Não foi possível encaminhar.");
+    // O que já foi feito antes de uma falha continua valendo (e aparece na lista abaixo).
+    if (latest) onChange(latest);
+    if (ok && failed) setDone(failed);
+    else if (ok) { setDone(`✓ Encaminhado: ${steps.join(" + ")}.`); setUser(""); setNote(""); setDue(""); }
+  }
+
+  return <section className="briefSection" aria-label="Encaminhamento">
+    <h3>Encaminhamento</h3>
+    <div className="briefPerson briefEdit">
+      <label>Destino<select value={dest} disabled={disabled} onChange={(e) => setDest(e.target.value as BriefDestination | "")}>
+        <option value="">Só a tarefa (não levar para outra tela)</option>
+        {DESTINATIONS.map((d) => <option key={d.key} value={d.key}>{d.label}{suggestedDest.some((s) => s.key === d.key) ? " · sugerido" : ""}{sentTo[d.key]?.status === "feito" ? " · já enviado" : ""}</option>)}
+      </select>{destInfo ? <small className="libHint">{destWhy || destInfo.hint}</small> : null}</label>
+      <label>Função<select value={role} disabled={disabled} onChange={(e) => setRole(e.target.value as BriefingRole | "")}>
+        <option value="">Sem tarefa (só levar para a tela)</option>
+        {roleOptions.map((r) => <option key={r} value={r}>{BRIEFING_ROLES[r]}{suggestedRoles.some((s) => s.role === r) ? " · sugerido" : ""}</option>)}
+      </select>{roleWhat ? <small className="libHint">{roleWhat}</small> : null}</label>
+      {role ? <>
+        <label>Responsável<select value={user} disabled={disabled} onChange={(e) => setUser(e.target.value)} aria-label="Responsável">
+          <option value="">{people === null ? "Carregando…" : people.length ? "Quem vai fazer?" : "Sem integrantes: fica sem responsável"}</option>
+          {(people || []).map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
+        </select></label>
+        <label>Prazo<input type="date" value={due} disabled={disabled} onChange={(e) => setDue(e.target.value)} aria-label="Prazo" /></label>
+        <label>Recado<input value={note} disabled={disabled} onChange={(e) => setNote(e.target.value)} placeholder="Opcional" aria-label="Recado" /></label>
+      </> : null}
+      <div className="postBriefingActions">
+        <button type="button" className="ds-button is-primary" disabled={disabled || (!dest && !role) || needsPerson} onClick={() => void confirm()}>
+          {sending ? "Encaminhando…" : "Confirmar encaminhamento"}</button>
+      </div>
+      {done ? <p className={done.startsWith("✓") ? "studioOk" : "studioError"} role="status">{done}</p> : null}
     </div>
-  </div>;
+
+    {Object.keys(sentTo).length || tasks.length ? <ul className="briefDestinations" aria-label="Já encaminhado">
+      {DESTINATIONS.filter((d) => sentTo[d.key]).map((d) => {
+        const sent = sentTo[d.key]!;
+        return <li key={d.key} className={sent.status === "feito" ? "is-done" : ""}>
+          <div><b>{d.label}</b><small>{sent.detail}</small>
+            {sent.status === "feito" ? <a href={getPathForRoute(d.route)}>Abrir {d.label} →</a> : null}</div>
+          {sent.status === "falhou" ? <button type="button" className="ds-button" disabled={disabled}
+            onClick={async () => { const r = await run(`d:${d.key}`, () => sendBrief(brief.id, d.key), "Não foi possível enviar."); if (r) onChange(r.brief); }}>
+            {busy === `d:${d.key}` ? "Enviando…" : "Tentar de novo"}</button> : null}
+        </li>;
+      })}
+      {tasks.map((t) => <li key={t.task_id} className="is-done"><div><b>{BRIEFING_ROLES[t.role] || t.role}</b><small className="studioOk">✓ Tarefa de {t.name}</small></div></li>)}
+    </ul> : null}
+  </section>;
 }

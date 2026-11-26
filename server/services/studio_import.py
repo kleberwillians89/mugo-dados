@@ -107,12 +107,12 @@ def validate_parsed(raw: List[Dict[str, Any]], slides: List[Dict[str, Any]], *, 
     return out
 
 
-async def parse_slides(slides: List[Dict[str, Any]], *, file_name: str = "") -> Dict[str, Any]:
+async def parse_slides(slides: List[Dict[str, Any]], *, file_name: str = "", client_id: str | None = None) -> Dict[str, Any]:
     clean = normalize_slides(slides)
     year = datetime.now(SAO_PAULO).year
     prompt = (f"ARQUIVO: {file_name[:120]}\nANO DE REFERÊNCIA (quando o slide só tiver dia/mês): {year}\n"
               "SLIDES (JSON; cada um com texto e links):\n" + json.dumps(clean, ensure_ascii=False))
-    data = await llm_json(instructions=INSTRUCTIONS, prompt=prompt, schema_name="studio_calendar_import",
+    data = await llm_json(client_id=client_id, instructions=INSTRUCTIONS, prompt=prompt, schema_name="studio_calendar_import",
                           schema=SCHEMA, temperature=0.1, timeout=150)
     items = validate_parsed(data.get("items") or [], clean, year_hint=year)
     notes = [str(n)[:300] for n in (data.get("notes") or [])[:5]]

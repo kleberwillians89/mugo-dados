@@ -92,6 +92,15 @@ async def _prompt(client_id: str) -> tuple[str, List[str]]:
             lines.append("Concorrentes que apareceram nas notícias: " + ", ".join(terms[:15]))
     except Exception:  # noqa: BLE001
         pass
+    try:
+        from .web_research import evidence_block, research
+        niche = "; ".join(l for l in lines[1:4])
+        web = await research(client_id, f"Quem são os principais concorrentes no Brasil de {name or 'esta marca'}? Contexto: {niche[:600]}. "
+                             "Dê nome, site e @ do Instagram de cada um.", feature="competitors")
+        if web:
+            lines.append(evidence_block(web, "CONCORRENTES ENCONTRADOS NA WEB"))
+    except Exception:  # noqa: BLE001
+        pass
     lines.append(f"Liste até {AUTO_COUNT + 3} concorrentes.")
     return "\n".join(lines), [name, *brand_terms]
 

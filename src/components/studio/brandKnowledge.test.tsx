@@ -3,8 +3,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn(), retryKnowledgeDocument: vi.fn() }));
+const state = vi.hoisted(() => ({ getKnowledge: vi.fn(), saveKnowledge: vi.fn(), teachFromFile: vi.fn(), teachFromText: vi.fn(), retryKnowledgeDocument: vi.fn(), learnFromLibrary: vi.fn() }));
 vi.mock("../../app/studio", async (original) => ({ ...(await original<typeof import("../../app/studio")>()), ...state }));
+const upload = vi.hoisted(() => ({ teachAndKeepOriginal: vi.fn(), originalsByDocument: vi.fn() }));
+vi.mock("../../app/brandKnowledgeUpload", async (original) => ({ ...(await original<typeof import("../../app/brandKnowledgeUpload")>()), ...upload }));
+import { ApiError } from "../../app/api";
 
 import BrandKnowledge from "./BrandKnowledge";
 import { parseKnowledge } from "./brandKnowledge.helpers";
@@ -18,9 +21,29 @@ beforeEach(() => {
     documents: [{ id: "d1", name: "horarios.pdf", kind: "produto", summary: "Horários de treino", facts_added: 2, truncated: false, created_at: "2026-11-05T10:00:00Z" }] });
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
+beforeEach(() => {
+  upload.originalsByDocument.mockResolvedValue({ d1: "https://storage/plano.pdf" });
+  state.learnFromLibrary.mockResolvedValue({ running: false, read: [], skipped: [], left: 0 });
+});
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
 
 describe("BrandKnowledge", () => {
+  it("lê sozinha os documentos novos da Biblioteca e avisa o que leu", async () => {
+    state.learnFromLibrary.mockResolvedValueOnce({ running: false, read: [{ name: "Roove_plan.pdf", status: "aprendido" }],
+      skipped: [{ name: "Catalogo.pdf", reason: "maior que 10 MB" }], left: 0 });
+    await show(<BrandKnowledge canManage />);
+    await act(async () => {});
+    const line = host.querySelector('[data-testid="library-learn"]')!.textContent!;
+    expect(line).toContain("Li da Biblioteca: Roove_plan.pdf");
+    expect(line).toContain("Catalogo.pdf (maior que 10 MB)");
+    expect(state.getKnowledge).toHaveBeenCalledTimes(2);  // recarrega o conhecimento depois de ler
+  });
+
+  it("quem só lê não dispara a leitura da Biblioteca", async () => {
+    await show(<BrandKnowledge canManage={false} />);
+    expect(state.learnFromLibrary).not.toHaveBeenCalled();
+  });
+
   it("mostra o que a IA sabe e os materiais lidos", async () => {
     await show(<BrandKnowledge canManage />);
     expect(host.textContent).toContain("Treino sábado 6h");
@@ -78,6 +101,32 @@ describe("BrandKnowledge", () => {
     expect(host.textContent).toContain("Kit de boas-vindas");
     expect(host.textContent).not.toContain("Tentar de novo");
     expect(host.querySelectorAll(".kbDocs li").length).toBe(2);   // não duplica o material reprocessado
+  });
+
+  it("mostra o link do original guardado na Biblioteca", async () => {
+    await show(<BrandKnowledge canManage />);
+    const link = [...host.querySelectorAll("a")].find((a) => a.textContent?.includes("Abrir original"));
+    expect(link?.getAttribute("href")).toBe("https://storage/plano.pdf");
+  });
+
+  it("PDF sem texto: oferece ler as páginas com IA e só lê quando a pessoa pede", async () => {
+    const file = new File(["%PDF"], "brandbook.pdf", { type: "application/pdf" });
+    upload.teachAndKeepOriginal
+      .mockRejectedValueOnce(new ApiError("Este PDF não tem texto selecionável.", { status: 422, code: "DOC_NEEDS_OCR" }))
+      .mockResolvedValueOnce({ ok: true, knowledge: "Empresa: M2\n- Tom acolhedor", sources: 2, original: "guardado",
+        ocr: { pages_read: 12, pages_total: 12, pages_limit: 20, partial: false },
+        document: { id: "d9", name: "brandbook.pdf", kind: "institucional", summary: "Brand book", facts_added: 3, truncated: false, created_at: "2026-11-17T10:00:00Z" } });
+    await show(<BrandKnowledge canManage />);
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(upload.teachAndKeepOriginal).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain("não tem texto selecionável");
+    const ocr = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Ler as páginas com IA"))!;
+    await act(async () => { ocr.click(); });
+    expect(upload.teachAndKeepOriginal).toHaveBeenLastCalledWith(file, "institucional", { ocr: true });
+    expect(host.textContent).toContain("A IA leu 12 de 12 página(s)");
+    expect(host.textContent).toContain("O arquivo original ficou na Biblioteca");
   });
 
   it("divide o conhecimento em blocos por título", () => {

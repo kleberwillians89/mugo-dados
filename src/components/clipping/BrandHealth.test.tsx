@@ -28,7 +28,7 @@ vi.mock("../../app/activeClient", () => ({ getActiveClientId: () => "ruah" }));
 const getBrandHealth = vi.fn(async () => fixture);
 const analyzeBrandHealth = vi.fn(async () => ({ classified: 40, failed: 0, news_analyzed: 36, news_pending: 84, alerts_opened: 0 }));
 vi.mock("../../app/brandHealth", async (orig) => ({ ...(await orig<typeof import("../../app/brandHealth")>()), getBrandHealth: (q: unknown) => getBrandHealth(q),
-  analyzeBrandHealth: () => analyzeBrandHealth(), getHealthIndex: () => new Promise(() => undefined) }));
+  analyzeBrandHealth: () => analyzeBrandHealth(), getMentions: async () => ({ items: [], has_more: false, can_review: true, review_enabled: true }), getHealthIndex: () => new Promise(() => undefined) }));
 
 import BrandHealth from "./BrandHealth";
 import { presetRange, bucketLabel } from "../../app/brandHealth";
@@ -76,6 +76,23 @@ describe("Saúde da marca", () => {
     expect(container.textContent).toContain("Faltam 84 matérias");
     expect(getBrandHealth.mock.calls.length).toBeGreaterThan(calls);
     root.unmount();
+  });
+
+  it("abre a escuta social somente no modal e fecha com Escape", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<BrandHealth canManage />));
+    const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Classificação de sentimento")!;
+    expect(container.querySelector(".bhMentions")).toBeNull();
+    trigger.focus();
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"][aria-label="Classificação de sentimento"] .bhMentions')).toBeTruthy();
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    await act(async () => root.unmount());
+    container.remove();
   });
 
   it("cliente não vê alertas", async () => {

@@ -125,6 +125,11 @@
   min-width: 0;
 }
 .ds-pageHeaderIdentity{ display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* Botão "Voltar" das páginas internas (PageHeader): discreto, acima do título. */
+.ds-backButton{ display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 4px 10px 4px 6px; margin-left: -6px;
+  border: 0; border-radius: 999px; background: transparent; color: var(--ds-text-muted, #5f665f); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.ds-backButton:hover{ background: color-mix(in srgb, var(--mugo-deep-blue, #0c4160) 8%, transparent); color: var(--mugo-deep-blue, #0c4160); }
+.ds-backButton:focus-visible{ outline: 2px solid var(--mugo-deep-blue, #0c4160); outline-offset: 2px; }
 .ds-pageHeaderAside{
   display: flex;
   flex-direction: column;
@@ -722,3 +727,4 @@ html.is-scrolling ::-webkit-scrollbar-thumb{ background: rgba(21, 24, 27, .28); 
 /* Ícones de traço (lucide) no lugar de emoji: linha fina, cor do texto, alinhados ao texto. */
 svg.lucide{ stroke-width: 1.6; }
 .uiGlyph{ display: inline-block; vertical-align: -0.15em; flex: none; }
+.plainHeadline{margin:0 0 14px;font:600 18px/1.45 var(--font-body);color:var(--text-primary);max-width:820px}

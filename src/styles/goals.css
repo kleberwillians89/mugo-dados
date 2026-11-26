@@ -1,1 +1,51 @@
 .goalsPage,.goalsSummary{padding:24px;max-width:1280px;margin:0 auto}.goalsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin:20px 0}.goalCard,.goalsSummary article{border:1px solid var(--border,#dedbd4);border-radius:12px;padding:20px;background:var(--surface,#fff)}.goalCard h2{font-size:20px;margin:0 0 8px}.goalCard small{display:block;color:var(--text-secondary,#666)}.goalCard dl{display:flex;gap:24px}.goalCard dd{margin:5px 0;font-weight:600}.goalCard dt{font-size:13px}.goalsGrid progress{display:block;width:100%;height:12px;accent-color:#1e3f5a}.goalActions,.goalFilters{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}.goalForm{display:grid;gap:16px}.goalForm label{display:grid;gap:6px}.goalForm input,.goalForm select,.goalFilters input{padding:10px;border:1px solid #ccc;border-radius:6px;font:inherit}.goalStatus{font-weight:600}.goalStatus.is-abaixo_do_ritmo{color:#a33}.goalStatus.is-meta_atingida{color:#26734d}.goalStatus.is-atencao{color:#895600}
+
+/* Metas inteligentes: "Minha meta", detalhamento, cenários (paleta Mugô) */
+.goalMain{display:grid;gap:14px;margin:16px 0;padding:18px 20px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-left:4px solid var(--mugo-deep-blue,#0c4160);border-radius:16px;background:#fff}
+.goalMain.needs-attention{border-left-color:var(--mugo-red,#b22234)}
+.goalMainHead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-start}
+.goalMainHead span{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mugo-aged-gold,#b79830)}
+.goalMainHead h3{margin:2px 0;font-size:20px;color:var(--mugo-deep-blue,#0c4160)}.goalMainHead small{color:var(--text-secondary,#5c6670)}
+.goalMainNumbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0}
+.goalMainNumbers div{padding:10px 12px;border-radius:12px;background:var(--mugo-ivory,#f9f5ef)}
+.goalMainNumbers dt{font-size:12px;color:var(--text-secondary,#5c6670)}.goalMainNumbers dd{margin:2px 0 0;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.goalMainReading{margin:0;font-size:15px;line-height:1.5}
+.goalMainFoot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}.goalMainFoot small{color:var(--text-secondary,#5c6670)}
+.goalReading{margin:6px 0;font-size:14px}
+.goalStatus.is-abaixo_da_meta,.goalStatus.is-acima_do_teto{color:var(--mugo-red,#b22234)}.goalStatus.is-risco_de_passar{color:#895600}.goalStatus.is-dentro_do_teto{color:#26734d}
+.goalCard.is-ceiling{border-style:dashed}
+.goalExplore{display:grid;gap:14px}
+.goalRelation{margin:0;font-weight:700;color:var(--mugo-deep-blue,#0c4160)}
+.goalDrivers{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.goalDrivers li{display:grid;gap:4px;padding:12px 14px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:12px}
+.goalDrivers small,.goalHistory small{color:var(--text-secondary,#5c6670)}.goalDrivers .ds-button{justify-self:start}
+.goalUnavailable{color:#895600}
+.goalScenarios,.goalScenarioPick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;list-style:none;margin:0;padding:0}
+.goalScenarios li,.goalScenarioPick button{display:grid;gap:2px;padding:10px 12px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:12px;background:#fff;text-align:left;font:inherit}
+.goalScenarioPick button{cursor:pointer}.goalScenarioPick button.is-active{border-color:var(--mugo-deep-blue,#0c4160);box-shadow:inset 0 0 0 1px var(--mugo-deep-blue,#0c4160)}
+.goalScenarioPick>small{grid-column:1/-1;color:var(--text-secondary,#5c6670)}
+.goalSuggest{display:grid;gap:8px;padding:12px;border-radius:12px;background:var(--mugo-ivory,#f9f5ef)}.goalSuggest .ds-button{justify-self:start}
+.goalPremises{display:grid;gap:4px;font-size:13px}.goalPremises ul{margin:0;padding-left:18px}
+.goalWarn{margin:0;color:#895600}
+.goalSource{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:0;font-size:14px}.goalSource dt{color:var(--text-secondary,#5c6670)}.goalSource dd{margin:0}
+.goalHistory{margin:0;padding-left:18px;display:grid;gap:6px}.goalHistory small{display:block}
+.goalCheck{display:flex!important;align-items:center;gap:8px}
+@media (max-width:640px){.goalScenarios,.goalScenarioPick{grid-template-columns:1fr}}
+.goalAlerts{list-style:none;margin:12px 0;padding:0;display:grid;gap:8px}
+.goalAlerts li{display:grid;gap:2px;padding:10px 14px;border-radius:12px;border:1px solid var(--mugo-soft-gray,#e7eceb);background:#fff;border-left:4px solid var(--mugo-red,#b22234)}
+.goalAlerts li.is-dado{border-left-color:#895600;background:#fffaf0}.goalAlerts li.is-atingida{border-left-color:#26734d}
+.goalAlerts strong{font-size:13px}.goalAlerts span{font-size:13px;color:var(--text-secondary,#5c6670)}
+.goalAlertActions{display:flex;gap:10px}.goalAlertActions button{border:0;background:none;padding:0;color:var(--mugo-deep-blue,#0c4160);text-decoration:underline;cursor:pointer;font:inherit;font-size:13px}
+.goalDiag{display:grid;gap:8px}.goalDiag ul{margin:0;padding-left:18px}
+.goalTag{display:inline-block;margin-right:6px;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;background:var(--mugo-soft-gray,#e7eceb);color:var(--mugo-deep-blue,#0c4160)}
+.goalTag.is-hipotese{background:#f8ecd2;color:#8a5a00}.goalTag.is-estimativa{background:#f6dcdf;color:var(--mugo-red,#b22234)}
+.goalRecs{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.goalRecs li{display:grid;gap:4px;padding:12px 14px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:12px}
+.goalRecs small{color:var(--text-secondary,#5c6670)}
+.goalTaskForm{display:grid;gap:8px;padding:10px;border-radius:10px;background:var(--mugo-ivory,#f9f5ef)}
+.goalTaskForm label{display:grid;gap:4px;font-size:12px}
+.goalConstraints{display:grid;gap:4px;font-size:13px}.goalConstraints textarea{font:inherit;padding:8px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:10px}
+.mediaGoals{display:grid;gap:10px;padding:16px 18px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:16px;background:#fff}
+.mediaGoals h2{margin:0;font-size:18px;color:var(--mugo-deep-blue,#0c4160)}.mediaGoals small{color:var(--text-secondary,#5c6670)}
+.mediaGoals ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.mediaGoals li{display:grid;gap:2px;padding:10px 12px;border-radius:12px;background:var(--mugo-ivory,#f9f5ef)}

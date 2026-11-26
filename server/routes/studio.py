@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from services.ig_supabase import sb_delete, sb_insert, sb_update
 
 from services.studio_calendar import (
-    StudioError, create_item, delete_item, generate_month, list_items, load_profile,
+    ART_URL_MAX_LENGTH, StudioError, create_item, delete_approval_item, delete_item, generate_month, list_items, load_profile,
     parse_month, save_profile, update_item,
 )
 from services.studio_approvals import (
@@ -49,12 +49,17 @@ ERRORS = {
     "AI_PROVIDER_NOT_CONFIGURED": (503, "O provedor de IA ainda não está configurado no backend."),
     "AI_PROVIDER_TIMEOUT": (502, "A IA demorou mais que o esperado. Tente novamente."),
     "AI_PROVIDER_QUOTA": (503, "A IA está sem crédito na OpenAI. Recarregue em platform.openai.com → Billing e tente de novo. O consumo por cliente está em Administração → Consumo de IA."),
-    "AI_PROVIDER_AUTH": (503, "A chave da OpenAI do Mugoverso foi recusada (inválida ou de outro projeto). Confira a OPENAI_API_KEY no Render."),
+    "AI_PROVIDER_AUTH": (503, "A chave OpenAI configurada para esta empresa foi recusada."),
+    "AI_PROVIDER_PERMISSION": (403, "A chave OpenAI nao possui permissao para o modelo selecionado."),
+    "AI_BYOK_CREDENTIAL_MISSING": (409, "Cadastre uma chave OpenAI em Integracoes antes de usar a IA."),
+    "AI_BYOK_CREDENTIAL_INVALID": (503, "A credencial de IA desta empresa precisa ser configurada novamente."),
+    "AI_MODEL_UNAVAILABLE": (422, "O modelo selecionado nao esta disponivel para esta empresa."),
     "AI_PROVIDER_RATE": (429, "A OpenAI pediu para esperar: limite de uso por minuto da conta. Tente de novo em 1 minuto."),
     "AI_PROVIDER_REQUEST": (502, "A OpenAI recusou o pedido (modelo ou formato). Avise a equipe técnica: o código do erro está em Administração → Consumo de IA."),
     "AI_PROVIDER_ERROR": (502, "A IA não respondeu agora. Tente novamente."),
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu pautas válidas. Tente novamente."),
     "ITEM_NOT_FOUND": (404, "Pauta não encontrada nesta empresa."),
+    "ITEM_NOT_PENDING": (409, "Esta peça já saiu da fila e não pode mais ser excluída por aqui."),
     "STATUS_INVALID": (422, "Status inválido."),
     "FORMAT_INVALID": (422, "Formato inválido."),
     "CHANNEL_INVALID": (422, "Plataforma inválida."),
@@ -62,6 +67,7 @@ ERRORS = {
     "CREATE_FAILED": (502, "Não foi possível criar a pauta."),
     "SUGGESTION_NOT_FOUND": (404, "Essa sugestão já foi revisada ou não existe."),
     "ART_URL_INVALID": (422, "Link da arte inválido: use um link https (Canva, Google Drive…)."),
+    "REELS_COVER_INVALID": (422, "Link da capa do Reels inválido: envie o JPG pelo modal ou use um link https."),
     "IMPORT_EMPTY": (422, "Não encontrei texto nos slides. Confira o arquivo ou cole o conteúdo."),
     "IMPORT_TOO_LARGE": (413, "Arquivo grande demais para importar de uma vez (até 150 slides)."),
     "IMPORT_NOTHING": (422, "Nenhum post válido para importar."),
@@ -131,9 +137,34 @@ class ItemCreate(BaseModel):
     hook: Optional[str] = Field(default=None, max_length=400)
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
-    art_url: Optional[str] = Field(default=None, max_length=1000)
+    art_url: Optional[str] = Field(default=None, max_length=ART_URL_MAX_LENGTH)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
+    reels_options: Optional["ReelsOptionsInput"] = None
+    creative_direction: Optional["CreativeDirectionInput"] = None
+
+
+class CreativeDirectionInput(BaseModel):
+    """Direcionamento Criativo da peça: escrito pela equipe (a IA só sugere; quem confirma é a pessoa)."""
+    model_config = ConfigDict(extra="forbid")
+    concept: Optional[str] = Field(default=None, max_length=300)
+    texts: Optional[str] = Field(default=None, max_length=3000)
+    references: Optional[str] = Field(default=None, max_length=2000)
+    instructions: Optional[str] = Field(default=None, max_length=3000)
+    brief_id: Optional[UUID] = None
+
+
+class PieceBriefingInput(BaseModel):
+    """Briefing da peça editado pela equipe ("Editar peça"). Campo vazio apaga o campo."""
+    model_config = ConfigDict(extra="forbid")
+    angle: Optional[str] = Field(default=None, max_length=60)
+    summary: Optional[str] = Field(default=None, max_length=1500)
+    objective: Optional[str] = Field(default=None, max_length=1500)
+    key_message: Optional[str] = Field(default=None, max_length=1500)
+    tone: Optional[str] = Field(default=None, max_length=600)
+    target_audience: Optional[str] = Field(default=None, max_length=1500)
+    deliverables: Optional[List[str]] = Field(default=None, max_length=20)
+    tech_requirements: Optional[List[str]] = Field(default=None, max_length=20)
 
 
 class ItemPatch(BaseModel):
@@ -148,9 +179,42 @@ class ItemPatch(BaseModel):
     rationale: Optional[str] = Field(default=None, max_length=1200)
     status: Optional[Status] = None
     review_note: Optional[str] = Field(default=None, max_length=1000)
-    art_url: Optional[str] = Field(default=None, max_length=1000)
+    art_url: Optional[str] = Field(default=None, max_length=ART_URL_MAX_LENGTH)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
+    reels_options: Optional["ReelsOptionsInput"] = None
+    creative_direction: Optional[CreativeDirectionInput] = None
+    script: Optional[str] = Field(default=None, max_length=6000)
+    visual_idea: Optional[str] = Field(default=None, max_length=3000)
+    briefing: Optional[PieceBriefingInput] = None
+
+
+class ReelsMusicInput(BaseModel):
+    """Música da biblioteca do Instagram escolhida para o Reels."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    audio_id: str = Field(min_length=1, max_length=40, pattern=r"^\d+$")
+    title: Optional[str] = Field(default=None, max_length=120)
+    artist: Optional[str] = Field(default=None, max_length=120)
+    cover: Optional[str] = Field(default=None, max_length=1000)
+    audio_volume: int = Field(default=100, ge=1, le=100)
+    video_volume: int = Field(default=100, ge=1, le=100)
+
+
+class ReelsOptionsInput(BaseModel):
+    """Capa e opções do Reels (só valem no formato Reels do Instagram)."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    cover_mode: Optional[Literal["frame", "image"]] = None
+    thumb_offset_ms: Optional[int] = Field(default=None, ge=0, le=900_000)
+    cover_url: Optional[str] = Field(default=None, max_length=1000)
+    share_to_feed: Optional[bool] = None
+    trial: Optional[Literal["off", "manual", "auto"]] = None
+    audio_name: Optional[str] = Field(default=None, max_length=100)
+    first_comment: Optional[str] = Field(default=None, max_length=2200)
+    music: Optional[ReelsMusicInput] = None
+    story_sticker: Optional[Literal["poll", "question", "quiz", "emoji_slider", "link", "countdown", "music"]] = None
+    story_instruction: Optional[str] = Field(default=None, max_length=500)
+    story_sticker_position: Optional[Dict[str, float]] = None
+    story_sticker_scale: Optional[int] = Field(default=None, ge=60, le=140)
 
 
 class ProductTagInput(BaseModel):
@@ -175,6 +239,23 @@ async def read_shop(client_id: str, authorization: str | None = Header(default=N
     if not await is_agency_user(authorization):
         raise HTTPException(status_code=403, detail="Só a equipe Mugô marca produtos nos posts.")
     return await shop_status(cid)
+
+
+@router.get("/calendar/audio")
+async def read_reels_audio(client_id: str, q: str = "", type: Literal["music", "original_sound"] = "music",
+                           authorization: str | None = Header(default=None)):
+    """Equipe: busca músicas (ou áudios de Reels) do Instagram para pôr no Reels. Sem busca, vêm as em alta."""
+    from services.ig_audio import search_audio
+    cid = await require_client_read(client_id, authorization)
+    if not await is_agency_user(authorization):
+        raise HTTPException(status_code=403, detail="Só a equipe Mugô escolhe a música do Reels.")
+    try:
+        return {"audio": await search_audio(cid, q, type)}
+    except StudioError as exc:
+        if exc.code in ("IG_AUDIO_FAILED", "IG_NOT_CONNECTED"):
+            detail = str(exc) if str(exc) != exc.code else "Conecte o Instagram da marca em Integrações para escolher música."
+            raise HTTPException(status_code=409, detail=detail) from None
+        raise _http(exc) from None
 
 
 @router.get("/calendar/shop/products")
@@ -288,7 +369,7 @@ class ImportRow(BaseModel):
     format: Format
     title: str = Field(min_length=1, max_length=200)
     caption: str = Field(default="", max_length=4000)
-    art_url: str = Field(default="", max_length=1000)
+    art_url: str = Field(default="", max_length=ART_URL_MAX_LENGTH)
 
 
 class ImportCommitInput(BaseModel):
@@ -306,7 +387,7 @@ async def import_parse(client_id: str, body: ImportParseInput, authorization: st
     try:
         from services.studio_engines import throttle
         throttle(cid)
-        return await parse_slides([s.model_dump() for s in body.slides], file_name=body.file_name)
+        return await parse_slides([s.model_dump() for s in body.slides], file_name=body.file_name, client_id=cid)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -657,8 +738,11 @@ async def new_art_upload_target(client_id: str, body: ArtUploadInput, authorizat
 ERRORS.update({
     "ART_LINK_INVALID": (422, "Cole um link de arquivo do Google Drive ou um link de visualização do Canva."),
     "ART_LINK_FOLDER": (422, "Esse é o link de uma pasta do Drive. Use o link do arquivo (botão direito no arquivo → Compartilhar → Copiar link)."),
+    "MUGO_IA_ACTION_NOT_FOUND": (404, "Proposta não encontrada."),
+    "MUGO_IA_ACTION_INVALID": (422, "Essa proposta não pode ser criada."),
     "ART_LINK_PRIVATE": (422, "O link não está público. No Drive/Canva, compartilhe como \"qualquer pessoa com o link pode ver\" e tente de novo."),
     "ART_LINK_UNREADABLE": (422, "Não deu para ler a arte desse link. Baixe o arquivo e arraste aqui."),
+    "ART_LINK_BLOCKED": (422, "O Canva não liberou a leitura automática deste design. Baixe no Canva (Compartilhar → Baixar) e arraste o arquivo aqui."),
     "ART_LINK_TOO_LARGE": (413, "Arquivo maior que 200 MB."),
 })
 
@@ -832,6 +916,19 @@ async def remove_item(client_id: str, item_id: UUID, authorization: str | None =
     return {"ok": True}
 
 
+@router.delete("/calendar/items/{item_id}/approval-content")
+async def remove_approval_content(client_id: str, item_id: UUID, authorization: str | None = Header(default=None)):
+    """Exclusão lógica da fila: exige calendar.edit e equipe Mugô; aprovar sozinho não autoriza."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        await delete_approval_item(cid, str(item_id), user_id=uid, actor_name=_chat_author(authorization, uid))
+    except StudioError as exc:
+        raise _http(exc) from None
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------- motores de conteúdo
 
 
@@ -913,6 +1010,27 @@ async def make_briefing(client_id: str, item_id: UUID, body: BriefingInput, auth
     await _agency_only(authorization)
     try:
         return await generate_briefing(cid, str(item_id), body.model_dump(exclude_none=True))
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class CreativeDirectionSuggestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    current: Optional[CreativeDirectionInput] = None
+    instruction: Optional[str] = Field(default=None, max_length=600)
+
+
+@router.post("/calendar/items/{item_id}/creative-direction/suggest")
+async def suggest_direction(client_id: str, item_id: UUID, body: Optional[CreativeDirectionSuggestInput] = None,
+                            authorization: str | None = Header(default=None)):
+    """Equipe: a IA sugere o Direcionamento Criativo da peça (parte do que já foi escrito). Não grava nada:
+    a pessoa escolhe o que usar e salva a pauta."""
+    from services.studio_engines import suggest_creative_direction
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        current = body.current.model_dump(mode="json", exclude_none=True) if body and body.current else None
+        return await suggest_creative_direction(cid, str(item_id), current, body.instruction if body else None)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -1317,6 +1435,19 @@ class DecisionInput(BaseModel):
     reviewer_name: Optional[str] = Field(default=None, max_length=120)
 
 
+public_reports_router = APIRouter(prefix="/api/public/reports", tags=["studio-public"])
+
+
+@public_reports_router.get("/{token}")
+async def public_monthly_report(token: str):
+    """Relatório do mês pelo link (sem login). Só mês liberado; o link some se o mês voltar para rascunho."""
+    from services.monthly_report import public
+    try:
+        return await public(token)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @public_router.get("/{token}")
 async def public_approval(token: str):
     try:
@@ -1341,6 +1472,7 @@ class EngagementReply(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     text: str = Field(min_length=1, max_length=1000)
     direct: bool = False
+    ai_original: Optional[str] = Field(default=None, max_length=1000)  # o que a IA sugeriu, se a resposta nasceu dela
 
 
 class EngagementRule(BaseModel):
@@ -1472,7 +1604,7 @@ async def engagement_reply(client_id: str, comment_id: str, body: EngagementRepl
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
     try:
-        return await manual_reply(cid, comment_id, body.text, actor=f"equipe:{uid}", direct=body.direct)
+        return await manual_reply(cid, comment_id, body.text, actor=f"equipe:{uid}", direct=body.direct, ai_original=body.ai_original)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -1540,11 +1672,79 @@ ERRORS.update({
 
 @router.get("/social-report/{month}")
 async def social_report_read(client_id: str, month: str, authorization: str | None = Header(default=None)):
-    """Relatório do mês já gerado (com os links das imagens renovados). Qualquer membro da marca lê."""
+    """Relatório do mês já gerado (com os links das imagens renovados). Cliente só vê o mês liberado pela equipe."""
+    from services.monthly_report import client_can_see
     from services.social_report import load
     cid = await require_client_read(client_id, authorization)
+    if not await is_agency_user(authorization) and not await client_can_see(cid, month[:7]):
+        return {"month": month[:7], "built": False, "pending_release": True}
     try:
         return await load(cid, month)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+ERRORS.update({
+    "REPORT_MONTH_INVALID": (422, "Mês inválido."),
+    "REPORT_NOT_RELEASED": (409, "Libere o relatório para o cliente antes de criar o link."),
+    "REPORT_NOT_FOUND": (404, "Relatório não encontrado ou link desativado."),
+})
+
+
+@router.get("/monthly-report/{month}")
+async def monthly_report_read(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    """Mídia paga, WhatsApp, vendas e resumo do mês. Cliente só vê o que foi liberado."""
+    from services.monthly_report import get_row, view
+    cid = await require_client_read(client_id, authorization)
+    agency = await is_agency_user(authorization)
+    row = await get_row(cid, month[:7])
+    if not agency and row and row.get("status") != "liberado":
+        return {"exists": True, "status": "rascunho", "hidden": True}
+    return view(row, agency=agency)
+
+
+@router.post("/monthly-report/{month}/close")
+async def monthly_report_close(client_id: str, month: str, authorization: str | None = Header(default=None)):
+    """Equipe: fecha (ou refaz) o mês. Busca os números e escreve o resumo; o status não muda."""
+    from services.monthly_report import close, view
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return view(await close(cid, month[:7]), agency=True)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+class MonthlySummaryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    summary: str = Field(default="", max_length=4000)
+
+
+@router.put("/monthly-report/{month}/summary")
+async def monthly_report_summary(client_id: str, month: str, body: MonthlySummaryInput, authorization: str | None = Header(default=None)):
+    from services.monthly_report import save_summary, view
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    try:
+        return view(await save_summary(cid, month[:7], body.summary), agency=True)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/monthly-report/{month}/{action}")
+async def monthly_report_status(client_id: str, month: str, action: str, authorization: str | None = Header(default=None)):
+    """Equipe: liberar para o cliente, voltar para rascunho ou criar o link para quem não tem login."""
+    from services.monthly_report import set_status, share, view
+    if action not in ("release", "unrelease", "share"):
+        raise HTTPException(status_code=404, detail="Ação inválida.")
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    await _agency_only(authorization)
+    uid = await require_user_id(authorization)
+    try:
+        if action == "share":
+            return {"share_token": await share(cid, month[:7])}
+        return view(await set_status(cid, month[:7], release=action == "release",
+                                     user_name=_chat_author(authorization, uid) or uid), agency=True)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -1664,12 +1864,15 @@ async def read_timeline(client_id: str, authorization: str | None = Header(defau
 ERRORS.update({
     "DOC_TYPE_INVALID": (422, "Envie PDF, DOCX, PPTX, XLSX, CSV, TXT ou MD."),
     "DOC_UNREADABLE": (422, "Não deu para ler este arquivo (protegido por senha ou corrompido)."),
-    "DOC_EMPTY": (422, "O arquivo não tem texto que dê para ler (ex.: PDF só de imagem)."),
+    "DOC_EMPTY": (422, "O arquivo não tem texto que dê para ler. Se for um PDF escaneado ou exportado como imagem, exporte de novo "
+                       "com texto selecionável ou envie o original (Word ou PowerPoint). A leitura de imagens (OCR) ainda não está disponível."),
     "DOC_TOO_LARGE": (413, "Arquivo grande demais (até 10 MB). Divida em partes."),
     "DOC_SOURCE_REQUIRED": (422, "Envie um arquivo ou cole um texto."),
     "DOC_SAVE_FAILED": (502, "Não foi possível guardar o material agora. Tente de novo."),
     "DOC_NOT_FOUND": (404, "Material não encontrado nesta empresa."),
     "FACTS_EMPTY": (422, "Nenhum fato para guardar."),
+    "OCR_PDF_ONLY": (422, "A leitura das páginas com IA é só para PDF."),
+    "OCR_EMPTY": (422, "A IA não conseguiu ler texto nas páginas deste PDF. Confira a qualidade do arquivo ou envie o original."),
     "AGENT_QUESTION_EMPTY": (422, "Escreva uma pergunta sobre a marca."),
 })
 
@@ -1680,6 +1883,8 @@ class KnowledgeDocInput(BaseModel):
     kind: Literal["institucional", "produto", "campanha", "tom_de_voz", "restricao", "outro"] = "outro"
     content_base64: Optional[str] = Field(default=None, max_length=14_500_000)
     text: Optional[str] = Field(default=None, max_length=60_000)
+    # PDF escaneado (só imagem): a IA lê as páginas. Só quando a pessoa pede (custa uma chamada por página).
+    ocr: bool = False
 
 
 class KnowledgeInput(BaseModel):
@@ -1711,14 +1916,35 @@ async def add_knowledge_document(client_id: str, body: KnowledgeDocInput, author
     from services.brand_knowledge import decode_upload, extract_text, learn
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     uid = await require_user_id(authorization)
+    is_pdf = body.file_name.lower().endswith(".pdf")
+    ocr: Optional[Dict[str, Any]] = None
     try:
         if body.content_base64:
-            text = extract_text(body.file_name, decode_upload(body.content_base64))
+            raw = decode_upload(body.content_base64)
+            if body.ocr:
+                if not is_pdf:
+                    raise StudioError("OCR_PDF_ONLY")
+                from services.brand_ocr import ocr_pdf
+                from services.studio_engines import throttle
+                throttle(cid)
+                ocr = await ocr_pdf(cid, raw)
+                text = ocr.pop("text")
+            else:
+                try:
+                    text = extract_text(body.file_name, raw)
+                except StudioError as exc:
+                    if exc.code == "DOC_EMPTY" and is_pdf:
+                        # A tela oferece "Ler as páginas com IA" (código estável, não depende do texto).
+                        raise HTTPException(status_code=422, detail={"code": "DOC_NEEDS_OCR", "message": (
+                            "Este PDF não tem texto selecionável (escaneado ou exportado como imagem). Você pode pedir para a IA "
+                            "ler as páginas (até 20) ou enviar o Word/PowerPoint original.")}) from None
+                    raise
         elif body.text and len(body.text.strip()) >= 30:
             text = body.text.strip()
         else:
             raise StudioError("DOC_SOURCE_REQUIRED")
-        return {"ok": True, **await learn(cid, file_name=body.file_name, kind=body.kind, text=text, user_id=uid)}
+        result = await learn(cid, file_name=body.file_name, kind=body.kind, text=text, user_id=uid)
+        return {"ok": True, **result, **({"ocr": ocr} if ocr else {})}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -1729,6 +1955,51 @@ async def retry_knowledge_document(client_id: str, document_id: UUID, authorizat
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     try:
         return {"ok": True, **await retry(cid, str(document_id), user_id=await require_user_id(authorization))}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+# ---- Importar do Google Drive e do Canva para o Conhecimento (cada arquivo segue o envio manual na tela).
+ERRORS.update({
+    "CLOUD_LINK_INVALID": (422, "Cole o link de uma pasta ou arquivo do Google Drive, ou o link de visualização de um design do Canva."),
+    "DRIVE_PRIVATE": (422, "Não consegui abrir. No Drive, compartilhe a pasta como \"Qualquer pessoa com o link pode ver\" e tente de novo."),
+    "DRIVE_UNAVAILABLE": (502, "O Google Drive não respondeu agora. Tente de novo em instantes."),
+    "DRIVE_NOT_CONFIGURED": (503, "Importar do Drive ainda não está ativado no servidor (falta a chave GOOGLE_DRIVE_API_KEY)."),
+    "DOC_TOO_LARGE": (422, "Arquivo maior que 10 MB. Divida em partes."),
+})
+
+
+class CloudLinkInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=10, max_length=600)
+
+
+class CloudFileInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: Literal["drive", "canva"]
+    id: str = Field(min_length=10, max_length=600)
+    name: str = Field(default="arquivo", max_length=200)
+    mime: str = Field(default="", max_length=120)
+
+
+@router.post("/knowledge/import/list")
+async def list_cloud_import(client_id: str, body: CloudLinkInput, authorization: str | None = Header(default=None)):
+    """O que tem no link (pasta do Drive, arquivo ou design do Canva) e o que dá para ensinar a IA."""
+    from services.knowledge_cloud import list_link
+    await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await list_link(body.url)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/knowledge/import/file")
+async def fetch_cloud_import(client_id: str, body: CloudFileInput, authorization: str | None = Header(default=None)):
+    """Baixa UM arquivo escolhido. A tela manda para o envio de sempre (texto para a IA + original na Biblioteca)."""
+    from services.knowledge_cloud import fetch_file
+    await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        return await fetch_file(body.source, body.id, body.name, body.mime)
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -1773,6 +2044,8 @@ async def clear_brand_agent(client_id: str, authorization: str | None = Header(d
 class MugoIAInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=1500)
+    # Tela de criação de onde a pessoa chamou a Mugô IA (Briefing, Redação, Social Media…): ela ajuda naquela etapa.
+    screen: Optional[str] = Field(default=None, max_length=40)
 
 
 def _person_name(authorization: str | None, uid: str) -> str:
@@ -1789,19 +2062,48 @@ def _person_name(authorization: str | None, uid: str) -> str:
 async def read_mugo_ia(client_id: str, authorization: str | None = Header(default=None)):
     """Conversa desta pessoa com a Mugoverso IA desta empresa (privada de cada pessoa)."""
     from services.mugo_ia import history
+    from services.market_research import warm
     cid = await require_client_read(client_id, authorization)
-    return {"messages": await history(cid, await require_user_id(authorization))}
+    warm(cid)  # começa a pesquisa de mercado do dia enquanto a pessoa escreve
+    uid = await require_user_id(authorization)
+    from services.library_knowledge import schedule
+    schedule(cid, user_id=uid)  # e lê os documentos novos da Biblioteca: ninguém precisa abrir o Contexto da Marca antes
+    return {"messages": await history(cid, uid)}
 
 
 @router.post("/mugo-ia")
 async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | None = Header(default=None)):
     """Pergunta à Mugoverso IA: lê todo o contexto deste cliente (e só dele). O que é só da equipe não vai para o cliente."""
     from services.mugo_ia import ask
+    from services.library_knowledge import schedule
     cid = await require_client_read(client_id, authorization)
     uid = await require_user_id(authorization)
     team = await is_agency_user(authorization)
+    schedule(cid, user_id=uid)  # chamada de dentro de uma tela (Pedir à Mugô IA): também lê o que é novo na Biblioteca
     try:
-        return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid))}
+        return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid), screen=body.screen)}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+class MugoIACreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    wa_botao_texto: Optional[str] = Field(default=None, max_length=25)
+    wa_botao_url: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.post("/mugo-ia/{message_id}/criar")
+async def create_from_mugo_ia(client_id: str, message_id: UUID, item: int = 0, body: Optional[MugoIACreateInput] = None,
+                              authorization: str | None = Header(default=None)):
+    """Botão Criar da Mugô IA: a proposta da resposta vira rascunho na ferramenta (nunca envia nem publica)."""
+    from services.mugo_ia_actions import execute
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    team = await is_agency_user(authorization)
+    try:
+        return {"ok": True, **await execute(cid, str(message_id), user_id=uid, author=_chat_author(authorization, uid) or "",
+                                            team=team, item=max(0, min(item, 10)),
+                                            edits=body.model_dump(exclude_none=True) if body else None)}
     except StudioError as exc:
         raise _known(exc) from None
 
@@ -1819,6 +2121,166 @@ async def write_knowledge(client_id: str, body: KnowledgeInput, authorization: s
     from services.brand_knowledge import save_manual
     cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
     return {"ok": True, **await save_manual(cid, body.knowledge, user_id=await require_user_id(authorization))}
+
+
+# ---------------------------------------------------------------- saúde do contexto e aprender com o uso
+
+class LearningConfirmInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    facts: List[str] = Field(min_length=1, max_length=10)
+    suggestion_id: Optional[UUID] = None
+
+
+@router.get("/knowledge/health")
+async def brand_context_health(client_id: str, authorization: str | None = Header(default=None)):
+    """O que falta ou está velho no Contexto da Marca (regras fixas, sem IA)."""
+    from services.brand_context_health import health
+    cid = await require_client_read(client_id, authorization)
+    return {"ok": True, **await health(cid)}
+
+
+@router.post("/knowledge/learn/suggest")
+async def brand_learning_suggest(client_id: str, authorization: str | None = Header(default=None)):
+    """Retorno do cliente e perguntas do WhatsApp → fatos sugeridos para a memória. Uma chamada de IA; nada gravado."""
+    from services.brand_learning import suggest
+    from services.studio_engines import throttle
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        throttle(cid)
+        return {"ok": True, **await suggest(cid)}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/knowledge/learn/confirm", status_code=201)
+async def brand_learning_confirm(client_id: str, body: LearningConfirmInput, authorization: str | None = Header(default=None)):
+    """Grava na memória da marca só os fatos que a pessoa aprovou."""
+    from services.brand_learning import confirm, resolve
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    try:
+        result = await confirm(cid, body.facts, user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None
+    if body.suggestion_id:
+        await resolve(cid, str(body.suggestion_id), "revisada", user_id=uid)
+    return {"ok": True, **result}
+
+
+class ReplyRatingInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    channel: Literal["whatsapp", "direct", "comentario"]
+    ref_id: str = Field(min_length=1, max_length=80)
+    customer_text: Optional[str] = Field(default=None, max_length=600)
+    ai_text: str = Field(min_length=1, max_length=1000)
+    rating: Literal["up", "down"]
+    reason: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.get("/knowledge/learn/sample")
+async def brand_learning_sample(client_id: str, authorization: str | None = Header(default=None)):
+    """Respostas que a IA mandou sozinha nos últimos dias, sorteadas para a equipe dar 👍👎."""
+    from services.autopilot_signals import sample
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    return {"ok": True, "replies": await sample(cid)}
+
+
+@router.post("/knowledge/learn/rate", status_code=201)
+async def brand_learning_rate(client_id: str, body: ReplyRatingInput, authorization: str | None = Header(default=None)):
+    from services.autopilot_signals import rate
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        await rate(cid, **body.model_dump(), user_id=await require_user_id(authorization))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except Exception:  # noqa: BLE001 — já avaliada (único) ou tabela ainda não aplicada
+        raise HTTPException(409, "Esta resposta já foi avaliada ou a avaliação não está disponível.") from None
+    return {"ok": True}
+
+
+@router.get("/knowledge/learn/pending")
+async def brand_learning_pending(client_id: str, authorization: str | None = Header(default=None)):
+    """Aprendizados da semana que a IA separou sozinha, esperando revisão."""
+    from services.brand_learning import pending
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    return {"ok": True, "pending": await pending(cid)}
+
+
+@router.post("/knowledge/learn/pending/{suggestion_id}/discard")
+async def brand_learning_discard(client_id: str, suggestion_id: UUID, authorization: str | None = Header(default=None)):
+    from services.brand_learning import resolve
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    if not await resolve(cid, str(suggestion_id), "descartada", user_id=await require_user_id(authorization)):
+        raise HTTPException(404, "Sugestão não encontrada.")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- importar configurações do planejamento
+# Contexto da Marca → "Importar configurações do planejamento". Fica sob /knowledge para seguir a permissão do
+# módulo da marca (brand_ai.edit). A prévia não grava nada; a aplicação grava só os campos aprovados.
+
+ERRORS.update({
+    "IMPORT_TEXT_TOO_SHORT": (422, "Este documento tem pouco texto legível para importar configurações. Se for um PDF escaneado ou "
+                                   "só de imagem, envie uma versão com texto selecionável (ou o Word/PowerPoint original). "
+                                   "A leitura de imagens (OCR) ainda não está disponível."),
+    "IMPORT_NOTHING_APPROVED": (422, "Marque ao menos um campo para aplicar."),
+    "IMPORT_FIELD_INVALID": (422, "Um dos campos aprovados está inválido."),
+    "PILLARS_WEIGHT_TOTAL": (422, "Os pesos dos pilares precisam somar 100%."),
+    "FREQUENCY_PLATFORM_MISSING": (422, "A frequência por canal precisa dos canais nas Plataformas."),
+})
+# Erros de validação da aplicação levam a mensagem específica (qual campo, qual soma).
+_IMPORT_DETAILED = {"IMPORT_FIELD_INVALID", "PILLARS_WEIGHT_TOTAL", "FREQUENCY_PLATFORM_MISSING"}
+
+
+def _import_http(exc: StudioError) -> HTTPException:
+    if exc.code in _IMPORT_DETAILED and str(exc) and str(exc) != exc.code:
+        return HTTPException(status_code=422, detail=str(exc))
+    return _http(exc)
+
+
+class BrandImportPreviewInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_id: UUID
+
+
+class BrandImportField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: Any = None
+    mode: Literal["replace", "append"] = "replace"
+
+
+class BrandImportApplyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_id: Optional[UUID] = None
+    fields: Dict[str, BrandImportField] = Field(min_length=1, max_length=30)
+    confirm: Literal[True]
+
+
+@router.post("/knowledge/import/preview")
+async def brand_import_preview(client_id: str, body: BrandImportPreviewInput, authorization: str | None = Header(default=None)):
+    """Lê o texto já guardado do documento e propõe os campos. Uma chamada de IA, só no clique; não grava nada."""
+    from services.brand_import import preview
+    from services.studio_engines import throttle
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    try:
+        throttle(cid)
+        return {"ok": True, **await preview(cid, str(body.document_id))}
+    except StudioError as exc:
+        raise _import_http(exc) from None
+
+
+@router.post("/knowledge/import/apply")
+async def brand_import_apply(client_id: str, body: BrandImportApplyInput, authorization: str | None = Header(default=None)):
+    """Grava só os campos aprovados (``confirm`` explícito), no Perfil da marca e no Contexto estratégico."""
+    from services.brand_import import apply
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    approved = {key: item.model_dump() for key, item in body.fields.items()}
+    try:
+        return {"ok": True, **await apply(cid, approved, user_id=uid,
+                                          document_id=str(body.document_id) if body.document_id else None)}
+    except StudioError as exc:
+        raise _import_http(exc) from None
 
 
 # ---------------------------------------------------------------- Meta Business Suite da marca
@@ -1882,6 +2344,8 @@ ERRORS.update({
     "PROJECT_INPUT_REQUIRED": (422, "Preencha o pedido antes de gerar."),
     "PROJECT_TOO_LARGE": (413, "O plano ficou grande demais."),
     "PROJECT_SAVE_FAILED": (503, "Não foi possível salvar."),
+    "PROJECT_VERSIONS_UNAVAILABLE": (503, "Não foi possível guardar a versão atual do plano, por isso ele não foi substituído."),
+    "PROJECT_VERSION_NOT_FOUND": (404, "Versão não encontrada."),
 })
 
 
@@ -1910,13 +2374,12 @@ class LibraryItemInput(BaseModel):
 
 @router.get("/library")
 async def read_library(client_id: str, authorization: str | None = Header(default=None)):
-    """Materiais (equipe e cliente) + arte dos posts aprovados, lida do Calendário."""
-    from services.studio_library import CATEGORIES, approved_posts, list_items
+    """Material da marca (equipe e cliente). Arte de post não entra mais aqui: fica no próprio post."""
+    from services.studio_library import CATEGORIES, list_items
     cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
     uid = await require_user_id(authorization)
     team = await is_agency_user(authorization, cid)
-    return {"items": await list_items(cid, user_id=uid, team=team), "approved": await approved_posts(cid),
-            "categories": CATEGORIES, "team": team}
+    return {"items": await list_items(cid, user_id=uid, team=team), "approved": [], "categories": CATEGORIES, "team": team}
 
 
 @router.post("/library/upload-url")
@@ -1940,6 +2403,48 @@ async def add_library_item(client_id: str, body: LibraryItemInput, authorization
                               side="mugo" if team else "cliente")
     except StudioError as exc:
         raise _known(exc) from None
+    from services.library_knowledge import DOC_TYPES, schedule
+    if item.get("kind") == "arquivo" and str(item.get("mime_type") or "").lower() in DOC_TYPES:
+        schedule(cid, user_id=uid)  # a IA lê o documento em segundo plano (vira Conhecimento da marca)
+    return {"item": {**item, "can_delete": True}}
+
+
+@router.post("/library/learn")
+async def learn_library(client_id: str, authorization: str | None = Header(default=None)):
+    """A IA lê os documentos da Biblioteca que ainda não viraram Conhecimento da marca (até 4 por rodada)."""
+    from services.library_knowledge import sync
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    return await sync(cid, user_id=uid)
+
+
+class LibraryCloudFileInput(CloudFileInput):
+    category: Literal["produto", "logo", "referencia", "foto", "video", "documento", "outro"] = "outro"
+
+
+@router.post("/library/import/list")
+async def list_library_cloud(client_id: str, body: CloudLinkInput, authorization: str | None = Header(default=None)):
+    """O que tem na pasta do Drive (ou no design do Canva) e o que pode entrar na Biblioteca, com a categoria sugerida."""
+    from services.knowledge_cloud import list_link
+    await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    try:
+        return await list_link(body.url, mode="library")
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/library/import/file", status_code=201)
+async def import_library_cloud(client_id: str, body: LibraryCloudFileInput, authorization: str | None = Header(default=None)):
+    """Copia UM arquivo do Drive (ou a prévia do Canva) direto para a Biblioteca da empresa."""
+    from services.knowledge_cloud import copy_to_library
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    uid = await require_user_id(authorization)
+    team = await is_agency_user(authorization, cid)
+    try:
+        item = await copy_to_library(cid, body.source, body.id, body.name, body.mime, body.category, user_id=uid,
+                                     author=_chat_author(authorization, uid) or "", side="mugo" if team else "cliente")
+    except StudioError as exc:
+        raise _known(exc) if exc.code.startswith("LIBRARY_") else _http(exc) from None
     return {"item": {**item, "can_delete": True}}
 
 
@@ -2024,8 +2529,10 @@ async def edit_project(client_id: str, kind: ProjectKind, project_id: UUID, body
     from services.studio_projects import update_project
     cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
     await _brief_team_only(authorization, cid)
+    uid = await require_user_id(authorization)
     try:
-        return {"project": await update_project(cid, str(project_id), body.model_dump(mode="json", exclude_unset=True))}
+        return {"project": await update_project(cid, str(project_id), body.model_dump(mode="json", exclude_unset=True),
+                                                user_id=uid, user_name=_chat_author(authorization, uid) or None)}
     except StudioError as exc:
         raise _known(exc) from None
 
@@ -2049,9 +2556,79 @@ async def generate_project(client_id: str, kind: ProjectKind, project_id: UUID, 
     from services.studio_projects import generate_plan
     cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
     await _brief_team_only(authorization, cid)
+    uid = await require_user_id(authorization)
     try:
         return {"project": await generate_plan(cid, str(project_id), use_chat=bool(body and body.use_chat),
-                                               instruction=body.instruction if body else None)}
+                                               instruction=body.instruction if body else None,
+                                               user_id=uid, user_name=_chat_author(authorization, uid) or None)}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.get("/projects/{kind}/{project_id}/versions")
+async def project_versions(client_id: str, kind: ProjectKind, project_id: UUID, authorization: str | None = Header(default=None)):
+    """Histórico de versões do plano (número, data, autor e origem)."""
+    from services.studio_project_versions import VersionsUnavailable, list_versions
+    from services.studio_projects import get_project
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        await get_project(cid, str(project_id))
+        return {"versions": await list_versions(cid, str(project_id)), "available": True}
+    except VersionsUnavailable:
+        return {"versions": [], "available": False}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+@router.get("/projects/{kind}/{project_id}/versions/{version}")
+async def project_version(client_id: str, kind: ProjectKind, project_id: UUID, version: int, authorization: str | None = Header(default=None)):
+    from services.studio_project_versions import VersionsUnavailable, get_version
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    try:
+        found = await get_version(cid, str(project_id), version)
+    except VersionsUnavailable:
+        raise HTTPException(503, "O histórico de versões não está disponível agora.") from None
+    if not found:
+        raise HTTPException(404, "Versão não encontrada.")
+    return {"version": found}
+
+
+@router.post("/projects/{kind}/{project_id}/versions/{version}/restore")
+async def project_version_restore(client_id: str, kind: ProjectKind, project_id: UUID, version: int, authorization: str | None = Header(default=None)):
+    """Volta o conteúdo de uma versão como versão nova; a atual fica guardada."""
+    from services.studio_projects import restore_version
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    uid = await require_user_id(authorization)
+    try:
+        return {"project": await restore_version(cid, str(project_id), version, user_id=uid, user_name=_chat_author(authorization, uid) or None)}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+class ProjectResearchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    references: Optional[str] = Field(default=None, max_length=180)
+    suppliers: Optional[str] = Field(default=None, max_length=180)
+    market: Optional[str] = Field(default=None, max_length=180)
+    selected: Optional[List[str]] = Field(default=None, max_length=10)
+
+
+@router.post("/projects/{kind}/{project_id}/research")
+async def research_project(client_id: str, kind: ProjectKind, project_id: UUID, body: ProjectResearchInput,
+                           authorization: str | None = Header(default=None)):
+    from services.studio_projects import update_research
+
+    cid = await require_client_role(client_id, authorization, allowed_roles=MEMBERS)
+    await _brief_team_only(authorization, cid)
+    queries = {key: value for key, value in body.model_dump(exclude={"selected"}).items() if value}
+    if bool(queries) == (body.selected is not None):
+        raise HTTPException(status_code=422, detail="Envie as consultas ou a seleção de referências.")
+    try:
+        project = await update_research(cid, str(project_id), kind, queries=queries or None, selected=body.selected)
+        return {"project": project}
     except StudioError as exc:
         raise _known(exc) from None
 
@@ -2086,6 +2663,7 @@ async def project_to_brief(client_id: str, kind: ProjectKind, project_id: UUID, 
 ERRORS.update({
     "EVENT_LOCATION_REQUIRED": (422, "Coloque o local do evento para puxar clima e notícias."),
     "SUPPLIER_NAME_REQUIRED": (422, "Dê o nome do fornecedor."),
+    "PROJECT_RESEARCH_CONFLICT": (409, "O projeto mudou durante a pesquisa. Reabra o projeto e tente novamente."),
     "SUPPLIER_CATEGORY_INVALID": (422, "Categoria inválida."),
     "SUPPLIER_EMAIL_INVALID": (422, "E-mail inválido."),
     "SUPPLIER_RATING_INVALID": (422, "Nota de 1 a 5."),

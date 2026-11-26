@@ -7,6 +7,10 @@ import {
   buildSocialReport, capital, compact, contentsNote, draftReportInsights, getSocialReport, lastMonth, meaning, nonFollowerNote,
   pct, photoPosts, plus, postDate, saveReportInsights, shortCaption, viewsLine, watch, type ReportData, type ReportPost, type SocialReport as Report,
 } from "../app/socialReport";
+import {
+  closeMonthlyReport, getMonthlyReport, hasBusiness, releaseMonthlyReport, saveMonthlySummary, shareMonthlyReport, shareUrl,
+  type BusinessAd, type MonthlyBusiness, type MonthlyReport,
+} from "../app/monthlyReport";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import "../styles/studio.css";
@@ -168,6 +172,60 @@ function Insights({ items }: { items: string[] }) {
   </Slide>;
 }
 
+const brl = (n?: number | null) => n == null ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: n >= 1000 ? 0 : 2 });
+const int = (n?: number | null) => n == null ? "—" : n.toLocaleString("pt-BR");
+const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const monthLabel = (month: string) => `${MONTHS[Number(month.slice(5, 7)) - 1] || ""} ${month.slice(0, 4)}`;
+
+function AdRows({ ads }: { ads: BusinessAd[] }) {
+  return <table className="srBizTable"><thead><tr><th>Anúncio</th><th>Investido</th><th>Resultados</th><th>Receita</th><th>ROAS</th></tr></thead>
+    <tbody>{ads.map((a, i) => <tr key={i}><td>{a.anuncio || a.campanha || "Anúncio"}</td><td>{brl(a.investimento)}</td><td>{int(a.conversoes)}</td>
+      <td>{a.receita ? brl(a.receita) : "—"}</td><td>{a.roas == null ? "—" : `${a.roas.toLocaleString("pt-BR")}×`}</td></tr>)}</tbody></table>;
+}
+
+/** Slides do resto do mês (mídia paga, WhatsApp, vendas e resumo), no mesmo formato dos de social. */
+export function BusinessDeck({ b, summary, month }: { b: MonthlyBusiness; summary?: string | null; month: string }) {
+  const label = monthLabel(month);
+  const md = b.midia, wa = b.whatsapp, v = b.vendas;
+  const lines = (summary || "").split("\n").map((l) => l.trim());
+  return <div className="srDeck">
+    {md && md.investimento ? <Slide className="srBiz">
+      <Month label={label} upper /><h2 className="srTitle">Mídia<br />paga</h2>
+      <div className="srBizHero"><strong className="is-gold">{brl(md.investimento)}</strong><p><b>investidos no Meta</b> em {int(md.anuncios)} anúncios</p></div>
+      <div className="srBizCards">
+        <Card label="Resultados (conversões)" value={int(md.conversoes)} /><Card label="Receita atribuída" value={brl(md.receita)} />
+        <Card label="Retorno (ROAS)" value={md.roas == null ? "—" : `${md.roas.toLocaleString("pt-BR")}×`} />
+        <Card label="Custo por resultado" value={brl(md.custo_por_conversao)} />
+      </div>
+      {md.melhores?.length ? <div className="srBizList"><h3>Melhores anúncios, por {md.comparado_por}</h3><AdRows ads={md.melhores} /></div> : null}
+    </Slide> : null}
+    {wa && wa.conversas ? <Slide className="srBiz">
+      <Month label={label} upper /><h2 className="srTitle">WhatsApp</h2>
+      <div className="srBizHero"><strong className="is-gold">{int(wa.conversas)}</strong><p><b>conversas novas</b>, {int(wa.viraram_venda)} viraram venda
+        {wa.taxa_pct != null ? ` (${wa.taxa_pct.toLocaleString("pt-BR")}%)` : ""}</p></div>
+      <div className="srBizCards">
+        <Card label="Pedidos vindos do WhatsApp" value={int(wa.pedidos)} /><Card label="Vendas pelo WhatsApp" value={brl(wa.receita)} />
+        <Card label="Parte do faturamento da loja" value={wa.parte_da_loja_pct == null ? "—" : `${wa.parte_da_loja_pct.toLocaleString("pt-BR")}%`} />
+      </div>
+      {wa.origens?.length ? <div className="srBizList"><h3>De onde vieram</h3><table className="srBizTable"><thead><tr><th>Origem</th><th>Conversas</th><th>Vendas</th><th>Receita</th></tr></thead>
+        <tbody>{wa.origens.map((o) => <tr key={o.origem}><td>{o.origem}</td><td>{int(o.conversas)}</td><td>{int(o.vendas)}</td><td>{brl(o.receita)}</td></tr>)}</tbody></table></div> : null}
+    </Slide> : null}
+    {v && v.pedidos ? <Slide className="srBiz">
+      <Month label={label} upper /><h2 className="srTitle">Vendas<br />da loja</h2>
+      <div className="srBizHero"><strong className="is-gold">{brl(v.faturamento)}</strong><p><b>de faturamento</b>
+        {v.variacao_faturamento_pct != null ? ` (${v.variacao_faturamento_pct > 0 ? "+" : ""}${v.variacao_faturamento_pct.toLocaleString("pt-BR")}% contra o mês anterior)` : ""}</p></div>
+      <div className="srBizCards">
+        <Card label="Pedidos" value={int(v.pedidos)} /><Card label="Ticket médio" value={brl(v.ticket_medio)} />
+        <Card label="Pedidos no mês anterior" value={int(v.pedidos_mes_anterior)} /><Card label="Faturamento no mês anterior" value={brl(v.faturamento_mes_anterior)} />
+      </div>
+    </Slide> : null}
+    {summary ? <Slide className="srInsights">
+      <h2 className="srTitle">Resumo e<br />próximos passos</h2>
+      <div className="srInsightList">{lines.map((t, i) => t ? <p key={i} className={t.endsWith(":") ? "srBizHead" : ""}>{t.endsWith(":") ? t : `> ${t}`}</p> : <br key={i} />)}</div>
+    </Slide> : null}
+  </div>;
+}
+
 /** Os 6 slides do modelo (também usados na prévia e no PDF). */
 export function ReportDeck({ d, images, brand, insights }: { d: ReportData; images: Record<string, string>; brand: string; insights: string[] }) {
   const [first, second] = photoPosts(d, images);
@@ -194,6 +252,8 @@ export default function SocialReport({ isAgency = false }: { isAgency?: boolean 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [monthly, setMonthly] = useState<MonthlyReport | null>(null);
+  const [summaryText, setSummaryText] = useState("");
 
   const apply = useCallback((r: Report) => { setReport(r); setText(r.built ? r.insights.join("\n") : ""); }, []);
   const load = useCallback(async () => {
@@ -202,6 +262,13 @@ export default function SocialReport({ isAgency = false }: { isAgency?: boolean 
     catch (cause) { setError(message(cause, "Não foi possível carregar o relatório.")); }
   }, [month, clientId, apply]);
   useEffect(() => { void load(); }, [load]);
+  const applyMonthly = useCallback((r: MonthlyReport) => { setMonthly(r); setSummaryText(r.summary || ""); }, []);
+  useEffect(() => {
+    let alive = true;
+    getMonthlyReport(month).then((r) => { if (alive && getActiveClientId() === clientId) applyMonthly(r); })
+      .catch(() => { if (alive) setMonthly({ exists: false, status: null }); });
+    return () => { alive = false; };
+  }, [month, clientId, applyMonthly]);
 
   async function run<T>(key: string, fn: () => Promise<T>, fallback: string): Promise<T | null> {
     setBusy(key); setError(null); setNotice(null);
@@ -210,6 +277,17 @@ export default function SocialReport({ isAgency = false }: { isAgency?: boolean 
   const lines = text.split("\n").map((l) => l.replace(/^\s*>\s*/, "").trim()).filter(Boolean);
   const build = async () => { const r = await run("build", () => buildSocialReport(month), "Não foi possível buscar os números agora."); if (r) { apply(r); setNotice("Números atualizados com a Meta."); } };
   const draft = async () => { const r = await run("draft", () => draftReportInsights(month), "A IA não respondeu agora."); if (r) { setText(r.insights.join("\n")); setNotice("Rascunho da IA pronto: revise e salve."); } };
+  const closeMonth = async () => { const r = await run("close", () => closeMonthlyReport(month), "Não foi possível fechar o mês agora."); if (r) { applyMonthly(r); await load(); setNotice("Mês fechado: mídia, WhatsApp, vendas e resumo atualizados. Confira e libere para o cliente."); } };
+  const saveSummary = async () => { const r = await run("summary", () => saveMonthlySummary(month, summaryText), "Não foi possível salvar o resumo."); if (r) { applyMonthly(r); setNotice("Resumo salvo."); } };
+  const setRelease = async (release: boolean) => { const r = await run("release", () => releaseMonthlyReport(month, release), "Não foi possível mudar o status."); if (r) { applyMonthly(r); setNotice(release ? "Liberado: o cliente já vê este mês." : "Voltou para rascunho: o cliente deixa de ver e o link para de funcionar."); } };
+  const makeLink = async () => {
+    const r = await run("share", () => shareMonthlyReport(month), "Não foi possível criar o link.");
+    if (!r) return;
+    const url = shareUrl(r.share_token);
+    setMonthly((m) => m ? { ...m, share_token: r.share_token } : m);
+    try { await navigator.clipboard.writeText(url); setNotice("Link copiado. Quem abrir vê o relatório deste mês sem login."); }
+    catch { setNotice(`Link do relatório: ${url}`); }
+  };
   const save = async () => { const r = await run("save", () => saveReportInsights(month, lines), "Não foi possível salvar os insights."); if (r) { setText(r.insights.join("\n")); setNotice("Insights salvos."); } };
 
   const built = report?.built ? report : null;
@@ -219,11 +297,25 @@ export default function SocialReport({ isAgency = false }: { isAgency?: boolean 
   return <Shell title="Relatório social" variant="editorial"><div className="ds-page studioPage srPage">
     <PageHeader company={brand} title="Relatório social" controls={<div className="studioControls">
       <label className="srMonthPick">Mês<input type="month" value={month} max={new Date().toISOString().slice(0, 7)} onChange={(e) => e.target.value && setMonth(e.target.value)} /></label>
-      {isAgency ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void build()}>{busy === "build" ? "Buscando na Meta… (até 2 min)" : d ? "Atualizar números" : "Gerar relatório"}</button> : null}
+      {isAgency ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void closeMonth()}>{busy === "close" ? "Fechando o mês… (até 3 min)" : monthly?.exists ? "Atualizar números do mês" : "Fechar o mês"}</button> : null}
+      {isAgency && !monthly?.exists ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void build()}>{busy === "build" ? "Buscando na Meta… (até 2 min)" : d ? "Atualizar só o social" : "Gerar só o social"}</button> : null}
       <button type="button" className="ds-button is-primary" disabled={!d} onClick={() => window.print()}>Baixar PDF</button>
     </div>} />
     {error ? <p role="alert" className="studioError">{error}</p> : null}
     {notice ? <p className="studioNotice" role="status">{notice}</p> : null}
+    {isAgency && monthly?.exists ? <div className={`srRelease is-${monthly.status}`}>
+      <div><b>{monthly.status === "liberado" ? "Liberado para o cliente" : "Rascunho: o cliente ainda não vê este mês"}</b>
+        <small>{monthly.status === "liberado" && monthly.released_at ? `desde ${new Date(monthly.released_at).toLocaleString("pt-BR")}` : "Confira os números e o resumo antes de liberar."}</small></div>
+      {monthly.status === "liberado"
+        ? <><button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void makeLink()}>{monthly.share_token ? "Copiar link" : "Criar link para quem não tem login"}</button>
+          <button type="button" className="ds-link" disabled={Boolean(busy)} onClick={() => void setRelease(false)}>Voltar para rascunho</button></>
+        : <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void setRelease(true)}>Liberar para o cliente</button>}
+    </div> : null}
+    {isAgency && monthly?.exists ? <details className="srEditor"><summary>Resumo e próximos passos (escrito pela IA, revise)</summary>
+      <textarea rows={8} value={summaryText} maxLength={4000} onChange={(e) => setSummaryText(e.target.value)} placeholder="Um ponto por linha. Depois uma linha 'Próximos passos:' e os passos." />
+      <div className="studioActions"><button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void saveSummary()}>{busy === "summary" ? "Salvando…" : "Salvar resumo"}</button></div>
+    </details> : null}
+    {!isAgency && monthly?.hidden ? <p className="libHint">O relatório deste mês está sendo revisado pela Mugô e aparece aqui assim que for liberado.</p> : null}
     {!report ? <PageSkeleton label="Carregando o relatório…" /> : !d ? <p className="libHint">{isAgency ? "O relatório deste mês ainda não foi gerado. Clique em \"Gerar relatório\": os números vêm da Meta e dos posts sincronizados." : "O relatório deste mês ainda não está pronto."}</p> : <>
       {isAgency ? <details className="srEditor" open={!built?.insights.length}><summary>Insights do mês ({lines.length})</summary>
         <p className="libHint">Um insight por linha. A IA sugere a partir dos números; a equipe revisa antes de salvar. O cliente vê só o que foi salvo.</p>
@@ -233,6 +325,7 @@ export default function SocialReport({ isAgency = false }: { isAgency?: boolean 
           <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void save()}>{busy === "save" ? "Salvando…" : "Salvar insights"}</button>
         </div></details> : null}
       <ReportDeck d={d} images={images} brand={brand} insights={isAgency ? lines : built?.insights || []} />
+      {monthly?.data && (hasBusiness(monthly.data) || monthly.summary) ? <BusinessDeck b={monthly.data} summary={monthly.summary} month={month} /> : null}
       <p className="libHint srFoot">Números de {new Date(d.built_at).toLocaleString("pt-BR")}. Métrica que a Meta não devolve aparece como "—" ou "sem dado": nada é estimado.</p>
     </>}
   </div></Shell>;

@@ -385,6 +385,8 @@ async def _upsert_customer(
         [row],
         on_conflict="client_id,shopify_customer_id",
     )
+    from .relationship_contacts import project_updated_customers
+    await project_updated_customers(client_id, "shopify", [row])
     return row["shopify_customer_id"]
 
 
@@ -442,6 +444,8 @@ async def upsert_customers_batch(
     for chunk_index, chunk in enumerate(chunks, start=1):
         try:
             await sb_upsert("shopify_customers", chunk, on_conflict="client_id,shopify_customer_id")
+            from .relationship_contacts import project_updated_customers
+            await project_updated_customers(client_id, "shopify", chunk)
             upserted += len(chunk)
         except Exception as chunk_exc:
             print(
@@ -452,6 +456,8 @@ async def upsert_customers_batch(
             for row in chunk:
                 try:
                     await sb_upsert("shopify_customers", [row], on_conflict="client_id,shopify_customer_id")
+                    from .relationship_contacts import project_updated_customers
+                    await project_updated_customers(client_id, "shopify", [row])
                     upserted += 1
                 except Exception as row_exc:
                     failed += 1

@@ -137,7 +137,9 @@ async def store_articles(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any
     fresh = [i for i in items if i["url_hash"] not in known]
     # Link do Google Notícias é página de redirecionamento: não tem texto para extrair, fica o trecho do feed.
     for item in [i for i in fresh if "news.google." not in i["url"]][:MAX_TEXT_FETCH]:
-        item["content_text"] = await news_engine.fetch_article_text(item["url"]) or None
+        page = await news_engine.fetch_article(item["url"])
+        item["content_text"] = page["text"]
+        item["image_url"] = item.get("image_url") or page["image_url"]
     rows = [{"url_hash": i["url_hash"], "url": i["url"], "title": i["title"], "source": i.get("source"), "published_at": i.get("published_at"),
              "excerpt": i.get("excerpt"), "content_text": i.get("content_text"), "provider": "google_news" if "news.google." in i["url"] else "rss"}
             for i in fresh]
@@ -184,7 +186,7 @@ def _list(values: Any, limit: int = 4, size: int = 200) -> List[str]:
     return [c for c in (_clean(v, size) for v in (values or [])[:limit]) if c] if isinstance(values, list) else []
 
 
-async def _classify(context: str, items: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+async def _classify(context: str, items: List[Dict[str, Any]], *, client_id: str | None = None) -> Dict[int, Dict[str, Any]]:
     """Análise contextual por cliente. Saída validada: índice existente, enums, evidência presente no texto."""
     if not items:
         return {}
@@ -198,7 +200,7 @@ async def _classify(context: str, items: List[Dict[str, Any]]) -> Dict[int, Dict
         f"TEXTO: {(it.get('content_text') or it.get('excerpt') or '')[:1200]}" for i, it in enumerate(items))
     try:
         # Matérias de terceiros podem citar concorrentes (às vezes outro cliente): aqui não é vazamento.
-        data = await llm_json(leak_check=False,
+        data = await llm_json(client_id=client_id, leak_check=False,
             instructions=("Você faz clipping para uma agência. Analise cada matéria SÓ em relação ao cliente descrito no CONTEXTO "
                           "(a mesma matéria pode importar para outro cliente por outros motivos). Use apenas título, fonte e TEXTO; "
                           "não invente fatos, números nem conclusões. relevancia: 0 a 100 para ESTE cliente (homônimo ou citação de "
@@ -300,7 +302,7 @@ async def refresh(client_id: str, *, manual: bool = False) -> Dict[str, Any]:
     context = _context(brand, settings)
     for start in range(0, len(analyzable), AI_BATCH):
         batch = analyzable[start:start + AI_BATCH]
-        result = await _classify(context, batch)
+        result = await _classify(context, batch, client_id=client_id)
         labels.update({start + k: v for k, v in result.items()})
         try:
             await _spend(client_id, len(batch))
@@ -308,7 +310,7 @@ async def refresh(client_id: str, *, manual: bool = False) -> Dict[str, Any]:
             pass
     rows = []
     for idx, item in enumerate(new):
-        row = {k: item.get(k) for k in ("url", "url_hash", "title", "source", "published_at", "kind", "term")}
+        row = {k: item.get(k) for k in ("url", "url_hash", "title", "source", "published_at", "kind", "term", "image_url", "source_domain")}
         label = labels.get(idx)
         if label:
             row.update(label)
@@ -316,7 +318,15 @@ async def refresh(client_id: str, *, manual: bool = False) -> Dict[str, Any]:
         rows.append({**row, "client_id": client_id})
     alerts = await _alert_team(client_id, brand, rows)
     if rows:
-        await sb_insert_many(CLIPPINGS, rows, returning="minimal")
+        try:
+            await sb_insert_many(CLIPPINGS, rows, returning="minimal")
+        except Exception:  # noqa: BLE001 — migração 000136 pendente: grava sem imagem e domínio
+            await sb_insert_many(CLIPPINGS, [{k: v for k, v in r.items() if k not in ("image_url", "source_domain")} for r in rows],
+                                 returning="minimal")
+    try:
+        await fill_images(client_id)
+    except Exception as exc:  # noqa: BLE001 — imagem é enfeite
+        print(f"[studio][clipping] imagens_falharam client_id={client_id} {type(exc).__name__}")
     await sb_update(SETTINGS, filters={"client_id": f"eq.{client_id}"}, patch={"last_run_at": datetime.now(timezone.utc).isoformat()})
     print(f"[studio][clipping] client_id={client_id} found={len(unique)} new={len(rows)} classified={len(labels)} alerts={alerts}")
     return {"found": len(unique), "new": len(rows), "classified": len(labels), "alerts": alerts,
@@ -357,7 +367,7 @@ async def analyze_pending(client_id: str, *, limit: int = AI_BATCH * 2, ignore_b
     context = _context(brand, settings)
     for start in range(0, len(items), AI_BATCH):
         batch = items[start:start + AI_BATCH]
-        labels = await _classify(context, batch)
+        labels = await _classify(context, batch, client_id=client_id)
         if not labels:
             break
         try:
@@ -395,6 +405,7 @@ async def refresh_all() -> Dict[str, Any]:
 
 # ------------------------------------------------------------------ leitura
 
+CARD_FIELDS = "image_url,source_domain"
 BASE_FIELDS = "id,url,url_hash,title,source,published_at,kind,term,sentiment,summary,relevant,status,calendar_item_id,created_at"
 
 
@@ -418,12 +429,36 @@ async def list_clippings(client_id: str, *, kind: Optional[str] = None, sentimen
     if not include_archived:
         filters["status"] = "neq.arquivado"
     try:
-        rows = await sb_select(CLIPPINGS, select=f"{BASE_FIELDS},{ANALYSIS_FIELDS}", filters=filters,
-                               order="published_at.desc.nullslast", limit=max(1, min(limit, 200)))
+        try:
+            rows = await sb_select(CLIPPINGS, select=f"{BASE_FIELDS},{ANALYSIS_FIELDS},{CARD_FIELDS}", filters=filters,
+                                   order="published_at.desc.nullslast", limit=max(1, min(limit, 200)))
+        except Exception:  # noqa: BLE001 — migração 000136 pendente: sem imagem nos cards
+            rows = await sb_select(CLIPPINGS, select=f"{BASE_FIELDS},{ANALYSIS_FIELDS}", filters=filters,
+                                   order="published_at.desc.nullslast", limit=max(1, min(limit, 200)))
     except Exception:  # noqa: BLE001 — antes da migração 000063 só existem as colunas antigas
         rows = await sb_select(CLIPPINGS, select=BASE_FIELDS, filters={k: v for k, v in filters.items() if k in {"client_id", "kind", "sentiment", "status"}},
                                order="published_at.desc.nullslast", limit=max(1, min(limit, 200)))
     return {"items": rows, "week": await week_summary(client_id), "settings": await get_settings(client_id)}
+
+
+IMAGE_FILL_PER_RUN = 12
+
+
+async def fill_images(client_id: str, *, limit: int = IMAGE_FILL_PER_RUN) -> int:
+    """Matérias de fonte direta sem imagem: busca a capa (og:image) das mais recentes. Link do Google Notícias não abre
+    a matéria, então fica com o ícone do veículo."""
+    rows = await sb_select(CLIPPINGS, select="id,url", order="published_at.desc.nullslast", limit=limit,
+                           filters={"client_id": f"eq.{client_id}", "image_url": "is.null", "source_domain": "is.null",
+                                    "url": "not.like.*news.google.*", "status": "neq.arquivado"})
+    done = 0
+    for row in rows:
+        page = await news_engine.fetch_article(row["url"])
+        patch = {"source_domain": news_engine.domain_of(row["url"])}
+        if page["image_url"]:
+            patch["image_url"] = page["image_url"]
+            done += 1
+        await sb_update(CLIPPINGS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{row['id']}"}, patch=patch, returning="minimal")
+    return done
 
 
 def _safe(text: Any) -> str:

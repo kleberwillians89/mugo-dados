@@ -1,6 +1,8 @@
 """A IA lê tudo: briefings, planejamentos, eventos, Biblioteca e trechos dos documentos; nada é cortado em silêncio;
 e o Editor-chefe da esteira dá nota, reescreve o que é fraco e segura o que nasceu muito fraco."""
+import io
 import json
+from contextlib import redirect_stdout
 import sys
 import unittest
 from datetime import date
@@ -32,7 +34,21 @@ class PromptTests(unittest.TestCase):
         self.assertNotIn("_aviso", si.to_prompt({"marca": {"tom": "leve"}}))
 
     def test_team_decisions_come_right_after_the_brand(self):
-        self.assertEqual(si.PROMPT_ORDER[2:5], ["briefings_aprovados", "planos_aprovados", "referencias_do_cliente"])
+        self.assertEqual(si.PROMPT_ORDER[2:4], ["briefings_aprovados", "planos_aprovados"])
+
+    def test_results_before_everything_else_and_library_last(self):
+        self.assertEqual(si.PROMPT_ORDER[4:8], ["aprendizados", "aprendizados_da_marca", "posts", "criativos_pagos"])
+        self.assertEqual(si.PROMPT_ORDER[-1], "biblioteca")
+
+    def test_logs_size_and_what_was_cut_without_data(self):
+        pkg = {"_client_id": "roove", "marca": {"tom": "leve"}, "biblioteca": {"foto": ["x" * 300 for _ in range(20)]}}
+        out = io.StringIO()
+        with redirect_stdout(out):
+            si.to_prompt(pkg, limit=1500)
+        line = out.getvalue()
+        self.assertIn("cliente=roove", line)
+        self.assertIn("resumidas=biblioteca", line)
+        self.assertNotIn("xxxx", line)
 
 
 class SourcesTests(unittest.IsolatedAsyncioTestCase):
@@ -56,6 +72,13 @@ class SourcesTests(unittest.IsolatedAsyncioTestCase):
             out = await si._library("ruah")
         self.assertEqual(out["produto"], ["Oud 10ml.jpg [image] (do cliente): fundo branco"])
         self.assertEqual(out["referencia"], ["Moodboard [link]"])
+
+    async def test_library_ignores_post_art(self):
+        rows = [{"kind": "arquivo", "category": "foto", "title": "criativo.png", "mime_type": "image/png", "side": "mugo", "note": "Criativo de mídia paga"},
+                {"kind": "arquivo", "category": "logo", "title": "Logo.svg", "mime_type": "image/svg+xml", "side": "mugo"}]
+        with patch.object(si, "sb_select", AsyncMock(return_value=rows)):
+            out = await si._library("ruah")
+        self.assertEqual(out, {"logo": ["Logo.svg [image]"]})
 
     async def test_briefs_bring_what_not_to_do(self):
         rows = [{"brief": {"title": "BF decant", "objective": "Vender", "avoid": ["falar de desconto"], "deliverables": ["4 Reels"]}}]

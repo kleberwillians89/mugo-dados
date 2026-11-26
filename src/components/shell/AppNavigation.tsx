@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
-  Activity, Bot, BrainCircuit, Building2, CalendarRange, ChartColumn, Circle, ClipboardList, Contact, Cpu, CreditCard,
-  FileBarChart, FileText, HeartPulse, LayoutDashboard, Library, ListChecks, Mail, Megaphone, Menu, MessageCircle,
-  MessagesSquare, Newspaper, PanelLeftClose, PanelLeftOpen, PartyPopper, PenLine, Plug, Search, ShoppingCart, Sparkles,
-  ChevronDown, Home, Settings, Share2, Music2, Pin, Linkedin, Swords, Target, UserCog, Users, Workflow, X, type LucideIcon,
+  Activity, BrainCircuit, Building2, CheckCheck, ChevronDown, Circle, ClipboardCheck, ClipboardList, Cpu, CreditCard, Home, LayoutDashboard,
+  Library, Menu, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Plug, Settings, UserCog, Workflow, X, type LucideIcon,
 } from "lucide-react";
 import type { ClientMembership } from "../../app/api";
 import { MUGO_LOGO_ASSETS, PRODUCT_WORDMARK } from "../MugoLogo";
@@ -37,74 +35,26 @@ type Props = {
 };
 
 /** `also`: telas que vivem dentro deste item (abas). O item fica ativo nelas e abre a primeira permitida. */
-type NavItem = { route: AppRoute; label: string; also?: AppRoute[] };
+type NavItem = { route: AppRoute; label: string; also?: AppRoute[]; highlight?: "gold" };
 const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 
 // Um ícone por página: com o menu recolhido sobra só o ícone (o nome aparece ao passar o mouse).
 const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
-  mugo_ia: Sparkles, central: LayoutDashboard, briefing: FileText, planning: CalendarRange, production: PartyPopper,
-  tasks: ListChecks, campaigns: Megaphone, redacao: PenLine, creators: Users, library: Library,
-  meta: ChartColumn, google: Search, channels: Share2, tiktok: Music2, pinterest: Pin, linkedin: Linkedin, ecommerce: ShoppingCart, origins: Contact, whatsapp: MessageCircle,
-  email_marketing: Mail, ai_actions: Bot, media: Target, engagement: MessagesSquare, clipping: Newspaper,
-  brand_health: HeartPulse, benchmark: Swords, social_report: FileBarChart,
+  home: Home, central: LayoutDashboard, library: Library,
+  internal_approval: ClipboardCheck, final_approval: CheckCheck,
   integrations: Plug, users: UserCog, companies: Building2, integration_health: Activity, plan: ClipboardList,
-  plans_admin: CreditCard, ai_usage: Cpu, automations: Workflow, brand_ai: BrainCircuit,
+  plans_admin: CreditCard, ai_usage: Cpu, automations: Workflow, brand_ai: BrainCircuit, mugo_ia: MessageCircleQuestion,
 };
 
-// Operação: o cliente também vê, cada tela com a parte que é dele (o backend filtra).
-// Social Media (antes Redação): equipe Mugô sempre; cliente só quando a Mugô libera o módulo.
-const OPERATION_ITEMS: NavItem[] = [
-  // Mugoverso IA: pergunte qualquer coisa sobre o mundo do cliente (lê todo o contexto dele).
-  { route: "mugo_ia", label: "Tira-dúvidas" },
+// A nova navegação orienta o acesso sem substituir nenhuma ferramenta. Os quatro
+// processos vivem na Home; aqui ficam somente os pontos transversais aprovados.
+const PRIMARY_ITEMS: NavItem[] = [
+  { route: "home", label: "Início" },
   { route: "central", label: "Dashboard" },
-  { route: "briefing", label: "Briefing" },
-  { route: "planning", label: "Planejamento" },
-  { route: "production", label: "Evento" },
-  { route: "tasks", label: "Tarefas" },
-  { route: "campaigns", label: "Social Media" },
-  { route: "redacao", label: "Redação" },
-  { route: "creators", label: "Criadores" },
+  { route: "mugo_ia", label: "Mugô IA", highlight: "gold" },
+  { route: "internal_approval", label: "Aprovação Interna" },
+  { route: "final_approval", label: "Aprovação Final" },
   { route: "library", label: "Biblioteca" },
-];
-
-const INTELLIGENCE_ITEMS: NavItem[] = [
-  { route: "meta", label: "Meta" },
-  { route: "google", label: "Google" },
-  // Uma aba por rede, como a Meta: anúncios e orgânico juntos, no mesmo calendário das outras telas.
-  // /canais (as três juntas) continua abrindo para links antigos.
-  { route: "tiktok", label: "TikTok", also: ["channels"] },
-  { route: "pinterest", label: "Pinterest" },
-  { route: "linkedin", label: "LinkedIn" },
-  { route: "ecommerce", label: "Ecommerce" },
-  // CRM: Origem das vendas e Clientes moram aqui, como abas (ClientsSalesTabs).
-  { route: "origins", label: "CRM", also: ["customers", "customer_value"] },
-  { route: "whatsapp", label: "WhatsApp" },
-  { route: "email_marketing", label: "E-mail marketing" },
-  { route: "ai_actions", label: "O que a IA fez" },
-  { route: "media", label: "Mídia On" },
-  { route: "engagement", label: "Comentários" },
-  // Radar cultural, Matérias e Alertas moram juntos (abas do Clipping); Saúde da Marca é uma aba só.
-  { route: "clipping", label: "Clipping e Radar", also: ["radar"] },
-  { route: "brand_health", label: "Saúde da Marca" },
-  { route: "benchmark", label: "Benchmarking" },
-  { route: "social_report", label: "Relatório" },
-];
-const TEAM_ONLY_ROUTES = new Set<AppRoute>(["campaigns", "redacao", "planning", "production"]);
-
-/**
- * Menu enxuto (layout novo): 8 grupos pelo que a pessoa quer fazer. Nenhuma tela sai: cada item antigo vira
- * subitem do seu grupo, com a mesma rota e a mesma regra de quem vê. Grupo sem item visível não aparece.
- */
-type NavGroup = { id: string; label: string; icon: LucideIcon; routes: AppRoute[] };
-const NAV_GROUPS: NavGroup[] = [
-  { id: "visao-geral", label: "Visão Geral", icon: Home, routes: ["central"] },
-  { id: "tarefas", label: "Tarefas", icon: ListChecks, routes: ["tasks"] },
-  { id: "estrategia", label: "Estratégia", icon: ClipboardList, routes: ["clipping", "brand_health", "planning", "briefing", "creators", "social_report", "library"] },
-  { id: "conteudo", label: "Conteúdo", icon: PenLine, routes: ["campaigns", "redacao", "production"] },
-  { id: "relacionamento", label: "Relacionamento", icon: MessageCircle, routes: ["whatsapp", "email_marketing", "engagement"] },
-  { id: "vendas", label: "Vendas", icon: ShoppingCart, routes: ["ecommerce", "origins"] },
-  { id: "midia", label: "Mídia", icon: Target, routes: ["meta", "google", "tiktok", "pinterest", "linkedin", "media", "benchmark"] },
-  { id: "ia", label: "Tira-dúvidas", icon: Sparkles, routes: ["mugo_ia"] },
 ];
 
 /**
@@ -145,6 +95,8 @@ export default function AppNavigation({
   // integrações da própria empresa; Empresas é só plataforma/agência.
   const showIntegrations = canManageIntegrations ?? (platformAdmin || agencyAdmin);
   const adminItems: NavItem[] = [];
+  // Contexto da Marca: quem vê o módulo da IA da marca consulta; editar continua sendo do admin (o backend valida).
+  if (canView ? canView("brand_ai") : true) adminItems.push({ route: "brand_ai", label: "Contexto da Marca" });
   if (showIntegrations) adminItems.push({ route: "integrations", label: "Integrações" });
   if ((platformAdmin || agencyAdmin || teamHere) || (canView ? canView("users") : false)) adminItems.push({ route: "users", label: "Usuários" });
   if (platformAdmin || agencyAdmin) adminItems.push({ route: "companies", label: "Empresas" });
@@ -202,10 +154,6 @@ export default function AppNavigation({
   }
 
   const routesOf = (item: NavItem): AppRoute[] => [item.route, ...(item.also || [])];
-  const leafItems: NavItem[] = [
-    ...OPERATION_ITEMS.filter((item) => platformAdmin || agencyAdmin || teamHere || (canView ? true : !TEAM_ONLY_ROUTES.has(item.route))),
-    ...INTELLIGENCE_ITEMS,
-  ];
   const visible = (item: NavItem) => !canView || routesOf(item).some((target) => canView(target));
   const renderItem = (item: NavItem) => {
     const Icon = ROUTE_ICONS[item.route] || Circle;
@@ -214,6 +162,7 @@ export default function AppNavigation({
       <li key={item.route}>
         <a
           className="appNavLink"
+          data-highlight={item.highlight}
           href={getPathForRoute(target)}
           title={collapsed ? item.label : undefined}
           aria-current={routesOf(item).includes(route) ? "page" : undefined}
@@ -226,10 +175,7 @@ export default function AppNavigation({
     );
   };
 
-  const groups = NAV_GROUPS.map((group) => ({
-    id: group.id, label: group.label, icon: group.icon,
-    items: group.routes.map((r) => leafItems.find((item) => item.route === r)).filter((item): item is NavItem => Boolean(item)).filter(visible),
-  })).filter((group) => group.items.length);
+  const primaryItems = PRIMARY_ITEMS.filter(visible);
 
   const renderGroup = (group: { id: string; label: string; icon: LucideIcon; items: NavItem[] }) => {
     const Icon = group.icon;
@@ -295,7 +241,7 @@ export default function AppNavigation({
         aria-label="Mugoverso"
       >
         <div className="appSidebarHead">
-          <a className="appProduct" href={getPathForRoute("meta")} onClick={(event) => go(event, "meta")}>
+          <a className="appProduct" href={getPathForRoute("home")} onClick={(event) => go(event, "home")}>
             <span className="appProductMark" aria-hidden="true">
               <img src={MUGO_LOGO_ASSETS.mark3d} alt="" />
             </span>
@@ -317,7 +263,7 @@ export default function AppNavigation({
         ) : null}
 
         <nav className="appSidebarNav" aria-label="Navegação principal">
-          {groups.map(renderGroup)}
+          <ul className="appNavList appNavPrimaryList">{primaryItems.map(renderItem)}</ul>
           {adminItems.length ? renderGroup({ id: "config", label: "Configurações", icon: Settings, items: adminItems }) : null}
         </nav>
 

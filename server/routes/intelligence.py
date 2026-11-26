@@ -49,11 +49,13 @@ def _log_stage_error(*, endpoint: str, client_id: str, stage: str, exc: BaseExce
 
 def _raise_service_error(exc: RuntimeError) -> None:
     code = str(exc or "INTELLIGENCE_ERROR")
-    if code == "AI_PROVIDER_NOT_CONFIGURED":
+    if code in {"AI_PROVIDER_NOT_CONFIGURED", "AI_BYOK_CREDENTIAL_MISSING", "AI_BYOK_CREDENTIAL_INVALID"}:
         raise HTTPException(
-            status_code=503,
-            detail="O provedor de IA ainda não está configurado no backend.",
+            status_code=409 if code == "AI_BYOK_CREDENTIAL_MISSING" else 503,
+            detail="A configuracao de IA desta empresa precisa ser concluida em Integracoes.",
         ) from exc
+    if code in {"AI_PROVIDER_AUTH", "AI_PROVIDER_PERMISSION", "AI_MODEL_UNAVAILABLE"}:
+        raise HTTPException(status_code=422, detail="A chave ou o modelo de IA configurado para esta empresa nao esta disponivel.") from exc
     if code == "CONVERSATION_NOT_FOUND":
         raise HTTPException(status_code=404, detail="Conversa não encontrada para este usuário e empresa.") from exc
     if code in {"QUESTION_INVALID", "CONVERSATION_CREATE_FAILED", "CONVERSATION_TITLE_INVALID"} or "Período inválido" in code:

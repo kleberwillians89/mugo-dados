@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { salesOriginHeadline } from "../app/plainHeadlines";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { usePeriod } from "../app/PeriodContext";
 import { formatCurrency, formatInteger, formatPercentNumber } from "../app/dataFormat";
@@ -87,6 +88,7 @@ export default function SalesOrigin({ canView }: { canView?: (route: AppRoute) =
           controls={<PeriodSelector />}
         />
         <ClientsSalesTabs current="origins" canView={canView} />
+        {totals ? <p className="plainHeadline" role="status">{salesOriginHeadline(totals)}</p> : null}
 
         {current.error ? (
           <DataNotice tone="negative" role="alert" title="Origem das vendas indisponível no momento.">

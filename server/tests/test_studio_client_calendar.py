@@ -85,6 +85,29 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 403)
         delete.assert_not_awaited()
 
+    async def test_approval_delete_is_separate_from_approval_permission_and_agency_only(self):
+        with patch.object(studio_routes, "require_client_role", AsyncMock(return_value="roove")) as role, \
+             patch.object(studio_routes, "is_agency_user", AsyncMock(return_value=False)), \
+             patch.object(studio_routes, "delete_approval_item", AsyncMock()) as delete:
+            with self.assertRaises(HTTPException) as raised:
+                await studio_routes.remove_approval_content("roove", "11111111-1111-1111-1111-111111111111",
+                                                            authorization="Bearer aprovador")
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(role.await_args.kwargs["allowed_roles"], studio_routes.WRITERS)
+        delete.assert_not_awaited()
+
+    async def test_agency_with_calendar_edit_can_soft_delete_from_approval(self):
+        with patch.object(studio_routes, "require_client_role", AsyncMock(return_value="roove")), \
+             patch.object(studio_routes, "is_agency_user", AsyncMock(return_value=True)), \
+             patch.object(studio_routes, "require_user_id", AsyncMock(return_value="u1")), \
+             patch.object(studio_routes, "_chat_author", return_value="Ana"), \
+             patch.object(studio_routes, "delete_approval_item", AsyncMock()) as delete:
+            out = await studio_routes.remove_approval_content("roove", "11111111-1111-1111-1111-111111111111",
+                                                              authorization="Bearer equipe")
+        self.assertTrue(out["ok"])
+        delete.assert_awaited_once_with("roove", "11111111-1111-1111-1111-111111111111",
+                                        user_id="u1", actor_name="Ana")
+
     async def test_client_patch_goes_through_client_rules(self):
         body = studio_routes.ItemPatch(caption_draft="Nova")
         with patch.object(studio_routes, "require_client_role", AsyncMock(return_value="roove")), \

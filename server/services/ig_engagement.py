@@ -241,13 +241,20 @@ async def replies_by_post(client_id: str, *, days: int = 30) -> Dict[str, Any]:
 # ------------------------------------------------------------------ envio
 
 async def _log(client_id: str, comment: Dict[str, Any], *, kind: str, status: str, text: str, rule_id: Optional[str] = None,
-               actor: Optional[str] = None, error: Optional[str] = None, external_id: Optional[str] = None) -> None:
-    try:
-        await sb_insert(ACTIONS, {"client_id": client_id, "comment_id": str(comment["comment_id"]), "media_id": comment.get("media_id"),
-                                  "rule_id": rule_id, "kind": kind, "status": status, "text": text[:1000], "actor": actor,
-                                  "error": (error or None) and error[:200], "external_id": external_id}, returning="minimal")
-    except Exception as exc:  # noqa: BLE001 — índice único: já respondido por outra execução
-        print(f"[ig_engagement] log_skipped kind={kind} {type(exc).__name__}")
+               actor: Optional[str] = None, error: Optional[str] = None, external_id: Optional[str] = None,
+               ai_original: Optional[str] = None) -> None:
+    row = {"client_id": client_id, "comment_id": str(comment["comment_id"]), "media_id": comment.get("media_id"),
+           "rule_id": rule_id, "kind": kind, "status": status, "text": text[:1000], "actor": actor,
+           "error": (error or None) and error[:200], "external_id": external_id}
+    # Resposta sugerida pela IA e mudada pela equipe: o original vira sinal de aprendizado (coluna da migração 000147).
+    original = re.sub(r"\s+", " ", str(ai_original or "")).strip()[:1000]
+    attempts = [{**row, "ai_original": original}, row] if original and original != re.sub(r"\s+", " ", text).strip() else [row]
+    for attempt in attempts:
+        try:
+            await sb_insert(ACTIONS, attempt, returning="minimal")
+            return
+        except Exception as exc:  # noqa: BLE001 — índice único (já respondido) ou coluna ainda não aplicada
+            print(f"[ig_engagement] log_skipped kind={kind} {type(exc).__name__}")
 
 
 async def _comment(client_id: str, comment_id: str) -> Dict[str, Any]:
@@ -259,7 +266,8 @@ async def _comment(client_id: str, comment_id: str) -> Dict[str, Any]:
 
 
 async def reply_public(client_id: str, comment: Dict[str, Any], text: str, *, creds: Dict[str, Any], kind: str = "resposta_manual",
-                       rule_id: Optional[str] = None, actor: Optional[str] = None, live: bool = True) -> Dict[str, Any]:
+                       rule_id: Optional[str] = None, actor: Optional[str] = None, live: bool = True,
+                       ai_original: Optional[str] = None) -> Dict[str, Any]:
     text = text.strip()[:300 if kind == "resposta_publica" else 1000]
     if not text:
         raise StudioError("REPLY_EMPTY")
@@ -271,12 +279,13 @@ async def reply_public(client_id: str, comment: Dict[str, Any], text: str, *, cr
     except StudioError as exc:
         await _log(client_id, comment, kind=kind, status="falhou", text=text, rule_id=rule_id, actor=actor, error=exc.code)
         raise
-    await _log(client_id, comment, kind=kind, status="enviado", text=text, rule_id=rule_id, actor=actor, external_id=str(out.get("id") or ""))
+    await _log(client_id, comment, kind=kind, status="enviado", text=text, rule_id=rule_id, actor=actor, external_id=str(out.get("id") or ""),
+               ai_original=ai_original)
     return {"status": "enviado", "id": out.get("id")}
 
 
 async def send_direct(client_id: str, comment: Dict[str, Any], text: str, *, creds: Dict[str, Any], rule_id: Optional[str] = None,
-                      actor: Optional[str] = None, live: bool = True) -> Dict[str, Any]:
+                      actor: Optional[str] = None, live: bool = True, ai_original: Optional[str] = None) -> Dict[str, Any]:
     text = text.strip()[:1000]
     created = datetime.fromisoformat(str(comment.get("timestamp")).replace("Z", "+00:00")) if comment.get("timestamp") else None
     if not created or datetime.now(timezone.utc) - created > DIRECT_WINDOW:
@@ -291,20 +300,22 @@ async def send_direct(client_id: str, comment: Dict[str, Any], text: str, *, cre
     except StudioError as exc:
         await _log(client_id, comment, kind="direct", status="falhou", text=text, rule_id=rule_id, actor=actor, error=exc.code)
         raise
-    await _log(client_id, comment, kind="direct", status="enviado", text=text, rule_id=rule_id, actor=actor, external_id=str(out.get("message_id") or ""))
+    await _log(client_id, comment, kind="direct", status="enviado", text=text, rule_id=rule_id, actor=actor, external_id=str(out.get("message_id") or ""),
+               ai_original=ai_original)
     return {"status": "enviado"}
 
 
-async def manual_reply(client_id: str, comment_id: str, text: str, *, actor: str, direct: bool = False) -> Dict[str, Any]:
+async def manual_reply(client_id: str, comment_id: str, text: str, *, actor: str, direct: bool = False,
+                       ai_original: Optional[str] = None) -> Dict[str, Any]:
     comment = await _comment(client_id, comment_id)
     creds = await credentials(client_id)
     if direct:
         if not capabilities(creds["scopes"])["direct"]:
             raise StudioError("IG_PERMISSION_MISSING")
-        return await send_direct(client_id, comment, text, creds=creds, actor=actor)
+        return await send_direct(client_id, comment, text, creds=creds, actor=actor, ai_original=ai_original)
     if not capabilities(creds["scopes"])["reply"]:
         raise StudioError("IG_PERMISSION_MISSING")
-    return await reply_public(client_id, comment, text, creds=creds, actor=actor)
+    return await reply_public(client_id, comment, text, creds=creds, actor=actor, ai_original=ai_original)
 
 
 # ------------------------------------------------------------------ IA
@@ -464,9 +475,9 @@ AI_FAILURE_REASONS = {
 PROVIDER_DETAILS = {
     "insufficient_quota": "Conta da OpenAI sem crédito: confira Billing em platform.openai.com.",
     "credit_balance_exhausted": "Conta da OpenAI sem crédito: confira Billing em platform.openai.com.",
-    "invalid_api_key": "Chave da OpenAI inválida: atualize OPENAI_API_KEY no Render e no segredo MUGO_JOBS_ENV do GitHub.",
+    "invalid_api_key": "Chave da OpenAI inválida ou indisponível para esta empresa.",
     "rate_limit_exceeded": "Limite de uso da OpenAI por minuto atingido.",
-    "model_not_found": "O modelo configurado em OPENAI_MODEL não existe ou não está liberado na conta.",
+    "model_not_found": "O modelo selecionado não existe ou não está liberado para esta empresa.",
 }
 
 

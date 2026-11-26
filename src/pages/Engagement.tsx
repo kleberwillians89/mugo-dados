@@ -54,7 +54,7 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
   const [lastRun, setLastRun] = useState<LastAiRun | null>(null);
   const [toneDraft, setToneDraft] = useState<string | null>(null);
   const [can, setCan] = useState<{ reply: boolean; direct: boolean } | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, { text: string; direct: boolean; hint?: string }>>({});
+  const [drafts, setDrafts] = useState<Record<string, { text: string; direct: boolean; hint?: string; ai?: string }>>({});
   const [editing, setEditing] = useState<(RuleInput & { id?: string; keywordsText: string }) | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,14 +85,14 @@ export default function Engagement({ isAgency = true, canManage = true }: { isAg
 
   async function suggest(c: InboxComment) {
     const out = await run(`s:${c.comment_id}`, () => suggestReply(c.comment_id), "A IA não respondeu agora.");
-    if (out) setDrafts((d) => ({ ...d, [c.comment_id]: { text: out.reply, direct: d[c.comment_id]?.direct || false,
+    if (out) setDrafts((d) => ({ ...d, [c.comment_id]: { text: out.reply, ai: out.reply, direct: d[c.comment_id]?.direct || false,
       hint: [out.needs_human ? `Atenção: ${out.reason || "melhor a equipe responder com cuidado."}` : "", ...out.guard.map((g) => g.fix)].filter(Boolean).join(" ") } }));
   }
 
   async function send(c: InboxComment) {
     const draft = drafts[c.comment_id];
     if (!draft?.text.trim()) return;
-    const out = await run(`r:${c.comment_id}`, () => sendReply(c.comment_id, draft.text.trim(), draft.direct), "Não foi possível enviar.");
+    const out = await run(`r:${c.comment_id}`, () => sendReply(c.comment_id, draft.text.trim(), draft.direct, draft.ai), "Não foi possível enviar.");
     if (out) {
       setNotice(draft.direct ? "Direct enviado." : "Resposta publicada no comentário.");
       setDrafts((d) => { const next = { ...d }; delete next[c.comment_id]; return next; });

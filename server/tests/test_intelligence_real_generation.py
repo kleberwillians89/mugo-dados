@@ -23,7 +23,7 @@ SERVER_DIR = Path(__file__).resolve().parents[1]
 if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
-from services import business_context, commerce_context, external_research, intelligence
+from services import ai_runtime, business_context, commerce_context, external_research, intelligence
 
 CLIENT = "loja-vinho"
 FBITS_TOKEN = "token-fbits-que-nunca-pode-ir-ao-modelo"
@@ -268,9 +268,10 @@ class GenerationTests(SnapshotHarness):
             "insights": [], "actions": [],
         }
         output = io.StringIO()
+        runtime = ai_runtime.AiRuntime(CLIENT, "platform_managed", "openai", "gpt-4.1-mini", "fixture-key")
         with (
             patch.object(intelligence, "calculate_intelligence_snapshot", AsyncMock(return_value=snapshot)),
-            patch.object(intelligence, "provider_configured", lambda: True),
+            patch.object(ai_runtime, "resolve", AsyncMock(return_value=runtime)),
             patch.object(intelligence, "sb_insert", AsyncMock(side_effect=sb_insert)),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
             patch.object(
@@ -322,9 +323,10 @@ class GenerationTests(SnapshotHarness):
             "insights": [], "actions": [],
         })
         snapshot = await self.snapshot()
+        runtime = ai_runtime.AiRuntime(CLIENT, "platform_managed", "openai", "gpt-4.1-mini", "fixture-key")
         with (
             patch.object(intelligence, "calculate_intelligence_snapshot", AsyncMock(return_value=snapshot)),
-            patch.object(intelligence, "provider_configured", lambda: True),
+            patch.object(ai_runtime, "resolve", AsyncMock(return_value=runtime)),
             patch.object(intelligence, "sb_insert", AsyncMock(return_value={"id": "an-1"})),
             patch.object(intelligence, "sb_select", AsyncMock(return_value=[])),
             patch.object(intelligence, "_call_provider", call),

@@ -1,26 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, BookOpen, RefreshCw, Radar as RadarIcon, TrendingUp } from "lucide-react";
+import { ArrowUpRight, Lightbulb, RefreshCw, TrendingUp, Users } from "lucide-react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import { getClipping, getClippingInsights, type Clipping, type ClippingInsights, type ClippingView } from "../app/contentOps";
 import PageHeader from "../components/data/PageHeader";
 import { getRadarOverview, type RadarOverview } from "../app/radar";
 import Shell from "../components/Shell";
+import NewsCard from "../components/clipping/NewsCard";
+import "../styles/metaLive.css";
 
-function safeLink(value: string): string | null {
+function safeLink(value: string | null | undefined): string | null {
   try {
-    const url = new URL(value);
+    const url = new URL(String(value || ""));
     return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
   } catch { return null; }
 }
 
-const dateLabel = (value: string | null) => value
-  ? new Date(value).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
-  : "Data não informada";
+const short = (n: number | null) => n == null ? "—" : n >= 1_000_000 ? `${(n / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`
+  : n >= 1000 ? `${(n / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mil` : n.toLocaleString("pt-BR");
 
 /**
- * Radar Cultural v1: leitura de evidências já coletadas pelo Clipping por empresa.
- * Não infere crescimento real de tendências nem inventa métricas externas.
- * A API existente resolve o tenant autenticado e aplica suas permissões.
+ * Radar Cultural: o que está acontecendo ao redor da marca, em leitura rápida.
+ * 1) frase de resumo; 2) o que está em alta e conversa com a marca (com ideia de pauta);
+ * 3) oportunidades e temas (só quando existem); 4) criadores ligados; 5) notícias em cards.
+ * Usa só o Clipping desta empresa e as tendências selecionadas para ela; nada é inventado quando falta dado.
  */
 export default function Radar({ embedded = false }: { embedded?: boolean } = {}) {
   const clientId = getActiveClientId();
@@ -34,167 +36,136 @@ export default function Radar({ embedded = false }: { embedded?: boolean } = {})
   const [kind, setKind] = useState<"todos" | "marca" | "concorrente" | "tema">("todos");
 
   const load = useCallback(async () => {
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError(null);
     try {
-      const [nextView, nextInsights] = await Promise.all([
-        getClipping(),
-        getClippingInsights(30),
-      ]);
+      const [nextView, nextInsights] = await Promise.all([getClipping(), getClippingInsights(30)]);
       if (getActiveClientId() !== clientId) return;
-      setView(nextView);
-      setInsights(nextInsights);
+      setView(nextView); setInsights(nextInsights);
     } catch (cause) {
-      if (getActiveClientId() === clientId) {
-        setError(cause instanceof Error ? cause.message : "Não foi possível carregar os sinais.");
-      }
+      if (getActiveClientId() === clientId) setError(cause instanceof Error ? cause.message : "Não foi possível carregar os sinais.");
     } finally {
       if (getActiveClientId() === clientId) setBusy(false);
     }
   }, [clientId]);
-
   useEffect(() => { void load(); }, [load]);
 
   const loadOverview = useCallback(async () => {
     try {
       const result = await getRadarOverview();
-      if (getActiveClientId() === clientId) {
-        setOverview(result);
-        setOverviewError(null);
-      }
+      if (getActiveClientId() === clientId) { setOverview(result); setOverviewError(null); }
     } catch (cause) {
       if (getActiveClientId() === clientId) setOverviewError(cause instanceof Error ? cause.message : "Fonte externa indisponível.");
     }
   }, [clientId]);
   useEffect(() => { void loadOverview(); }, [loadOverview]);
 
-  const items = useMemo(() => {
-    const all = view?.items || [];
-    return all.filter((item) => kind === "todos" || item.kind === kind)
-      .sort((a, b) => (b.published_at || b.created_at || "").localeCompare(a.published_at || a.created_at || ""))
-      .slice(0, 18);
-  }, [view, kind]);
+  const signals = useMemo(() => {
+    const now = Date.now();
+    const since = now - 30 * 86_400_000;
+    return (view?.items || []).filter((item: Clipping) => {
+      const at = Date.parse(item.published_at || item.created_at || "");
+      return item.relevant !== false && at >= since && at <= now;
+    });
+  }, [view]);
+  const items = useMemo(() => signals.filter((item) => kind === "todos" || item.kind === kind)
+    .sort((a, b) => (b.published_at || b.created_at || "").localeCompare(a.published_at || a.created_at || "")).slice(0, 12), [signals, kind]);
+  const topics = (insights?.themes || []).filter((t) => t.key && t.count > 0).slice(0, 10);
+  const opportunities = signals.filter((item) => (item.opportunities || []).length > 0).slice(0, 4);
+  const trends = overview?.trends.items || [];
+  const creators = overview?.creators || [];
+  const counts = { marca: signals.filter((i) => i.kind === "marca").length, concorrente: signals.filter((i) => i.kind === "concorrente").length,
+    tema: signals.filter((i) => i.kind === "tema").length };
 
-  const signals = useMemo(() => (view?.items || []).filter((item: Clipping) => item.relevant !== false), [view]);
-  const evidenceCount = signals.filter(item => Boolean(safeLink(item.url))).length;
-  const topics = (insights?.themes || []).filter((topic) => topic.key && topic.count > 0).slice(0, 8);
-  const opportunities = signals.filter(item => (item.opportunities || []).length > 0).slice(0, 6);
+  const headline = (() => {
+    if (busy && !view) return "Lendo o que está acontecendo ao redor da marca…";
+    const parts = [`${signals.length} notícia${signals.length === 1 ? "" : "s"} relevante${signals.length === 1 ? "" : "s"} em 30 dias`];
+    if (counts.marca) parts.push(`${counts.marca} sobre ${company}`);
+    if (counts.concorrente) parts.push(`${counts.concorrente} sobre concorrentes`);
+    if (trends.length) parts.push(`${trends.length} assunto${trends.length === 1 ? "" : "s"} em alta ligado${trends.length === 1 ? "" : "s"} à marca`);
+    return parts.join(" · ") + ".";
+  })();
 
-  const refresh = <button type="button" className="btn btnPrimary" disabled={busy} onClick={() => { void load(); void loadOverview(); }}>
-    <RefreshCw size={16} aria-hidden="true" /> {busy ? "Carregando..." : "Atualizar leitura"}
+  const refresh = <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => { void load(); void loadOverview(); }}>
+    <RefreshCw size={15} aria-hidden="true" /> {busy ? "Atualizando…" : "Atualizar leitura"}
   </button>;
-  const body = (
-      <div style={{ display: "grid", gap: 18, paddingBottom: 40 }}>
-        {embedded ? <div style={{ display: "flex", justifyContent: "flex-end" }}>{refresh}</div> : null}
-        <section className="ds-section" aria-label="Visão do radar">
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <RadarIcon size={21} aria-hidden="true" />
-            <div>
-              <h2 className="ds-sectionTitle" style={{ margin: 0 }}>O que está acontecendo ao redor da marca</h2>
-              <p style={{ margin: "4px 0 0", opacity: .72 }}>Leitura inicial de notícias, temas e oportunidades verificáveis. Não representa a audiência total das redes sociais.</p>
-            </div>
-          </div>
-          {error ? <p role="alert">Erro na leitura: {error}. Confira o acesso ao Clipping e tente novamente.</p> : null}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))", gap: 12 }}>
-            {[
-              ["Sinais coletados", insights?.total, "Clipping no período"],
-              ["Sinais analisados", insights?.analyzed, "Classificados na fonte"],
-              ["Com evidência", evidenceCount, "Links disponíveis na leitura"],
-              ["Temas identificados", topics.length, "Categorias com registros"],
-            ].map(([label, number, description]) => (
-              <div key={String(label)} style={{ border: "1px solid var(--border, #d9dfe2)", borderRadius: 12, padding: 18 }}>
-                <p style={{ margin: "0 0 8px", opacity: .72 }}>{label}</p>
-                <strong style={{ fontSize: 28 }}>{busy && !insights ? "—" : (number ?? "—")}</strong>
-                <p style={{ margin: "6px 0 0", fontSize: 12, opacity: .7 }}>{description}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section className="ds-section" aria-labelledby="radar-demand">
-          <h2 id="radar-demand" className="ds-sectionTitle">Em alta no Brasil e ligado a {company}</h2>
-          <p style={{ opacity: .75 }}>Dos {overview?.trends.public_count ?? "—"} assuntos em alta no Google Trends hoje, só entram os que conversam com o segmento, o público e os termos de {company}{overview?.trends.method === "termos" ? " (escolhidos pelos termos da marca; a IA não respondeu agora)" : ""}. Cada marca tem a sua seleção.</p>
-          {overviewError ? <p role="status">Fonte externa indisponível: {overviewError}. As leituras de Clipping permanecem independentes.</p> : null}
-          {overview?.trends.status === "unavailable" ? <p>Google Trends indisponível nesta consulta.</p> : null}
-          {overview?.trends.items.length ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-              {overview.trends.items.slice(0, 9).map(item => (
-                <article key={item.id} style={{ border: "1px solid var(--border, #d9dfe2)", borderRadius: 12, padding: 14 }}>
-                  <strong>{item.topic}</strong>
-                  {item.why ? <p style={{ fontSize: 13, margin: "6px 0" }}>{item.why}</p> : null}
-                  {item.idea ? <p style={{ fontSize: 13, margin: "6px 0" }}><b>Ideia:</b> {item.idea}</p> : null}
-                  {item.approx_traffic ? <p style={{ fontSize: 12, opacity: .75 }}>Volume aproximado indicado pelo Google: {item.approx_traffic}</p> : null}
-                  {safeLink(item.source_url) ? <a href={safeLink(item.source_url)!} target="_blank" rel="noopener noreferrer">Consultar fonte <ArrowUpRight size={14} aria-hidden="true" /></a> : null}
-                </article>
-              ))}
-            </div>
-          ) : <p>{overview ? `Nenhum assunto em alta hoje tem ligação com ${company}.` : "Lendo os assuntos em alta para esta marca..."}</p>}
-        </section>
-        <section className="ds-section" aria-labelledby="radar-creator">
-          <h2 id="radar-creator" className="ds-sectionTitle">Territory Intelligence · Criadores vinculados</h2>
-          <p style={{ opacity: .75 }}>Perfis já associados a esta empresa. Não são automaticamente concorrentes e não representam uma amostra completa do mercado.</p>
-          {overview?.creators.length ? <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-            {overview.creators.map(item => (
-              <article key={item.id} style={{ border: "1px solid var(--border, #d9dfe2)", borderRadius: 12, padding: 14 }}>
-                <strong>{item.display_name || item.handle}</strong>
-                <p style={{ opacity: .75 }}>{item.network} · @{item.handle}</p>
-                <p style={{ fontSize: 13 }}>Seguidores: {item.followers == null ? "não disponível" : item.followers.toLocaleString("pt-BR")}</p>
-                <p style={{ fontSize: 13 }}>Taxa de engajamento: {item.engagement_rate == null ? "não disponível" : `${item.engagement_rate.toLocaleString("pt-BR")}%`}</p>
-                <p style={{ fontSize: 12, opacity: .7 }}>Fonte: {item.source || "não informada"} · Coleta: {dateLabel(item.collected_at)}</p>
-                {safeLink(item.profile_url || "") ? <a href={safeLink(item.profile_url || "")!} target="_blank" rel="noopener noreferrer">Ver perfil <ArrowUpRight size={14} aria-hidden="true" /></a> : null}
-              </article>
-            ))}
-          </div> : <p>Sem criadores vinculados à empresa. Cadastre perfis na aba Criadores para alimentar esta leitura.</p>}
-        </section>
-        <section className="ds-section" aria-labelledby="radar-attention">
-          <h2 id="radar-attention" className="ds-sectionTitle">Share of Attention · Em preparação</h2>
-          <p>Ainda não calculamos participação de atenção: é necessário definir marcas comparáveis, plataformas e períodos equivalentes e coletar uma amostra auditável. Nenhum percentual é exibido sem esses critérios.</p>
-          <p style={{ fontSize: 12, opacity: .7 }}>Conectores adicionais: YouTube {overview?.sources.youtube === "configured" ? "configurado" : "não configurado"} · Apify {overview?.sources.apify === "configured" ? "configurada" : "não configurada"}.</p>
-        </section>
-        <section className="ds-section" aria-labelledby="radar-themes">
-          <h2 id="radar-themes" className="ds-sectionTitle"><TrendingUp size={18} aria-hidden="true" /> Temas observados</h2>
-          <p style={{ opacity: .75 }}>Frequência de menções encontradas no Clipping. Mais menções não significam necessariamente uma tendência em crescimento.</p>
-          {topics.length ? <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {topics.map(topic => <span key={topic.key} style={{ border: "1px solid var(--border, #d9dfe2)", borderRadius: 20, padding: "8px 12px" }}>{topic.key} · {topic.count}</span>)}
-          </div> : <p>Nenhum tema classificado neste período. Configure e atualize o Clipping para alimentar esta leitura.</p>}
-        </section>
-        <section className="ds-section" aria-labelledby="radar-opportunities">
-          <h2 id="radar-opportunities" className="ds-sectionTitle">Oportunidades com evidências</h2>
-          {opportunities.length ? <div style={{ display: "grid", gap: 12 }}>
-            {opportunities.map(item => <article key={item.id} style={{ border: "1px solid var(--border, #d9dfe2)", borderRadius: 12, padding: 16 }}>
-              <strong>{item.title}</strong>
-              <p style={{ opacity: .75 }}>{item.source || "Fonte não identificada"} · {dateLabel(item.published_at)}</p>
-              <ul>{(item.opportunities || []).slice(0, 3).map((value, index) => <li key={index}>{value}</li>)}</ul>
-              {safeLink(item.url) ? <a href={safeLink(item.url)!} target="_blank" rel="noopener noreferrer">Ver fonte <ArrowUpRight size={14} aria-hidden="true" /></a> : null}
-            </article>)}
-          </div> : <p>Ainda não há oportunidades classificadas com evidências. O Radar não cria recomendações artificiais quando faltam dados.</p>}
-        </section>
-        <section className="ds-section" aria-labelledby="radar-evidence">
-          <h2 id="radar-evidence" className="ds-sectionTitle"><BookOpen size={18} aria-hidden="true" /> Evidências e concorrência</h2>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-            {(["todos", "marca", "concorrente", "tema"] as const).map(value =>
-              <button key={value} className="btn" type="button" aria-pressed={kind === value} onClick={() => setKind(value)}
-                style={{ border: "1px solid var(--border, #d9dfe2)", opacity: kind === value ? 1 : .65 }}>
-                {{ todos: "Todos", marca: "Marca", concorrente: "Concorrentes", tema: "Temas" }[value]}
-              </button>)}
-          </div>
-          {items.length ? <div style={{ display: "grid", gap: 10 }}>
-            {items.map(item => <article key={item.id} style={{ borderBottom: "1px solid var(--border, #d9dfe2)", paddingBottom: 12 }}>
-              <strong>{item.title}</strong>
-              <p style={{ margin: "5px 0", opacity: .75 }}>{item.kind} · {item.source || "Fonte não identificada"} · {dateLabel(item.published_at)}</p>
-              {item.summary ? <p style={{ margin: "6px 0" }}>{item.summary}</p> : null}
-              {safeLink(item.url) ? <a href={safeLink(item.url)!} target="_blank" rel="noopener noreferrer">Abrir notícia <ArrowUpRight size={14} aria-hidden="true" /></a> : null}
-            </article>)}
-          </div> : <p>{busy ? "Carregando evidências..." : "Sem registros para o filtro selecionado."}</p>}
-        </section>
-        <p style={{ fontSize: 12, opacity: .7 }}>O Radar de {company} usa só as leituras de Clipping desta empresa e os assuntos em alta que têm ligação com ela. Nada de outra marca aparece aqui.</p>
-      </div>
-  );
+
+  const body = <div className="radarPage">
+    <div className="radarTop">
+      <p className="clipHeadline" role="status">{headline}</p>
+      {embedded ? refresh : null}
+    </div>
+    {error ? <p className="studioError" role="alert">{error}</p> : null}
+
+    <div className="mlKpis" aria-label="Resumo do radar">
+      <div className="mlCard mlKpi"><span className="mlLbl">Sobre {company}</span><b>{counts.marca}</b><small>notícias em 30 dias</small></div>
+      <div className="mlCard mlKpi"><span className="mlLbl">Concorrentes</span><b>{counts.concorrente}</b><small>notícias em 30 dias</small></div>
+      <div className="mlCard mlKpi"><span className="mlLbl">Em alta e ligado à marca</span><b>{overview ? trends.length : "—"}</b><small>assuntos hoje</small></div>
+      <div className="mlCard mlKpi"><span className="mlLbl">Oportunidades</span><b>{opportunities.length}</b><small>com fonte</small></div>
+    </div>
+
+    <details className="mlCard">
+      <summary>Como o Radar calcula esses números</summary>
+      <ul>
+        <li><strong>Marca e concorrentes:</strong> contagem por categoria das notícias não arquivadas e não marcadas como irrelevantes no Clipping. A janela usa a data da publicação, ou a data de coleta quando ela falta, nos últimos 30 dias. A leitura usa até 100 itens devolvidos pelo Clipping.</li>
+        <li><strong>Assuntos em alta:</strong> contagem dos assuntos do Google Trends Brasil selecionados por relevância para esta marca na leitura do dia.</li>
+        <li><strong>Oportunidades:</strong> até quatro notícias dessa janela com sugestões registradas. Cada notícia conta uma vez.</li>
+      </ul>
+    </details>
+
+    <section className="mlBlock" aria-labelledby="radar-trends">
+      <div className="mlRow mlSpread"><h3 id="radar-trends"><TrendingUp size={17} aria-hidden="true" /> Em alta no Brasil e ligado a {company}</h3>
+        {overview?.trends.public_count ? <small className="mlMuted">de {overview.trends.public_count} assuntos em alta no Google hoje</small> : null}</div>
+      {overviewError ? <p className="mlMuted">Tendências indisponíveis agora ({overviewError}).</p> : null}
+      {trends.length ? <div className="radarTrends">{trends.slice(0, 6).map((t) => <article key={t.id} className="mlCard radarTrend">
+        <div className="mlRow mlSpread"><b>{t.topic}</b>{t.approx_traffic ? <span className="mlChip is-neu">{t.approx_traffic} buscas</span> : null}</div>
+        {t.why ? <p>{t.why}</p> : null}
+        {t.idea ? <p className="radarIdea"><Lightbulb size={14} aria-hidden="true" /> {t.idea}</p> : null}
+        {safeLink(t.source_url) ? <a className="radarLink" href={safeLink(t.source_url)!} target="_blank" rel="noopener noreferrer">Ver no Google <ArrowUpRight size={13} aria-hidden="true" /></a> : null}
+      </article>)}</div>
+        : <p className="mlMuted">{overview ? `Nenhum assunto em alta hoje conversa com ${company}. Volta amanhã: a lista muda todo dia.` : "Lendo os assuntos em alta…"}</p>}
+    </section>
+
+    {opportunities.length || topics.length ? <section className="mlBlock" aria-labelledby="radar-opps">
+      <h3 id="radar-opps"><Lightbulb size={17} aria-hidden="true" /> Oportunidades e temas</h3>
+      {opportunities.length ? <div className="radarTrends">{opportunities.map((item) => <article key={item.id} className="mlCard radarTrend">
+        <b>{(item.opportunities || [])[0]}</b>
+        {(item.opportunities || []).slice(1, 3).map((o, i) => <p key={i}>{o}</p>)}
+        <a className="radarLink" href={item.url} target="_blank" rel="noreferrer noopener">{item.source || "Fonte"}: {item.title.slice(0, 70)}{item.title.length > 70 ? "…" : ""} <ArrowUpRight size={13} aria-hidden="true" /></a>
+      </article>)}</div> : null}
+      {topics.length ? <div className="mlChips radarTopics">{topics.map((t) => <span key={t.key} className="mlChip is-neu">{t.key} · {t.count}</span>)}</div> : null}
+    </section> : null}
+
+    {creators.length ? <section className="mlBlock" aria-labelledby="radar-creators">
+      <div className="mlRow mlSpread"><h3 id="radar-creators"><Users size={17} aria-hidden="true" /> Criadores ligados à marca</h3><small className="mlMuted">{creators.length} perfis</small></div>
+      <div className="radarCreators">{creators.slice(0, 12).map((c) => {
+        const link = safeLink(c.profile_url);
+        const inner = <>
+          {c.avatar_url ? <img src={c.avatar_url} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="radarAvatar">{(c.display_name || c.handle).slice(0, 1).toUpperCase()}</span>}
+          <span className="radarCreatorText"><b>{c.display_name || c.handle}</b><small>@{c.handle}</small>
+            <small>{short(c.followers)} seguidores{c.engagement_rate != null ? ` · ${c.engagement_rate.toLocaleString("pt-BR")}% engaj.` : ""}</small></span>
+        </>;
+        return link ? <a key={c.id} className="mlCard radarCreator" href={link} target="_blank" rel="noopener noreferrer">{inner}</a>
+          : <div key={c.id} className="mlCard radarCreator">{inner}</div>;
+      })}</div>
+    </section> : null}
+
+    <section className="mlBlock" aria-labelledby="radar-news">
+      <div className="mlRow mlSpread"><h3 id="radar-news">Notícias que alimentam o radar</h3>
+        <div className="mlChips" role="group" aria-label="Filtrar notícias">
+          {(["todos", "marca", "concorrente", "tema"] as const).map((value) => <button key={value} type="button" aria-pressed={kind === value}
+            className={`radarFilter${kind === value ? " is-active" : ""}`} onClick={() => setKind(value)}>
+            {{ todos: "Todas", marca: company, concorrente: "Concorrentes", tema: "Temas" }[value]}</button>)}
+        </div></div>
+      {items.length ? <div className="newsGrid">{items.map((item) => <NewsCard key={item.id} item={item} />)}</div>
+        : <p className="mlMuted">{busy ? "Carregando notícias…" : "Sem notícias para este filtro."}</p>}
+    </section>
+
+    <p className="mlMuted radarFoot">O radar de {company} usa só o Clipping desta empresa e os assuntos em alta escolhidos para ela. Fatia de atenção nas redes (share of attention) ainda não é calculada: só entra com marcas comparáveis e amostra auditável.</p>
+  </div>;
+
   if (embedded) return body;
-  return (
-    <Shell title="" variant="editorial">
-      <PageHeader company={company} title="Radar Cultural"
-        dateline={<span>Sinais com fonte identificada · Clipping da marca · Recorte de 30 dias</span>} controls={refresh} />
-      {body}
-    </Shell>
-  );
+  return <Shell title="" variant="editorial">
+    <PageHeader company={company} title="Radar Cultural" dateline={<span>Clipping da marca · tendências do dia · 30 dias</span>} controls={refresh} />
+    {body}
+  </Shell>;
 }
