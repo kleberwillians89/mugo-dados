@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
 
-from services import my_tasks
+from services import mugo_notices, my_tasks
 from services.studio_calendar import StudioError
 from services.tenant import require_user_id
 
@@ -27,3 +27,24 @@ async def me_tasks(client_id: Optional[str] = None, status: Optional[str] = None
     except Exception as exc:  # noqa: BLE001 — erro de leitura nunca vira lista vazia
         print(f"[me_tasks] failed user_id={uid} {type(exc).__name__}")
         raise HTTPException(status_code=503, detail="Não foi possível carregar suas tarefas agora. Tente de novo.") from None
+
+
+@router.get("/notices")
+async def me_notices(client_id: Optional[str] = None, limit: int = 3, authorization: Optional[str] = Header(None)):
+    """"A Mugô IA notou": até 3 (Início) ou todos (Minhas Tarefas), os mais urgentes primeiro."""
+    uid = await require_user_id(authorization)
+    try:
+        return await mugo_notices.for_user(uid, client_id=(client_id or "").strip() or None, limit=max(1, min(limit, 100)))
+    except Exception as exc:  # noqa: BLE001 — sem a tabela (migração pendente) o quadro só não aparece
+        print(f"[me_notices] failed {type(exc).__name__}")
+        return {"notices": [], "total": 0, "unavailable": True}
+
+
+@router.post("/notices/dismiss")
+async def me_dismiss_notice(body: dict, authorization: Optional[str] = Header(None)):
+    """Dispensar: some para esta pessoa e só volta se a situação piorar."""
+    uid = await require_user_id(authorization)
+    notice_id = str((body or {}).get("id") or "")[:200]
+    if not await mugo_notices.dismiss(uid, notice_id):
+        raise HTTPException(status_code=404, detail="Alerta não encontrado.")
+    return {"ok": True}

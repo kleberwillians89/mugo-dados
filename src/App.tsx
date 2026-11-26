@@ -833,6 +833,16 @@ function PrivateApp() {
     markReadStage("tenant_ready");
   }, [clients]);
 
+  /** Alerta da Mugô IA: abre a tela na empresa do alerta (troca a empresa antes, se for outra). */
+  const openRouteIn = useCallback((clientId: string, nextRoute: AppRoute) => {
+    const canonicalId = canonicalizeClientId(clientId);
+    if (canonicalId !== activeClientId) {
+      if (!clients.some((client) => client.client_id === canonicalId)) return;
+      handleClientChange(canonicalId);
+    }
+    openRoute(nextRoute);
+  }, [activeClientId, clients, handleClientChange, openRoute]);
+
   const handleOpenCompany = useCallback(async (company: PlatformCompany, targetRoute: AppRoute = "meta") => {
     // Mantém o mecanismo de acesso/suporte auditado (openPlatformCompany) antes
     // de trocar de tenant — "Fazer onboarding" e "Abrir para suporte" só se
@@ -1032,7 +1042,7 @@ function PrivateApp() {
       ) : (
       <>
       {route === "home" ? (
-        <Home key={`home:${activeClientId}`} canView={canView} onOpen={openRoute} />
+        <Home key={`home:${activeClientId}`} canView={canView} onOpen={openRoute} onOpenIn={openRouteIn} />
       ) : route === "process_planning" ? (
         <ProcessEntry key={`process-planning:${activeClientId}`} kind="planning" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "process_content" ? (
@@ -1077,7 +1087,7 @@ function PrivateApp() {
               onOpenWhatsApp={canView("whatsapp") ? () => openRoute("whatsapp") : undefined} />
           : <ClientTasksPage key={`tasks:${activeClientId}`} />
       ) : route === "my_tasks" ? (
-        <MyTasks onOpenTask={(clientId, taskId) => {
+        <MyTasks onOpenIn={openRouteIn} onOpenTask={(clientId, taskId) => {
           // Abre no quadro da empresa da tarefa: troca a empresa (se preciso) e o quadro abre o detalhe pelo ?task=.
           if (clientId !== activeClientId) {
             if (!clients.some((client) => client.client_id === canonicalizeClientId(clientId))) return;

@@ -4,6 +4,8 @@ import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import { TASK_PRIORITY, TASK_STATUS, dueInfo, type TaskStatus } from "../app/crm";
 import { MY_TASK_GROUPS, groupMyTasks, listMyTasks, type MyTask, type MyTasksResult } from "../app/myTasks";
+import MugoNoticed from "../components/shell/MugoNoticed";
+import type { AppRoute } from "../app/routes";
 import "../styles/my-tasks.css";
 
 type StatusFilter = "open" | TaskStatus;
@@ -13,10 +15,10 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
     .map((value) => ({ value, label: TASK_STATUS[value] })),
 ];
 
-type Props = { onOpenTask: (clientId: string, taskId: string) => void };
+type Props = { onOpenTask: (clientId: string, taskId: string) => void; onOpenIn?: (clientId: string, route: AppRoute) => void };
 
 /** Minhas Tarefas: tudo em que a pessoa é responsável, em todas as empresas, agrupado pelo prazo. */
-export default function MyTasks({ onOpenTask }: Props) {
+export default function MyTasks({ onOpenTask, onOpenIn }: Props) {
   const [clientId, setClientId] = useState("");
   const [status, setStatus] = useState<StatusFilter>("open");
   const [query, setQuery] = useState("");
@@ -48,6 +50,7 @@ export default function MyTasks({ onOpenTask }: Props) {
 
   return <Shell title="Minhas Tarefas" variant="editorial"><div className="ds-page myTasksPage">
     <PageHeader title="Minhas Tarefas" controls={<button type="button" className="ds-button" onClick={() => void load()}>Atualizar</button>} />
+    {onOpenIn ? <MugoNoticed limit={50} onOpen={onOpenIn} /> : null}
     <p className="myTasksHint">Tudo em que você é responsável, em todas as empresas. Clique para abrir no quadro da empresa.</p>
     <div className="myTasksFilters">
       <input type="search" placeholder="Buscar tarefa" aria-label="Buscar tarefa" value={query} onChange={(e) => setQuery(e.target.value)} />
