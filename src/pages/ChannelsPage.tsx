@@ -13,16 +13,23 @@ import "../styles/channels.css";
 
 const num = (v: number | string | null | undefined) => (v == null || v === "" ? "—" : formatInteger(Number(v)));
 
-function NotConnected({ channel }: { channel?: Channel }) {
+function ChannelEmpty({ channel }: { channel?: Channel }) {
+  if (channel?.status === "connected") {
+    return <p className="chMuted">Conta conectada. Ainda sem dados para este indicador no período selecionado.</p>;
+  }
   const waiting = channel && !channel.app_configured;
-  return <p className="chMuted">{waiting ? "Aguardando o app da plataforma ser aprovado." : "Ainda não conectado."}{" "}
+  const message = waiting ? "Aguardando o app da plataforma ser aprovado e configurado."
+    : channel?.status === "reauth_required" || channel?.status === "token_expired" ? "Reconecte a conta para atualizar os dados."
+    : channel?.status === "sync_error" ? "A última coleta falhou. Consulte o status da conta."
+    : "Ainda não conectado.";
+  return <p className="chMuted">{message}{" "}
     <a href={getPathForRoute("integrations")}>Ver em Integrações</a></p>;
 }
 
 function Paid({ label, m, channel }: { label: string; m?: ChannelTotals; channel?: Channel }) {
   return <section className="chCard" aria-label={label}>
     <h3>{label}</h3>
-    {!m ? <NotConnected channel={channel} /> : <>
+    {!m ? <ChannelEmpty channel={channel} /> : <>
       <div className="ds-kpis">
         <KpiFigure label="Investimento" value={formatCurrency(m.spend)} rawValue={m.spend} />
         <KpiFigure label="Impressões" value={num(m.impressions)} />
@@ -68,9 +75,9 @@ export default function ChannelsPage({ network }: { network?: Network } = {}) {
       {show("tiktok") ? <section className="chChannel" aria-label="TikTok">
         {!network ? <h2 className="chSection">TikTok</h2> : null}
         <div className="chGrid">
-          <Paid label="Anúncios" m={by("tiktok_ads")?.metrics.tiktok_ads} channel={by("tiktok_ads")} />
+          <Paid label="Pago · Anúncios" m={by("tiktok_ads")?.metrics.tiktok_ads} channel={by("tiktok_ads")} />
           <section className="chCard" aria-label="TikTok orgânico"><h3>Orgânico</h3>
-            {!tiktok ? <NotConnected channel={by("tiktok")} /> : <>
+            {!tiktok ? <ChannelEmpty channel={by("tiktok")} /> : <>
               <div className="ds-kpis">
                 <KpiFigure label="Seguidores" value={num(tiktok.latest?.followers)} />
                 <KpiFigure label="Curtidas" value={num(tiktok.latest?.likes)} />
@@ -84,9 +91,9 @@ export default function ChannelsPage({ network }: { network?: Network } = {}) {
       {show("pinterest") ? <section className="chChannel" aria-label="Pinterest">
         {!network ? <h2 className="chSection">Pinterest</h2> : null}
         <div className="chGrid">
-          <Paid label="Anúncios" m={by("pinterest")?.metrics.pinterest_ads} channel={by("pinterest")} />
+          <Paid label="Pago · Anúncios" m={by("pinterest")?.metrics.pinterest_ads} channel={by("pinterest")} />
           <section className="chCard" aria-label="Pinterest orgânico"><h3>Orgânico</h3>
-            {!pin ? <NotConnected channel={by("pinterest")} /> : <div className="ds-kpis">
+            {!pin ? <ChannelEmpty channel={by("pinterest")} /> : <div className="ds-kpis">
               <KpiFigure label="Impressões" value={num(pin.impressions)} />
               <KpiFigure label="Salvamentos" value={num(pin.sums?.saves)} />
               <KpiFigure label="Cliques para o site" value={num(pin.clicks)} />
@@ -97,9 +104,9 @@ export default function ChannelsPage({ network }: { network?: Network } = {}) {
       {show("linkedin") ? <section className="chChannel" aria-label="LinkedIn">
         {!network ? <h2 className="chSection">LinkedIn</h2> : null}
         <div className="chGrid">
-          <Paid label="Anúncios" m={by("linkedin")?.metrics.linkedin_ads} channel={by("linkedin")} />
-          <section className="chCard" aria-label="LinkedIn página"><h3>Página (orgânico)</h3>
-            {!li ? <NotConnected channel={by("linkedin")} /> : <div className="ds-kpis">
+          <Paid label="Pago · Anúncios" m={by("linkedin")?.metrics.linkedin_ads} channel={by("linkedin")} />
+          <section className="chCard" aria-label="LinkedIn orgânico"><h3>Orgânico</h3>
+            {!li ? <ChannelEmpty channel={by("linkedin")} /> : <div className="ds-kpis">
               <KpiFigure label="Seguidores" value={num(li.latest?.followers)} />
               <KpiFigure label="Impressões" value={num(li.impressions)} />
               <KpiFigure label="Cliques" value={num(li.clicks)} />
@@ -108,7 +115,7 @@ export default function ChannelsPage({ network }: { network?: Network } = {}) {
           </section>
         </div>
       </section> : null}
-      <p className="chMuted">Instagram e Facebook continuam em Mídia → Meta. Os números seguem o período escolhido no calendário acima.</p>
+      <p className="chMuted">Os números seguem o período selecionado. Para consultar outra plataforma, volte a <a href={getPathForRoute("process_social")}>Redes sociais</a>.</p>
     </> : null}
   </div></Shell>;
 }

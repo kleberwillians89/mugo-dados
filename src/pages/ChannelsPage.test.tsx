@@ -21,7 +21,7 @@ describe("TikTok, Pinterest e LinkedIn", () => {
       { provider: "tiktok_ads", label: "TikTok Ads", auth: "oauth", app_configured: true, status: "connected", metrics: { tiktok_ads: totals } },
       { provider: "tiktok", label: "TikTok orgânico", auth: "oauth", app_configured: true, status: "connected", metrics: { tiktok: { ...totals, latest: { followers: 950, likes: 4000, videos: 12 }, top: [] } } },
       { provider: "pinterest", label: "Pinterest", auth: "oauth", app_configured: false, status: "not_connected", metrics: {} },
-      { provider: "linkedin", label: "LinkedIn", auth: "oauth", app_configured: true, status: "not_connected", metrics: {} },
+      { provider: "linkedin", label: "LinkedIn", auth: "oauth", app_configured: true, status: "connected", metrics: {} },
     ] });
     const host = document.createElement("div"); document.body.appendChild(host);
     const root = createRoot(host);
@@ -31,7 +31,7 @@ describe("TikTok, Pinterest e LinkedIn", () => {
     expect(host.textContent).toContain("Natal");
     expect(host.textContent).toContain("950");
     expect(host.textContent).toContain("Aguardando o app da plataforma");
-    expect(host.textContent).toContain("Ainda não conectado");
+    expect(host.textContent).toContain("Conta conectada. Ainda sem dados");
     // um bloco por canal, cada um com anúncios e orgânico
     expect([...host.querySelectorAll(".chChannel h2")].map((h) => h.textContent)).toEqual(["TikTok", "Pinterest", "LinkedIn"]);
     expect(host.querySelector('[aria-label="TikTok"]')?.textContent).toContain("Anúncios");
@@ -50,7 +50,7 @@ describe("TikTok, Pinterest e LinkedIn", () => {
     await act(async () => { root.render(<ChannelsPage network="linkedin" />); }); await act(async () => {});
     expect([...host.querySelectorAll(".chChannel")].map((s) => s.getAttribute("aria-label"))).toEqual(["LinkedIn"]);
     expect(host.textContent).toContain("Anúncios");
-    expect(host.textContent).toContain("Página (orgânico)");
+    expect(host.textContent).toContain("Orgânico");
     expect(host.textContent).toContain("321");
     expect(host.textContent).not.toContain("Natal visualizações");
     act(() => root.unmount()); host.remove();
