@@ -439,3 +439,11 @@
 .integrationList .integrationCardHeading,
 .integrationList .integrationCardHeading > div{ min-width: 0; }
 .integrationList .integrationCardHeading .smallMuted{ white-space: normal; overflow-wrap: anywhere; }
+
+.integrationPlatformTabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.integrationPlatformTabs .btn { border-radius: 999px; }
+.integrationPlatformTabs .btn[aria-pressed="true"] { background: #0c4160; color: #fff; }
+.integrationAccountGroup h3 { margin: 16px 0 4px; font-size: 14px; }
+.integrationSettings { margin-top: 12px; }
+.integrationSettings > summary { cursor: pointer; font-weight: 650; color: #0c4160; }
+.integrationSettings[open] > summary { margin-bottom: 16px; }

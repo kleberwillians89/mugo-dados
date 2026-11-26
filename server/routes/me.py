@@ -45,6 +45,8 @@ async def me_dismiss_notice(body: dict, authorization: Optional[str] = Header(No
     """Dispensar: some para esta pessoa e só volta se a situação piorar."""
     uid = await require_user_id(authorization)
     notice_id = str((body or {}).get("id") or "")[:200]
-    if not await mugo_notices.dismiss(uid, notice_id):
+    completed = (body or {}).get("completed") is True
+    acknowledged = await mugo_notices.dismiss(uid, notice_id, completed=True) if completed else await mugo_notices.dismiss(uid, notice_id)
+    if not acknowledged:
         raise HTTPException(status_code=404, detail="Alerta não encontrado.")
     return {"ok": True}

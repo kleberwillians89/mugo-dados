@@ -181,5 +181,15 @@ class VisibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(upsert.await_args.args[1][0]["level"], 2)
 
 
+    async def test_completed_notice_persists_disposition_for_the_user(self):
+        from services import clients
+        upsert = AsyncMock()
+        with patch.object(clients, "list_clients_for_user", AsyncMock(return_value={"clients": [{"client_id": "roove"}]})), \
+             patch.object(mn, "sb_select", AsyncMock(return_value=[{"level": 2}])), patch.object(mn, "sb_upsert", upsert):
+            self.assertTrue(await mn.dismiss("u1", "roove|publicacao_falhou:p1", completed=True))
+        self.assertEqual(upsert.await_args.args[1][0]["disposition"], "completed")
+        self.assertEqual(upsert.await_args.args[1][0]["user_id"], "u1")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,16 @@ describe("A Mugô IA notou", () => {
     expect(list.children).toHaveLength(2);
   });
 
+  it("registra conclusão explicitamente e retira o aviso da lista", async () => {
+    m.list.mockResolvedValue({ notices: [NOTICES[0]], total: 1 });
+    m.dismiss.mockResolvedValue({ ok: true });
+    await render();
+    await act(async () => button("Marcar como feito").click());
+    expect(m.dismiss).toHaveBeenCalledWith(NOTICES[0].id, true);
+    expect(host.querySelector("li")).toBeNull();
+    expect(host.textContent).toContain("Aviso marcado como feito.");
+  });
+
   it("cobra o cliente só depois de confirmar e dispensa tirando da lista", async () => {
     m.list.mockResolvedValue({ notices: NOTICES, total: 2 });
     m.remind.mockResolvedValue({ ok: true }); m.dismiss.mockResolvedValue({ ok: true });

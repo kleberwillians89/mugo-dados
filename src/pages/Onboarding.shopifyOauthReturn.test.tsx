@@ -128,6 +128,10 @@ async function mount() {
     await Promise.resolve();
     await Promise.resolve();
   });
+  const tab = Array.from(container!.querySelectorAll<HTMLButtonElement>(".integrationPlatformTabs button"))
+    .find((button) => button.textContent === "Shopify")!;
+  await act(async () => tab.click());
+
 }
 
 describe("Onboarding — retorno do OAuth Shopify não dispara backfill duplicado", () => {

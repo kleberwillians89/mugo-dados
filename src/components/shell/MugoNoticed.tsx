@@ -27,12 +27,17 @@ export default function MugoNoticed({ onOpen, limit = 3, showCompany = true }: P
     return () => { alive = false; };
   }, [limit]);
 
-  async function dismiss(n: MugoNotice) {
+  const [completionMessage, setCompletionMessage] = useState("");
+
+  async function dismiss(n: MugoNotice, completed = false) {
     setBusy(n.id);
     try {
-      await dismissNotice(n.id);
+      if (completed) {
+        await dismissNotice(n.id, true);
+        setCompletionMessage("Aviso marcado como feito.");
+      } else await dismissNotice(n.id);
       setNotices((list) => (list || []).filter((x) => x.id !== n.id));
-    } catch { setFeedback({ id: n.id, text: "Não foi possível dispensar agora.", error: true }); } finally { setBusy(null); }
+    } catch { setFeedback({ id: n.id, text: completed ? "Não foi possível marcar como feito agora." : "Não foi possível dispensar agora.", error: true }); } finally { setBusy(null); }
   }
 
   async function act(n: MugoNotice, a: NoticeAction) {
@@ -50,7 +55,7 @@ export default function MugoNoticed({ onOpen, limit = 3, showCompany = true }: P
     if (a.route) onOpen(n.client_id, a.route);
   }
 
-  if (!notices || !notices.length) return null;
+  if (!notices || !notices.length) return completionMessage ? <p role="status">{completionMessage}</p> : null;
   return <section className="mugoNoticed" aria-labelledby={titleId}>
     <h2 id={titleId}>
       <button type="button" className="mugoNoticedToggle" aria-expanded={expanded} aria-controls={listId}
@@ -61,6 +66,7 @@ export default function MugoNoticed({ onOpen, limit = 3, showCompany = true }: P
         <ChevronDown className="mugoNoticedChevron" size={18} aria-hidden="true" />
       </button>
     </h2>
+    {completionMessage ? <p role="status">{completionMessage}</p> : null}
     <ul id={listId} hidden={!expanded}>
       {notices.map((n) => <li key={n.id} className="mugoNotice" data-kind={n.kind}>
         <span className="mugoNoticeIcon" aria-hidden="true">{n.icon}</span>
@@ -69,6 +75,7 @@ export default function MugoNoticed({ onOpen, limit = 3, showCompany = true }: P
           <p>{n.message}</p>
           <div className="mugoNoticeActions">
             {n.actions.map((a) => <button key={a.label} type="button" className="ds-button" disabled={busy === n.id} onClick={() => void act(n, a)}>{a.label}</button>)}
+            <button type="button" className="ds-button" disabled={busy === n.id} onClick={() => void dismiss(n, true)}>Marcar como feito</button>
             <button type="button" className="ds-link is-quiet" disabled={busy === n.id} onClick={() => void dismiss(n)}>Dispensar</button>
           </div>
           {feedback?.id === n.id ? <p className={feedback.error ? "mugoNoticeFeedback is-error" : "mugoNoticeFeedback"} role="status">{feedback.text}</p> : null}
