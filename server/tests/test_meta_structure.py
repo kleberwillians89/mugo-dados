@@ -251,3 +251,51 @@ class FixtureSyncTests(unittest.TestCase):
         fixture = Path(__file__).resolve().parents[2] / "src/components/studio/__fixtures__/metaCatalog.json"
         self.assertEqual(json.loads(fixture.read_text(encoding="utf-8")), json.loads(json.dumps(ms.catalog())),
                          "Rode o comando do topo de MetaLevels.test.tsx para regenerar o catálogo da tela.")
+
+
+class VideoPreviewTests(unittest.IsolatedAsyncioTestCase):
+    def video_row(self, meta_ids=None):
+        data = with_meta()
+        data["ad"] = {**data["ad"], "media_type": "video", "video_url": "https://cdn/v.mp4", "image_url": ""}
+        return {"id": "d1", "payload": data, "meta_ids": meta_ids or {}}
+
+    async def test_uploads_once_waits_processing_then_previews(self):
+        upload = AsyncMock(return_value="vid9")
+        update = AsyncMock()
+        states = iter(["processing", "ready"])
+
+        async def graph(method, path, *, token, data=None, params=None):
+            if path == "/vid9":
+                return {"status": {"video_status": next(states)}}
+            return {"data": [{"body": '<iframe src="https://www.facebook.com/ads/api/preview_iframe.php?v=1"></iframe>'}]}
+        row = self.video_row()
+        with patch.object(pub, "_draft", AsyncMock(side_effect=lambda c, d: row)), patch.object(pub, "_context", AsyncMock(return_value=CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_upload_video", upload), \
+             patch.object(pub, "_video_thumbnail", AsyncMock(return_value="https://cdn/thumb.jpg")), patch.object(options, "sb_update", update):
+            with self.assertRaises(StudioError) as caught:
+                await options.official_preview("ruah", "d1", "INSTAGRAM_REELS")
+            self.assertEqual(caught.exception.code, "AD_PREVIEW_PROCESSING")
+            row["meta_ids"] = update.await_args.kwargs["patch"]["meta_ids"]  # o rascunho guardou o vídeo
+            out = await options.official_preview("ruah", "d1", "INSTAGRAM_REELS")
+        upload.assert_awaited_once()
+        self.assertEqual(row["meta_ids"]["preview_videos"], {"video:https://cdn/v.mp4": "vid9"})
+        self.assertIn("preview_iframe", out["src"])
+
+    async def test_creation_reuses_the_video_sent_in_the_preview(self):
+        row = {**self.video_row({"preview_videos": {"video:https://cdn/v.mp4": "vid9"}}), "client_id": "ruah", "status": "rascunho"}
+        posts = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            if path.endswith("/adspixels"):
+                return {"data": [{"id": "555", "last_fired_time": "x"}]}
+            posts.append((path, data or {}))
+            return {"id": f"id{len(posts)}"}
+        upload = AsyncMock()
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_upload_video", upload), \
+             patch.object(pub, "_video_thumbnail", AsyncMock(return_value="https://cdn/t.jpg")), \
+             patch.object(pub, "sb_update", AsyncMock(return_value=[row])), redirect_stdout(io.StringIO()):
+            await pub.publish("ruah", "d1")
+        upload.assert_not_awaited()
+        creative = next(d for p, d in posts if p.endswith("/adcreatives"))
+        self.assertEqual(json.loads(creative["object_story_spec"])["video_data"]["video_id"], "vid9")

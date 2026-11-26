@@ -37,7 +37,7 @@ ERRORS = {
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu a campanha. Tente de novo."),
     "AI_RATE_LIMIT": (429, "Muitas gerações seguidas. Espere um pouco e tente de novo."),
 }
-PASS_MESSAGE = {"AD_META_REJECTED", "AD_NOT_READY", "AD_AUDIENCE_INVALID", "AD_PREVIEW_UNAVAILABLE"}
+PASS_MESSAGE = {"AD_META_REJECTED", "AD_NOT_READY", "AD_AUDIENCE_INVALID", "AD_PREVIEW_UNAVAILABLE", "AD_PREVIEW_PROCESSING"}
 
 
 def _http(exc: StudioError) -> HTTPException:

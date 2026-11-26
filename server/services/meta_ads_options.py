@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from . import meta_ad_publisher as pub
 from . import meta_structure as ms
+from .ig_supabase import sb_update
 from .studio_calendar import StudioError
 
 # Prévias que o Gerenciador mostra, na mesma ordem (ad_format da API → nome na tela).
@@ -171,8 +172,17 @@ async def official_preview(client_id: str, draft_id: str, ad_format: str, ad_ind
             story = {"link_data": {"link": link, "message": ad["primary_text"], "child_attachments": children,
                                    "multi_share_optimized": False, "multi_share_end_card": False, "call_to_action": button}}
         elif unit["media_type"] == "video":
-            raise StudioError("AD_PREVIEW_UNAVAILABLE",
-                              "A prévia oficial de vídeo aparece depois que o vídeo é enviado para a Meta, na criação da campanha pausada.")
+            video_id = await _preview_video(client_id, draft_id, row, act, token, unit, payload["name"])
+            cover = unit.get("image_url") or await pub._video_thumbnail(video_id, token, tries=1)
+            if not cover:
+                raise StudioError("AD_PREVIEW_PROCESSING", "A Meta ainda está gerando a capa do vídeo. Clique em Atualizar prévia em alguns segundos.")
+            video: Dict[str, Any] = {"video_id": video_id, "message": ad["primary_text"],
+                                     "title": unit.get("headline") or ad["headline"] or payload["name"], "call_to_action": button}
+            if unit.get("image_url"):
+                video["image_hash"] = await pub._image_hash(act, unit["image_url"], token)
+            else:
+                video["image_url"] = cover
+            story = {"video_data": video}
         else:
             if not unit["image_url"]:
                 raise StudioError("AD_PREVIEW_UNAVAILABLE", "Escolha a imagem do anúncio para ver a prévia.")
@@ -204,3 +214,26 @@ def preview_src(html: str) -> Optional[str]:
         return None
     src = match.group(1).replace("&amp;", "&")
     return src if re.match(r"https://(www\.|business\.)?facebook\.com/", src) else None
+
+
+async def _preview_video(client_id: str, draft_id: str, row: Dict[str, Any], act: str, token: str,
+                         unit: Dict[str, Any], name: str) -> str:
+    """Envia o vídeo uma vez para a conta (como na criação) e guarda o id no rascunho: a criação pausada reaproveita,
+    sem enviar de novo. Enquanto a Meta processa, avisa para tentar em alguns segundos."""
+    ids = dict(row.get("meta_ids") or {})
+    cache = dict(ids.get("preview_videos") or {})
+    key = pub.unit_key(unit)
+    video_id = cache.get(key)
+    if not video_id:
+        video_id = await pub._upload_video(act, unit, token, f"{name} · vídeo")
+        cache[key] = video_id
+        ids["preview_videos"] = cache
+        await sb_update(pub.TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"},
+                        patch={"meta_ids": ids}, returning="minimal")
+    status = await pub._graph("GET", f"/{video_id}", token=token, params={"fields": "status"})
+    state = str(((status.get("status") or {}).get("video_status")) or "ready").lower()
+    if state == "error":
+        raise StudioError("AD_PREVIEW_UNAVAILABLE", "A Meta não conseguiu processar este vídeo. Escolha outro arquivo.")
+    if state != "ready":
+        raise StudioError("AD_PREVIEW_PROCESSING", "Vídeo enviado. A Meta está processando: clique em Atualizar prévia em alguns segundos.")
+    return str(video_id)
