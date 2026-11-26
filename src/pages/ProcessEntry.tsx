@@ -38,7 +38,7 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
     lead: "Acesse diretamente as ferramentas de criação disponíveis para a empresa selecionada.",
     tools: [
       { label: "Briefing", description: "Organize a demanda antes da produção.", route: "briefing", icon: FileText },
-      { label: "Social Media", description: "Trabalhe a matriz e as postagens sociais.", route: "campaigns", icon: Megaphone, permission: "social_media.view" },
+      { label: "Social Media", description: "Planeje, aprove e publique conteúdo.", route: "campaigns", icon: Megaphone, permission: "social_media.view" },
       { label: "Redação", description: "Produza e refine textos no editor profissional.", route: "redacao", icon: PenLine },
       { label: "Criadores", description: "Consulte e organize criadores para as ações.", route: "creators", icon: Users },
       { label: "Eventos", description: "Planeje produções e eventos da marca.", route: "production", icon: CalendarDays },
@@ -50,7 +50,7 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
     lead: "Crie e acompanhe a mídia paga. A IA lê as campanhas ativas da Meta e do Google.",
     tools: [
       { label: "Mídia On", description: "Campanhas, criativos, verba e leitura da IA.", route: "media", icon: Target },
-      { label: "Meta", description: "Resultados de mídia e presença nos canais Meta.", route: "meta", icon: Megaphone },
+      { label: "Meta", description: "Consulte o relatório da Meta para avaliar suas campanhas.", route: "meta", icon: Megaphone },
       { label: "Google", description: "Resultados de mídia e dados do Google.", route: "google", icon: Search },
     ],
   },
@@ -80,9 +80,9 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
   },
   social: {
     title: "Redes sociais",
-    lead: "Desempenho de cada rede conectada.",
+    lead: "Desempenho orgânico e pago por rede, conforme os dados disponíveis.",
     tools: [
-      { label: "Instagram e Facebook", description: "Seguidores, alcance e publicações dos canais Meta.", route: "channels", icon: Instagram },
+      { label: "Instagram e Facebook", description: "Desempenho orgânico do Instagram e resultados de Meta Ads.", route: "meta", icon: Instagram },
       { label: "TikTok", description: "Vídeos, visualizações e crescimento.", route: "tiktok", icon: Music2 },
       { label: "Pinterest", description: "Pins, impressões e salvamentos.", route: "pinterest", icon: Pin },
       { label: "LinkedIn", description: "Página da empresa, seguidores e engajamento.", route: "linkedin", icon: Linkedin },

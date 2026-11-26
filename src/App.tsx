@@ -1082,7 +1082,7 @@ function PrivateApp() {
         <Goals key={`goals:${activeClientId}`} canManage={canEdit("central")} />
       ) : route === "calendar" || route === "approval" || route === "campaigns" ? (
         <Campaigns key={`social-media:${activeClientId}`} initialTab={route === "calendar" || route === "approval" ? "calendario" : undefined}
-          isAgency={teamHere} canViewSocial={can("social_media.view")} canManage={canEdit("social_media")}
+          isAgency={teamHere} canViewSocialPerformance={canView("process_social")} canViewSocial={can("social_media.view")} canManage={canEdit("social_media")}
           canViewCalendar={can("calendar.view")} canManageCalendar={canEdit("calendar")} canApproveMatrix={can("tasks.approve")} />
       ) : route === "redacao" ? (
         <RedacaoPage key={`redacao:${activeClientId}`} canManage={canEdit("social_media")} />
