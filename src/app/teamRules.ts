@@ -25,7 +25,7 @@ export const OPT_IN_CODES = new Set(["social_media.view", "social_media.edit", "
 const PROCESS_ROUTES: Record<string, string[]> = {
   process_planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
   process_content: ["campaigns", "redacao", "production", "briefing", "creators", "clipping"],
-  process_campaign: ["media", "meta", "google"],
+  process_campaign: ["media"],
   process_relationship: ["email_marketing", "capture", "engagement", "whatsapp"],
   process_analysis: ["origins", "ecommerce", "customers", "social_report", "brand_health", "ai_actions"],
   process_social: ["meta", "tiktok", "pinterest", "linkedin"],
