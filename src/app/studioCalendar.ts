@@ -3,7 +3,7 @@ import { cleanDirection, localParts, type CalendarItem, type CreativeDirection, 
 export type ViewMode = "mes" | "semana" | "dia" | "fluxo";
 export type PostDraft = { date: string; time: string; channel?: StudioChannel; format: StudioFormat; pillar: string; title: string; hook: string; caption_draft: string; rationale: string; art_url?: string; collaborators?: string[]; product_tags?: ProductTag[]; reels_options?: ReelsOptions; creative_direction?: CreativeDirection;
   /** Briefing da peça em edição ("Editar peça"). */
-  piece?: PieceDraft };
+  piece?: PieceDraft; destinations?: import("./studio").PublicationDestination[]; publication_group_id?: string };
 
 /** Briefing da peça como a tela edita: textos simples e listas (uma linha por item). */
 export type PieceDraft = { briefing: StudioBriefing; script: string; visual_idea: string };

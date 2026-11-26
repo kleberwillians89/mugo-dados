@@ -871,7 +871,36 @@ async def confirm_schedule(client_id: str, item_id: str, *, user_id: str, now: b
     return updated[0]
 
 
-async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, origin: str = "manual",
+MULTI_PLATFORM_FORMATS = {
+    "instagram": {"reels", "carrossel", "imagem", "stories"},
+    "facebook": {"imagem", "video", "carrossel", "stories"},
+    "linkedin": {"imagem", "carrossel", "video"},
+    "tiktok": {"video"}, "youtube": {"video"}, "pinterest": {"imagem", "carrossel", "video"},
+}
+
+
+async def create_destinations(client_id: str, data: Dict[str, Any], *, user_id: str) -> List[Dict[str, Any]]:
+    destinations = data.get("destinations") or []
+    if not destinations:
+        return [await create_item(client_id, data, user_id=user_id)]
+    channels = [data["channel"], *(destination["channel"] for destination in destinations)]
+    if len(set(channels)) != len(channels):
+        raise StudioError("CHANNEL_INVALID")
+    group = str(data["publication_group_id"])
+    rows = []
+    for channel, override in zip(channels, [{}, *destinations]):
+        target = {**data, **{key: value for key, value in override.items() if value is not None}, "channel": channel}
+        if target["format"] not in MULTI_PLATFORM_FORMATS[channel]:
+            raise StudioError("FORMAT_INVALID")
+        if channel != "instagram":
+            for key in ("collaborators", "product_tags", "reels_options"):
+                target.pop(key, None)
+        rows.append({**_item_row(client_id, target, user_id=user_id), "publication_group_id": group})
+    from .ig_supabase import sb_rpc
+    return await sb_rpc("create_studio_publication_group", {"p_client_id": client_id, "p_rows": rows})
+
+
+def _item_row(client_id: str, data: Dict[str, Any], *, user_id: str, origin: str = "manual",
                       matrix_opportunity_id: Optional[str] = None) -> Dict[str, Any]:
     when = datetime.fromisoformat(str(data["scheduled_at"]).replace("Z", "+00:00"))
     if when.tzinfo is None:
@@ -910,6 +939,12 @@ async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, ori
         direction = clean_creative_direction(data["creative_direction"])
         if direction:  # só manda a coluna (migração 000140) quando a equipe escreveu algo
             row["creative_direction"] = direction
+    return row
+
+
+async def create_item(client_id: str, data: Dict[str, Any], *, user_id: str, origin: str = "manual",
+                      matrix_opportunity_id: Optional[str] = None) -> Dict[str, Any]:
+    row = _item_row(client_id, data, user_id=user_id, origin=origin, matrix_opportunity_id=matrix_opportunity_id)
     rows = await sb_insert_many(ITEMS_TABLE, [row], returning="representation")
     if not rows:
         raise StudioError("CREATE_FAILED")

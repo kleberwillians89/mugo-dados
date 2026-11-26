@@ -129,6 +129,8 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
     placeSticker((x / rect.width) * 100, (y / rect.height) * 100);
   };
   const autoPublish = AUTO_PUBLISH_CHANNELS.includes(channel) && !interactiveStory;
+  const destinations = draft.destinations || [];
+  const incompatible = destinations.filter((target) => !PLATFORM_FORMATS[target.channel].includes(target.format || draft.format));
   const formatsFor = PLATFORM_FORMATS[channel] || (Object.keys(STUDIO_FORMATS) as StudioFormat[]);
   const when = draft.date ? localParts(`${draft.date}T${draft.time || "12:00"}:00-03:00`) : null;
   const caption = draft.caption_draft || "";
@@ -167,6 +169,7 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (incompatible.length) return;
     // Sem campo "Pauta": o nome interno vem da 1ª linha da legenda (ou formato + data).
     const firstLine = (draft.caption_draft || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
     const title = draft.title?.trim() || (firstLine ? firstLine.slice(0, 80) : `${STUDIO_FORMATS[draft.format]} de ${draft.date.split("-").reverse().slice(0, 2).join("/")}`);
@@ -368,8 +371,34 @@ export default function PostModal({ item, initial, handle, canManage, busy, erro
         </div>
         {canManage && !clientMode ? <label>Plataforma<select value={channel} onChange={(e) => {
           const next = e.target.value as StudioChannel; const allowed = PLATFORM_FORMATS[next];
-          set({ channel: next, format: allowed.includes(draft.format) ? draft.format : allowed[0] });
+          set({ channel: next, destinations: destinations.filter((entry) => entry.channel !== next),
+            format: allowed.includes(draft.format) ? draft.format : allowed[0] });
         }}>{Object.entries(STUDIO_CHANNELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label> : null}
+        {canManage && !clientMode && !item ? <fieldset>
+          <legend>Outras plataformas</legend>
+          {(Object.entries(STUDIO_CHANNELS) as [StudioChannel, string][]).filter(([key]) => key !== channel).map(([key, label]) => {
+            const target = destinations.find((entry) => entry.channel === key);
+            const update = (patch: Partial<NonNullable<PostDraft["destinations"]>[number]>) =>
+              set({ destinations: destinations.map((entry) => entry.channel === key ? { ...entry, ...patch } : entry) });
+            return <div key={key}>
+              <label><input type="checkbox" checked={Boolean(target)} disabled={busy} onChange={(event) => set({
+                publication_group_id: draft.publication_group_id || crypto.randomUUID(),
+                destinations: event.target.checked ? [...destinations, { channel: key }] : destinations.filter((entry) => entry.channel !== key),
+              })} /> {label} {key !== "instagram" ? "· Publicação manual" : ""}</label>
+              {target ? <details><summary>Adaptar para {label}</summary>
+                <label>Formato<select value={target.format || ""} onChange={(event) => update({ format: (event.target.value || undefined) as StudioFormat | undefined })}>
+                  <option value="">Usar formato principal</option>
+                  {PLATFORM_FORMATS[key].map((format) => <option key={format} value={format}>{STUDIO_FORMATS[format]}</option>)}
+                </select></label>
+                <label>Legenda<textarea value={target.caption_draft ?? draft.caption_draft} onChange={(event) => update({ caption_draft: event.target.value })} /></label>
+                <label>URL da mídia<input value={target.art_url ?? draft.art_url ?? ""} onChange={(event) => update({ art_url: event.target.value })} /></label>
+                <label>Data e horário<input type="datetime-local" value={target.scheduled_at || `${draft.date}T${draft.time}`}
+                  onChange={(event) => update({ scheduled_at: event.target.value || undefined })} /></label>
+              </details> : null}
+            </div>;
+          })}
+          {incompatible.length ? <p role="alert">Escolha um formato compatível em {incompatible.map(({ channel: key }) => STUDIO_CHANNELS[key]).join(", ")}.</p> : null}
+        </fieldset> : null}
         {channel !== "instagram" && canManage && !clientMode ? <small className="postArtHint">{channelLabel} não publica sozinho pelo Mugoverso: depois da aprovação, agende para a equipe ser lembrada na hora e publique à mão.</small> : null}
         {canManage && !clientMode && channel === "instagram" ? <ReelsMusicPicker value={reelsOpts.music} format={draft.format} disabled={busy}
           onChange={(music) => set({ reels_options: { ...reelsOpts, music } })} /> : null}
