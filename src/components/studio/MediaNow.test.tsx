@@ -23,8 +23,14 @@ describe("Sua mídia agora", () => {
     await act(async () => { root.render(<MediaNow showRecommendations={false} />); }); await flush();
     expect(host.textContent).toContain("Campanha 1");
     expect(host.textContent).toContain("Custo por compra");
-    expect(host.textContent).toContain("Atenção · Custo por compra 40% acima");
-    expect(host.querySelector(".mediaNowTotals strong.is-warn")?.textContent).toBe("1");
+    expect(host.querySelector(".mediaNowList li")?.textContent).toContain("Campanha 2");
+    expect(host.querySelector(".mediaNowSignal")?.hasAttribute("open")).toBe(false);
+    expect(host.querySelector(".mediaNowSignal p")?.textContent).toContain("Custo por compra 40% acima");
+    const attention = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Atenção 1");
+    await act(async () => attention?.click());
+    expect(host.querySelectorAll(".mediaNowList li")).toHaveLength(1);
+    expect(host.querySelector(".mediaNowResultCount")?.textContent).toBe("1 de 2 campanhas");
+    expect(host.querySelector(".mediaNowTotals dd.is-warn")?.textContent).toBe("1");
     expect(api.getLiveRead).not.toHaveBeenCalled(); // cliente: sem IA
   });
 

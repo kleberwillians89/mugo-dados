@@ -328,8 +328,9 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage, can
           </> : null}
         </> : null}
       </section> : null}
-      {canView("google") ? <a className="ds-link" href={getPathForRoute("google")}>Ver relatório do Google</a> : null}
-      <MediaNow showRecommendations={canManage} history={
+      <MediaNow showRecommendations={canManage}
+        reportLink={canView("google") ? <a className="ds-button" href={getPathForRoute("google")}>Relatório do Google</a> : null}
+        history={
         <details className="ds-section mediaHistory"><summary>Histórico de campanhas</summary><MediaLiveCampaigns defaultFilter="encerrada" title="Campanhas que já rodaram" /></details>
       } />
     </> : null}
