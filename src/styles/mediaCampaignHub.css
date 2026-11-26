@@ -102,3 +102,9 @@
 .mediaNowFilters label{display:grid;gap:5px;font-size:13px;font-weight:650;min-width:0}
 .mediaNowFilters input,.mediaNowFilters select{width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--border-subtle,#dce0e3);border-radius:8px;background:var(--surface,#fff);color:inherit}
 @media(max-width:640px){.mediaNowFilters{grid-template-columns:repeat(2,minmax(0,1fr))}.mediaNowFilters label:first-child{grid-column:1/-1}}
+
+.mediaOtherChannels{display:grid;gap:8px;padding:12px 16px;border:1px solid var(--border-subtle,#dce0e3);border-radius:12px}
+.mediaOtherChannels h3,.mediaOtherChannels p{margin:0}
+.mediaOtherChannels h3{font-size:15px}
+.mediaOtherChannels p{font-size:13px;color:var(--text-muted,#687178)}
+.mediaChannelLinks{display:grid;gap:5px;min-width:145px;padding:8px 12px;border:1px solid var(--border-subtle,#dce0e3);border-radius:8px}

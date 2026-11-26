@@ -47,11 +47,9 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
   },
   campaign: {
     title: "Lançar campanha",
-    lead: "Crie e acompanhe a mídia paga. A IA lê as campanhas ativas da Meta e do Google.",
+    lead: "Crie campanhas e acompanhe a operação de mídia paga no Mídia On.",
     tools: [
       { label: "Mídia On", description: "Campanhas, criativos, verba e leitura da IA.", route: "media", icon: Target },
-      { label: "Meta", description: "Consulte o relatório da Meta para avaliar suas campanhas.", route: "meta", icon: Megaphone },
-      { label: "Google", description: "Resultados de mídia e dados do Google.", route: "google", icon: Search },
     ],
   },
   relationship: {

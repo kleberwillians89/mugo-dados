@@ -126,7 +126,7 @@ describe("nova entrada e processos", () => {
     const expected: Record<ProcessKind, AppRoute[]> = {
       planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
       content: ["briefing", "campaigns", "redacao", "creators", "production", "clipping"],
-      campaign: ["media", "meta", "google"],
+      campaign: ["media"],
       relationship: ["email_marketing", "capture", "engagement", "whatsapp", "whatsapp", "whatsapp"],
       analysis: ["origins", "ecommerce", "customers", "social_report", "brand_health", "ai_actions"],
       social: ["meta", "tiktok", "pinterest", "linkedin"],
@@ -140,9 +140,9 @@ describe("nova entrada e processos", () => {
     }
   });
 
-  it("Lançar campanha: Mídia On, Meta e Google", async () => {
+  it("Lançar campanha: uma entrada para Mídia On", async () => {
     await act(async () => root.render(<ProcessEntry kind="campaign" canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
-    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Mídia On", "Meta", "Google"]);
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Mídia On"]);
     for (const gone of ["Aprovação Interna", "Aprovação Final", "E-mail Marketing", "Disparos em massa"]) expect(host.textContent).not.toContain(gone);
   });
 

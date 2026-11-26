@@ -8,7 +8,7 @@ import {
   type Action, type CampaignAction, type Channel, type Distribution, type Objective, type ObjectiveParameters, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy, type StrategySummary,
 } from "../app/media";
 import { buildSimpleMediaView, type SimpleMediaCampaign } from "../app/mediaSimpleView";
-import { navigateToAppRoute } from "../app/routes";
+import { getPathForRoute, navigateToAppRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import HeroFigure from "../components/data/HeroFigure";
@@ -46,7 +46,7 @@ type ExperienceMode = "simple" | "technical";
 const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 /** Mídia On: estratégia de mídia paga calculada com os dados da conta, cruzada com o calendário editorial. */
-export default function MediaOn({ canManage, canManageCampaigns = canManage }: { canManage: boolean; canManageCampaigns?: boolean }) {
+export default function MediaOn({ canManage, canManageCampaigns = canManage, canView = () => false }: { canManage: boolean; canManageCampaigns?: boolean; canView?: (route: AppRoute) => boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(thisMonth);
@@ -296,6 +296,21 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
             <button type="button" className="ds-button" aria-pressed={creationChannel === "google"}
               onClick={() => setCreationChannel("google")}>Google Ads</button>
           </div>
+          <div className="mediaOtherChannels">
+            <h3>TikTok, Pinterest e LinkedIn</h3>
+            <p>Conecte as contas para consultar o desempenho pago. A criação de campanhas no Mugoverso está disponível para Meta Ads e Google Ads.</p>
+            <div className="mediaCreateChannels">
+              {([{ label: "TikTok", route: "tiktok" }, { label: "Pinterest", route: "pinterest" },
+                { label: "LinkedIn", route: "linkedin" }] as const).map(({ label, route }) => (
+                <div key={route} className="mediaChannelLinks">
+                  <strong>{label}</strong>
+                  {canView(route) ? <a className="ds-link" href={getPathForRoute(route)}>Ver desempenho</a> : null}
+                  {canView("integrations") ? <a className="ds-link"
+                    href={`${getPathForRoute("integrations")}?channel=${route}`}>Gerenciar conexão</a> : null}
+                </div>
+              ))}
+            </div>
+          </div>
           {creationChannel ? <>
             <details className="mediaCreateBrief"><summary>Usar briefing existente</summary>
               <MediaCampaignHub
@@ -313,6 +328,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
           </> : null}
         </> : null}
       </section> : null}
+      {canView("google") ? <a className="ds-link" href={getPathForRoute("google")}>Ver relatório do Google</a> : null}
       <MediaNow showRecommendations={canManage} history={
         <details className="ds-section mediaHistory"><summary>Histórico de campanhas</summary><MediaLiveCampaigns defaultFilter="encerrada" title="Campanhas que já rodaram" /></details>
       } />
