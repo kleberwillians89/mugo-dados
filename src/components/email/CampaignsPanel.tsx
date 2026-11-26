@@ -115,6 +115,8 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
         </div>
         <small className="emMuted">Envia uma cópia somente para o endereço informado; não aprova nem dispara a campanha.</small>
       </section> : null}
+      {error ? <p className="emError" role="alert">{error}</p> : null}
+      {message ? <p className="emOk" role="status">{message}</p> : null}
       {reviewLabel ? <p className="emNotice">{reviewLabel}{lastReview?.decision === "changes_requested" && lastReview.comment ? ` · ${lastReview.comment}` : ""}</p> : null}
       {review?.versions.length ? <details className="emCard"><summary>Histórico de aprovação</summary>
         <ol>{review.versions.map((entry) => <li key={entry.version}>
@@ -210,8 +212,6 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             ) : null}
           </section>
 
-          {error ? <p className="emError" role="alert">{error}</p> : null}
-          {message ? <p className="emOk">{message}</p> : null}
 
           {canEdit && ["rascunho", "agendada"].includes(campaign.status) ? (
             <section className="emCard emSendBox">
