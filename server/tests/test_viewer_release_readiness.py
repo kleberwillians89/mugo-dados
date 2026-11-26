@@ -156,6 +156,9 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         "require_platform_admin", "require_agency_admin",
         "_manage_context", "_mutation_context", "_require_cron_secret", "_commercial_admin",
     )
+    MODULE_ROLE_GUARDS = {
+        "email_marketing": ("await _require_internal_review(",),
+    }
     # Rotas de mutação sem guarda de papel, com motivo auditado.
     EXEMPT = {
         # Desativadas: respondem 410 sem tocar em nada.
@@ -236,7 +239,8 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
                         break
                 if (name, handler) in self.EXEMPT:
                     continue
-                if not any(guard in body for guard in self.ROLE_GUARDS):
+                guards = self.ROLE_GUARDS + self.MODULE_ROLE_GUARDS.get(name, ())
+                if not any(guard in body for guard in guards):
                     unguarded.append(f"{name}.{handler} ({method.upper()})")
         self.assertEqual(unguarded, [], f"mutação sem guarda de papel: {unguarded}")
 
