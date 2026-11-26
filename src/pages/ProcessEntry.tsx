@@ -84,6 +84,7 @@ const PROCESSES: Record<ProcessKind, { title: string; lead: string; tools: Tool[
       { label: "TikTok", description: "Vídeos, visualizações e crescimento.", route: "tiktok", icon: Music2 },
       { label: "Pinterest", description: "Pins, impressões e salvamentos.", route: "pinterest", icon: Pin },
       { label: "LinkedIn", description: "Página da empresa, seguidores e engajamento.", route: "linkedin", icon: Linkedin },
+      { label: "Google", description: "Campanhas do Google Ads e tráfego do site no Google Analytics.", route: "google", icon: BarChart3 },
     ],
   },
 };
