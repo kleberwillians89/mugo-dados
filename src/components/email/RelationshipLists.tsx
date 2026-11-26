@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getActiveClientId } from "../../app/activeClient";
 import {
   addRelationshipListMembers, contactEmailHistory, createRelationshipList, deleteRelationshipList, listRelationshipLists, removeRelationshipListMembers,
-  type RelationshipList, type ContactEmailEvent,
+  previewAudience, type AudiencePreview, type RelationshipList, type ContactEmailEvent,
 } from "../../app/emailMarketing";
 
 /** Listas compartilham a base da loja. Importar não concede consentimento. */
@@ -17,6 +17,9 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
   const [events, setEvents] = useState<ContactEmailEvent[] | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [audience, setAudience] = useState<AudiencePreview | null>(null);
+  const [audienceLoading, setAudienceLoading] = useState(false);
+  const [audienceError, setAudienceError] = useState("");
   async function reload() {
     const result = await listRelationshipLists();
     if (getActiveClientId() === tenant) setLists(result.lists);
@@ -27,6 +30,29 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
     .then((r) => { if (active && getActiveClientId() === tenant) setLists(r.lists); })
     .catch(() => { if (active && getActiveClientId() === tenant) setError("Não foi possível carregar as listas."); });
     return () => { active = false; }; }, [tenant]);
+  async function refreshEmailAudience() {
+    setAudienceLoading(true); setAudienceError("");
+    const currentTenant = tenant;
+    try {
+      const result = await previewAudience({ segment: "consentimento", days: 90, only_consent: true });
+      if (getActiveClientId() === currentTenant) setAudience(result);
+    } catch (cause) {
+      if (getActiveClientId() === currentTenant)
+        setAudienceError(cause instanceof Error ? cause.message : "Não foi possível consultar a Shopify.");
+    } finally {
+      if (getActiveClientId() === currentTenant) setAudienceLoading(false);
+    }
+  }
+  useEffect(() => {
+    let active = true;
+    setAudience(null); setAudienceError(""); setAudienceLoading(true);
+    previewAudience({ segment: "consentimento", days: 90, only_consent: true })
+      .then((result) => { if (active && getActiveClientId() === tenant) setAudience(result); })
+      .catch((cause) => { if (active && getActiveClientId() === tenant)
+        setAudienceError(cause instanceof Error ? cause.message : "Não foi possível consultar a base de e-mails."); })
+      .finally(() => { if (active && getActiveClientId() === tenant) setAudienceLoading(false); });
+    return () => { active = false; };
+  }, [tenant]);
   async function action(task: () => Promise<void>) {
     setBusy(true); setError(""); setNotice("");
     try { await task(); await reload(); }
@@ -39,6 +65,25 @@ export default function RelationshipLists({ canEdit }: { canEdit: boolean }) {
       <p className="emMuted">Organize públicos por empresa. E-mails importados são convertidos em identificadores;
         só recebem campanhas os contatos já presentes na origem com consentimento verificável e sem descadastro.</p>
     </div></header>
+    <div className="emCard" aria-label="Contatos de e-mail da empresa">
+      <h3>Base de e-mail da loja conectada</h3>
+      <p className="emMuted">A plataforma já lê os cadastros existentes da Shopify ou Wake/FBITS.
+        Não é necessário importar os mesmos e-mails novamente.
+        Campanhas só incluem endereços com opt-in confirmado na origem e sem descadastro.</p>
+      {audience ? <div className="emInlineRow" role="status">
+        <strong>Cadastros: {audience.base.toLocaleString("pt-BR")}</strong>
+        <strong>Com aceite: {audience.with_consent.toLocaleString("pt-BR")}</strong>
+        <strong>Disponíveis para campanha: {audience.count.toLocaleString("pt-BR")}</strong>
+        <span className="emMuted">Fonte: {audience.provider || "não conectada"}</span>
+      </div> : null}
+      {audience && !audience.consent_known ? <p className="emMuted">
+        A fonte não confirma opt-in de e-mail; contatos sem comprovação ficam fora das campanhas.</p> : null}
+      {audienceError ? <p className="emError" role="alert">{audienceError}</p> : null}
+      <button type="button" className="ds-button" disabled={audienceLoading}
+        onClick={() => void refreshEmailAudience()}>
+        {audienceLoading ? "Consultando base..." : "Atualizar contagem da base"}
+      </button>
+    </div>
     {error ? <p className="emError" role="alert">{error}</p> : null}
     {notice ? <p className="emOk" role="status">{notice}</p> : null}
     {canEdit ? <div className="emInlineRow">
