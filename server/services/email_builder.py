@@ -38,8 +38,14 @@ def _escaped(text: Any, variables: Dict[str, str], limit: int = 2000) -> str:
     return fill(html.escape(_text(text, limit)), safe).replace("\n", "<br>")
 
 
+def _unwrap_wrapped_url(value: str) -> str:
+    """Treat {{https://site/...}} pasted by mistake as a regular URL; preserve known variables."""
+    match = re.fullmatch(r"\{\{\s*(https?://[^\s{}]+)\s*\}\}", value, flags=re.I)
+    return match.group(1) if match else value
+
+
 def _url(value: Any, variables: Dict[str, str]) -> Optional[str]:
-    raw = _text(value, 1000)
+    raw = _unwrap_wrapped_url(_text(value, 1000))
     match = _VAR.fullmatch(raw)
     if match and match.group(1) in LINK_VARIABLES:
         raw = str(variables.get(match.group(1)) or "")
@@ -57,7 +63,8 @@ def normalize_design(design: Any) -> Dict[str, Any]:
         clean = {"type": block["type"]}
         for key, limit in (("text", 4000), ("url", 1000), ("href", 1000), ("alt", 200), ("label", 80), ("align", 10)):
             if key in block and block[key] is not None:
-                clean[key] = _text(block[key], limit)
+                val = _text(block[key], limit)
+                clean[key] = _unwrap_wrapped_url(val) if key in ("url", "href") else val
         blocks.append(clean)
         if len(blocks) >= MAX_BLOCKS:
             break
