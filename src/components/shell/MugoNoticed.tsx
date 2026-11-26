@@ -16,7 +16,7 @@ type Props = {
 export default function MugoNoticed({ onOpen, limit = 3, showCompany = true }: Props) {
   const titleId = useId();
   const listId = useId();
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [notices, setNotices] = useState<MugoNotice[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ id: string; text: string; error?: boolean } | null>(null);
@@ -56,12 +56,14 @@ export default function MugoNoticed({ onOpen, limit = 3, showCompany = true }: P
   }
 
   if (!notices || !notices.length) return completionMessage ? <p role="status">{completionMessage}</p> : null;
+  const hasCritical = notices.some((notice) => notice.critical);
   return <section className="mugoNoticed" aria-labelledby={titleId}>
     <h2 id={titleId}>
       <button type="button" className="mugoNoticedToggle" aria-expanded={expanded} aria-controls={listId}
         onClick={() => setExpanded((value) => !value)}>
         <Sparkles size={16} aria-hidden="true" />
         <span>A Mugô IA notou</span>
+        {hasCritical ? <span role="status" className="mugoNoticedCritical">Alerta crítico</span> : null}
         {!expanded ? <small>{notices.length} {notices.length === 1 ? "aviso" : "avisos"}</small> : null}
         <ChevronDown className="mugoNoticedChevron" size={18} aria-hidden="true" />
       </button>

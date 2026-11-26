@@ -5,7 +5,7 @@ import type { AppRoute } from "./routes";
 export type NoticeAction = { label: string; route?: AppRoute; kind?: "remind"; team_only?: boolean; request_id?: string; contact_id?: string | null };
 export type MugoNotice = {
   id: string; client_id: string; client_name: string; kind: string; icon: string; message: string;
-  level: number; urgency: number; actions: NoticeAction[]; since: string | null;
+  critical?: boolean; level: number; urgency: number; actions: NoticeAction[]; since: string | null;
 };
 export type NoticesResult = { notices: MugoNotice[]; total: number; unavailable?: boolean };
 

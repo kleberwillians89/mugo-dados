@@ -336,7 +336,7 @@ def _view(row: Dict[str, Any], client_name: str, *, team: bool) -> Dict[str, Any
     actions = [a for a in (row.get("actions") or []) if team or not a.get("team_only")]
     return {"id": f"{row['client_id']}|{row['key']}", "client_id": row["client_id"], "client_name": client_name,
             "kind": row["kind"], "icon": ICON.get(str(row["kind"]), "•"), "message": row["message"], "level": row["level"],
-            "urgency": row["urgency"], "actions": actions, "since": row.get("first_seen_at")}
+            "urgency": row["urgency"], "critical": row["kind"] in URGENT, "actions": actions, "since": row.get("first_seen_at")}
 
 
 async def for_user(user_id: str, *, client_id: Optional[str] = None, limit: int = MAX_SHOWN) -> Dict[str, Any]:
@@ -362,6 +362,7 @@ async def for_user(user_id: str, *, client_id: Optional[str] = None, limit: int 
         if hidden.get((str(row["client_id"]), str(row["key"])), -1) >= int(_num(row.get("level"))):
             continue
         out.append(_view(row, str(info.get("name") or ""), team=team))
+    out.sort(key=lambda notice: not notice["critical"])
     return {"notices": out[:limit], "total": len(out)}
 
 
