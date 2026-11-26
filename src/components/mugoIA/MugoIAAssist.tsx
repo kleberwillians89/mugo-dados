@@ -52,7 +52,7 @@ export default function MugoIAAssist() {
       footer={<form className="miaAssistForm" onSubmit={(e) => { e.preventDefault(); void send(); }}>
         <textarea ref={input} value={text} rows={2} placeholder={`Peça algo para ${info.label.toLowerCase()}…`} aria-label="Pergunta para a Mugô IA"
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
-        <button type="submit" className="ds-button ds-button--primary" disabled={busy || !text.trim()} aria-label="Enviar"><ArrowUp size={16} aria-hidden="true" /></button>
+        <button type="submit" className="miaSend" disabled={busy || !text.trim()} aria-label="Enviar"><ArrowUp size={16} aria-hidden="true" /></button>
       </form>}>
       <div className="mia miaAssist">
         {!messages.length ? <div className="miaStarters">
@@ -72,7 +72,7 @@ export default function MugoIAAssist() {
           </div></article>)}
         {busy ? <p className="miaHint" role="status">A Mugô IA está lendo a marca e o mercado…</p> : null}
         {error ? <p role="alert" className="studioError">{error}</p> : null}
-        {messages.length ? <button type="button" className="miaGhost" onClick={() => navigateToAppRoute("mugo_ia")}>Continuar a conversa na Mugô IA</button> : null}
+        {messages.length ? <button type="button" className="miaGhost miaAssistContinue" onClick={() => navigateToAppRoute("mugo_ia")}>Continuar a conversa na Mugô IA</button> : null}
       </div>
     </Drawer>
   </>;
