@@ -4,10 +4,62 @@ import type { TrackingParams } from "./adTracking";
 /** Mídia On → Meta Ads: rascunhos de campanha e publicação PAUSADA (só equipe Mugô). */
 export type MetaPlacements = {
   mode: "automatic" | "manual";
-  platforms: ("instagram" | "facebook")[];
-  instagram: ("stream" | "story" | "reels")[];
-  facebook: ("feed" | "story" | "facebook_reels")[];
+  platforms: ("instagram" | "facebook" | "messenger" | "audience_network")[];
+  instagram: ("stream" | "story" | "reels" | "explore" | "explore_home" | "profile_feed" | "ig_search")[];
+  facebook: ("feed" | "story" | "facebook_reels" | "marketplace" | "video_feeds" | "right_hand_column" | "search" | "instream_video" | "profile_feed" | "notification")[];
+  messenger?: ("messenger_home" | "story" | "sponsored_messages")[];
+  audience_network?: ("classic" | "rewarded_video")[];
 };
+
+/** Os 3 níveis do Gerenciador de Anúncios, com os valores da API da Meta (ODAX). */
+export type MetaObjective = "OUTCOME_AWARENESS" | "OUTCOME_TRAFFIC" | "OUTCOME_ENGAGEMENT" | "OUTCOME_LEADS" | "OUTCOME_APP_PROMOTION" | "OUTCOME_SALES";
+export type MetaLocation = "NONE" | "WEBSITE" | "APP" | "MESSAGING" | "ON_AD" | "ON_POST" | "PHONE_CALL" | "ON_PAGE" | "INSTAGRAM_PROFILE";
+export type MetaMessagingApp = "MESSENGER" | "INSTAGRAM_DIRECT" | "WHATSAPP";
+export type MetaBidStrategy = "LOWEST_COST_WITHOUT_CAP" | "COST_CAP" | "LOWEST_COST_WITH_BID_CAP" | "LOWEST_COST_WITH_MIN_ROAS";
+export type MetaStructure = {
+  objective: MetaObjective;
+  special_ad_categories: string[];
+  budget_level: "campaign" | "adset";
+  budget_type: "daily" | "lifetime";
+  budget: number;
+  bid_strategy: MetaBidStrategy;
+  bid_amount: number | null;
+  roas_floor: number | null;
+  conversion_location: MetaLocation;
+  messaging_apps: MetaMessagingApp[];
+  performance_goal: string;
+  conversion_event: string | null;
+  app: { id: string; name: string; store_url: string } | null;
+  lead_form: { id: string; name: string } | null;
+  phone_number: string | null;
+  has_end_date: boolean;
+  use_existing_post: boolean;
+};
+export type MetaCatalog = {
+  objectives: { key: MetaObjective; label: string; icon: string; hint: string }[];
+  special_categories: { key: string; label: string }[];
+  bid_strategies: { key: MetaBidStrategy; label: string; hint: string }[];
+  locations: Record<MetaLocation, string>;
+  location_order: MetaLocation[];
+  messaging_apps: { key: MetaMessagingApp; label: string }[];
+  matrix: Record<MetaObjective, Partial<Record<MetaLocation, string[]>>>;
+  goals: Record<string, string>;
+  events: { key: string; label: string }[];
+  ctas: Record<string, string>;
+  ctas_by_location: Record<string, string[]>;
+};
+export type BuilderOptions = {
+  catalog: MetaCatalog;
+  account: { id: string; name: string; currency: string; timezone: string };
+  identity: { page: { id: string; name: string; picture: string }; instagram: { id: string; username: string; picture: string } | null };
+  pixels: { id: string; name: string; active: boolean; events_seen: string[] }[];
+  recommended_pixel: string | null;
+  apps: { id: string; name: string; icon_url: string; stores: { store: string; url: string }[] }[];
+  lead_forms: { id: string; name: string; status: string }[];
+  whatsapp_numbers: { number: string; label: string; name: string }[];
+  preview_formats: { key: string; label: string }[];
+};
+export type MetaInterest = { id: string; name: string; path: string; size: string };
 /** "single": uma imagem/vídeo · "carousel": um anúncio em carrossel · "multi": um anúncio por imagem no mesmo conjunto. */
 export type AdFormat = "single" | "carousel" | "multi";
 export type AdCard = { image_url: string; headline?: string; description?: string; link?: string };
@@ -29,6 +81,8 @@ export type AdPayload = {
   placements?: MetaPlacements;
   /** Conjunto de dados (pixel) escolhido na revisão; vazio = o que está recebendo eventos. */
   pixel_id?: string | null;
+  /** Estrutura igual ao Gerenciador. Rascunhos antigos recebem o bloco equivalente do servidor. */
+  meta?: MetaStructure;
   name: string; objective: "trafego" | "alcance" | "engajamento" | "vendas" | "leads" | "whatsapp" | "retencao" | "remarketing"; daily_budget: number; start_date: string; end_date: string;
   audience: {
     age_min: number; age_max: number; gender: "todos" | "mulheres" | "homens"; regions: string[]; interests: string[]; advantage: boolean;
@@ -36,6 +90,8 @@ export type AdPayload = {
     saved_audience?: AudienceRef | null;
     /** Públicos personalizados/semelhantes da conta somados ao conjunto, e os que ficam de fora. */
     custom_audiences?: AudienceRef[]; excluded_audiences?: AudienceRef[];
+    /** Interesses escolhidos na lista oficial da Meta (id exato). */
+    interest_refs?: AudienceRef[];
   };
   ad: { primary_text: string; headline: string; description: string; cta: string; link: string; image_url: string; calendar_item_id: string | null; media_type?: "image" | "video"; video_url?: string; video_id?: string | null; instagram_post_id?: string | null; whatsapp_number?: string | null; format?: AdFormat; cards?: AdCard[]; extra_ads?: AdCreative[] };
 };
@@ -142,8 +198,18 @@ export type MetaPublicationPreflight = {
   objective: string;
   checks: { key: string; ok: boolean; message: string; label: string }[];
 };
-export const metaPublicationPreflight = (objective: AdPayload["objective"]) =>
-  http<MetaPublicationPreflight>(base(`/preflight?objective=${encodeURIComponent(objective)}`), {timeoutMs: 60_000});
+export const metaPublicationPreflight = (objective: AdPayload["objective"], needsPixel?: boolean) =>
+  http<MetaPublicationPreflight>(base(`/preflight?objective=${encodeURIComponent(objective)}${needsPixel === undefined ? "" : `&needs_pixel=${needsPixel}`}`), {timeoutMs: 60_000});
+
+/** Opções do criador puxadas da conta Meta desta empresa (pixels, eventos, apps, formulários, identidade). */
+export const getBuilderOptions = () => http<BuilderOptions>(base("/options"), { timeoutMs: 60_000 });
+/** Só a estrutura (objetivos, locais, metas), sem consultar a conta: usado quando a conta não responde. */
+export const getBuilderCatalog = () => http<MetaCatalog>(base("/catalog"));
+export const searchMetaInterests = (q: string) =>
+  http<{ interests: MetaInterest[] }>(base(`/interests?q=${encodeURIComponent(q)}`), { timeoutMs: 30_000 });
+/** Prévia oficial da Meta (iframe do Gerenciador) para o anúncio salvo do rascunho. */
+export const getOfficialPreview = (id: string, format: string, ad = 0) =>
+  http<{ format: string; label: string; src: string }>(base(`/${encodeURIComponent(id)}/preview?format=${encodeURIComponent(format)}&ad=${ad}`), { timeoutMs: 90_000 });
 
 /** Instagram posts already synchronized for this selected client. */
 export type InstagramCreativePost = {

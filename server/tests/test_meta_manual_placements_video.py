@@ -23,7 +23,10 @@ class ManualMetaPlacementTests(unittest.TestCase):
         for placements in [
             {"mode":"manual", "platforms":[], "instagram":[], "facebook":[]},
             {"mode":"manual", "platforms":["instagram"], "instagram":[], "facebook":[]},
-            {"mode":"manual", "platforms":["audience_network"], "instagram":["stream"], "facebook":[]},
+            # Plataforma que não existe na Meta, e Audience Network ligada sem nenhum posicionamento.
+            {"mode":"manual", "platforms":["tiktok"], "instagram":["stream"], "facebook":[]},
+            {"mode":"manual", "platforms":["audience_network"], "audience_network":[], "instagram":["stream"], "facebook":[]},
+            {"mode":"manual", "platforms":["instagram"], "instagram":["feed_inventado"], "facebook":[]},
         ]:
             with self.subTest(placements=placements), self.assertRaises(StudioError):
                 pub.clean_placements(placements)

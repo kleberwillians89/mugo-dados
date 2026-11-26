@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from services import meta_ad_publisher as pub
+from services import meta_ads_options as options
 from services.ig_supabase import sb_select
 from services.studio_calendar import StudioError
 from services.tenant import require_client_read, require_client_role, require_user_id
@@ -31,10 +32,12 @@ ERRORS = {
     "AD_ALREADY_IMPORTED": (409, "Esta campanha já está na Mídia On."),
     "AD_CONFIRM_BUDGET": (409, "Confirme a verba diária para ativar a campanha."),
     "AD_AUDIENCE_INVALID": (422, "Público inválido."),
+    "AD_PREVIEW_FORMAT_INVALID": (422, "Posicionamento de prévia inválido."),
+    "AD_INSTAGRAM_MISSING": (409, "Conecte o Instagram da marca em Integrações para usar este posicionamento ou destino."),
     "AI_INVALID_OUTPUT": (502, "A IA não devolveu a campanha. Tente de novo."),
     "AI_RATE_LIMIT": (429, "Muitas gerações seguidas. Espere um pouco e tente de novo."),
 }
-PASS_MESSAGE = {"AD_META_REJECTED", "AD_NOT_READY", "AD_AUDIENCE_INVALID"}
+PASS_MESSAGE = {"AD_META_REJECTED", "AD_NOT_READY", "AD_AUDIENCE_INVALID", "AD_PREVIEW_UNAVAILABLE"}
 
 
 def _http(exc: StudioError) -> HTTPException:
@@ -112,11 +115,41 @@ async def live_read(client_id: str, refresh: bool = False, authorization: Option
 @router.get("/preflight")
 async def account_publication_preflight(client_id: str,
                                          objective: str = Query(default="leads", max_length=20),
+                                         needs_pixel: Optional[bool] = Query(default=None),
                                          authorization: Optional[str] = Header(default=None)):
     """Check the current tenant's Meta publishing prerequisites without creating an ad."""
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
     try:
-        return await pub.publication_preflight(cid, objective)
+        return await pub.publication_preflight(cid, objective, needs_pixel)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/options")
+async def read_builder_options(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Opções do criador igual ao Gerenciador, puxadas da conta Meta desta empresa (só leitura)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await options.account_options(cid)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/catalog")
+async def read_builder_catalog(client_id: str, authorization: Optional[str] = Header(default=None)):
+    """Os três níveis da Meta (objetivos, locais, metas, lances), sem consultar a conta."""
+    await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    from services import meta_structure
+    return meta_structure.catalog()
+
+
+@router.get("/interests")
+async def read_interests(client_id: str, q: str = Query(default="", max_length=80),
+                         authorization: Optional[str] = Header(default=None)):
+    """Busca de interesses na lista oficial da Meta (Segmentação detalhada)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return {"interests": await options.search_interests(cid, q)}
     except StudioError as exc:
         raise _http(exc) from None
 
@@ -442,6 +475,19 @@ async def read_ad_results(client_id: str, draft_id: UUID, period: str = "maximum
     cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
     try:
         return await pub.live_results(cid, str(draft_id), period)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.get("/{draft_id}/preview")
+async def read_official_preview(client_id: str, draft_id: UUID,
+                                format: str = Query(default="INSTAGRAM_STANDARD", max_length=40),
+                                ad: int = Query(default=0, ge=0, le=9),
+                                authorization: Optional[str] = Header(default=None)):
+    """Prévia oficial da Meta para o anúncio do rascunho (salve antes). Não cria campanha nem anúncio."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=AGENCY)
+    try:
+        return await options.official_preview(cid, str(draft_id), format, ad)
     except StudioError as exc:
         raise _http(exc) from None
 
