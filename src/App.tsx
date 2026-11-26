@@ -900,8 +900,14 @@ function PrivateApp() {
     return code.endsWith(".view") && code !== "team.view";
   };
   const canView = (target: AppRoute): boolean => {
+    // Aprovação Interna é só da equipe Mugô.
+    if (target === "internal_approval" && !teamHere && !localMode) return false;
     return canViewAppRoute(target, can);
   };
+  // Cliente — Aprovação Final: sem outro módulo, entra direto na Aprovação Final (o Início não teria nada para ele).
+  const approvalOnly = !teamHere && !localMode && canView("final_approval")
+    && !(["central", "meta", "google", "ecommerce", "customers", "origins", "calendar", "campaigns", "tasks", "media",
+      "brand_ai", "social_report", "clipping", "creators", "engagement"] as AppRoute[]).some((target) => canView(target));
   const canEdit = (module: string) => can(`${module}.edit`);
   // Kanban integrado (Shell): mesma regra da página Tarefas para escolher o quadro; o recorte é do backend.
   const workValue = useMemo<WorkValue>(() => ({
@@ -914,6 +920,12 @@ function PrivateApp() {
   // Planejar abre direto o "Criar planejamento" (formulário aberto), sem tela intermediária. Substitui a entrada do
   // histórico para o "voltar" não cair de novo em /planejar. Sem acesso ao Planejamento, mostra a entrada normal.
   // Lançar campanha voltou a ter entrada própria (Mídia On, E-mail Marketing, Captação e atalhos do WhatsApp).
+  const approvalLanding = approvalOnly && route === "home";
+  useEffect(() => {
+    if (!approvalLanding) return;
+    navigateToAppRoute("final_approval", { replace: true });
+    setRoute("final_approval");
+  }, [approvalLanding]);
   const planningGoesToForm = route === "process_planning" && canView("planning");
   useEffect(() => {
     if (!planningGoesToForm) return;
@@ -1059,7 +1071,7 @@ function PrivateApp() {
         <ApprovalWorkspace key={`${route}:${activeClientId}`} mode={route === "internal_approval" ? "internal" : "final"} isAgency={teamHere}
           canDeleteCalendarContent={teamHere && canEdit("calendar")}
           canDeleteTaskContent={teamHere || canEdit("tasks")}
-          onOpenCalendar={() => openRoute("calendar")} />
+          onOpenCalendar={canView("calendar") ? () => openRoute("calendar") : undefined} />
       ) : route === "central" ? (
         <Central key={`central:${activeClientId}`} isAgency={teamHere} />
       ) : route === "goals" ? (

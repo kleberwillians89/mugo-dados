@@ -212,7 +212,8 @@ async def _module_check(client_id: str, user_id: str, *, role: str, member_route
     if not requirement:
         return False
     module, code = requirement
-    if member_route and code.endswith(".edit"):
+    from .team_access import STRICT_EDIT_MODULES
+    if member_route and code.endswith(".edit") and module not in STRICT_EDIT_MODULES:
         code = f"{module}.view"
     if code not in access["codes"]:
         raise HTTPException(status_code=403, detail=denied_message(code))
