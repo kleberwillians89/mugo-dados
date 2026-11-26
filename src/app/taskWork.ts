@@ -36,3 +36,20 @@ export type ProducedItem = {
 };
 export const listProduced = (taskId: string) =>
   http<{ task_id: string; items: ProducedItem[] }>(base(`/tasks/${encodeURIComponent(taskId)}/produced`));
+
+/** Kanban → Redação: documento a partir do briefing (IA da marca) ou em branco, ligado à tarefa. */
+export const createDocumentFromTask = (taskId: string, input: { mode: "ia" | "branco"; deliverable: string; new_version?: boolean }) =>
+  http<{ created: { id: string; title: string; kind: string } | null; existing: { id: string; title: string; deliverable?: string }[] }>(
+    clientClientPath(`/studio/documents/from-task/${encodeURIComponent(taskId)}`), { ...json("POST", input), timeoutMs: 150_000 });
+/** Grava na tarefa o que foi criado a partir dela em outro módulo (matriz do Social Media, post…). */
+export const linkTaskWork = (taskId: string, input: { module: WorkModule; record_id: string; deliverable?: string }) =>
+  http<{ ok: true }>(base(`/tasks/${encodeURIComponent(taskId)}/links`), json("POST", input));
+
+/** Texto da tarefa para orientar a IA (quando a tarefa não veio de um briefing cadastrado). */
+export function taskDirection(ctx: TaskContext, deliverable: string): string {
+  const c = ctx.context;
+  return [ctx.task.title, deliverable && `Entregável: ${deliverable}`, c.summary, c.objective && `Objetivo: ${c.objective}`,
+    c.key_message && `Mensagem: ${c.key_message}`, c.offer && `Oferta: ${c.offer}`, c.audience && `Público: ${c.audience}`,
+    c.deadline && `Prazo: ${c.deadline}`, c.avoid.length ? `Evitar: ${c.avoid.join("; ")}` : ""]
+    .filter(Boolean).join(". ").slice(0, 1000);
+}

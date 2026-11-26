@@ -248,3 +248,7 @@ export function documentAI(input: { action: DocAIAction; kind: DocKind; title?: 
 export function documentToCalendar(id: string, input: { scheduled_at?: string; channel: Platform; format: StudioFormat }) {
   return http<{ calendar_item_id: string; created: boolean; updated: boolean }>(docs(`/${encodeURIComponent(id)}/calendar`), { method: "POST", body: JSON.stringify(input) });
 }
+/** Redação → E-mail Marketing: o texto vira rascunho de e-mail (ligado à tarefa do documento, se houver). */
+export function documentToEmail(id: string) {
+  return http<{ campaign: { id: string; name: string; status: string } }>(docs(`/${encodeURIComponent(id)}/email`), { method: "POST", timeoutMs: 60_000 });
+}
