@@ -177,7 +177,13 @@ function HourlyTraffic({
             {report.time_zone ? ` Fuso do GA4: ${report.time_zone}.` : ""}
           </p>
           {!report.complete ? <p className="ds-caption">O GA4 retornou dados parciais para esse período.</p> : null}
-          <button type="button" aria-pressed={showProgress} onClick={() => setShowProgress((value) => !value)}>
+          <button
+            className="ds-button"
+            style={{ alignSelf: "flex-start" }}
+            type="button"
+            aria-pressed={showProgress}
+            onClick={() => setShowProgress((value) => !value)}
+          >
             {showProgress ? "Ver sessões por hora" : "Ver progresso acumulado"}
           </button>
           <TrendChart
