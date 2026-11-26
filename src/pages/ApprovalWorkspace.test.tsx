@@ -9,6 +9,8 @@ const studio = vi.hoisted(() => ({
   deleteApprovalContent: vi.fn(),
 }));
 const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn() }));
+const email = vi.hoisted(() => ({ listEmailReviews: vi.fn(), decideEmailReview: vi.fn() }));
+vi.mock("../app/emailMarketing", async (original) => ({ ...(await original<typeof import("../app/emailMarketing")>()), ...email }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studio }));
 vi.mock("../app/crm", async (original) => ({ ...(await original<typeof import("../app/crm")>()), ...crm }));
 vi.mock("../app/activeClient", () => ({ getActiveClientId: () => "tenant-a", getActiveClientName: () => "Marca A" }));
@@ -35,6 +37,7 @@ describe("ApprovalWorkspace", () => {
   let host: HTMLDivElement; let root: ReturnType<typeof createRoot>;
   beforeEach(() => {
     host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    email.listEmailReviews.mockResolvedValue({ campaigns: [] });
     studio.getPipeline.mockResolvedValue({ items: [item("i1", "revisao_interna", "Interna"), item("f1", "com_cliente", "Final")] });
     studio.getItemHistory.mockResolvedValue({ events: [] }); studio.updateCalendarItem.mockResolvedValue({ item: {} });
     studio.decideCalendarItem.mockResolvedValue({ item: {} }); studio.sendForApproval.mockResolvedValue({ link: "https://example.test/aprovar/token" });
@@ -73,6 +76,35 @@ describe("ApprovalWorkspace", () => {
     expect(crm.listCrmTasks).toHaveBeenCalledWith("internal_review");
     const titles = [...host.querySelectorAll(".approvalQueue strong")].map((node) => node.textContent);
     expect(titles).toEqual(["Peça do Calendário", "Job independente"]);
+  });
+
+  it("revisa e-mail sem agendamento com prévia segura e decide a versão selecionada", async () => {
+    studio.getPipeline.mockResolvedValue({ items: [] });
+    email.listEmailReviews.mockResolvedValueOnce({ campaigns: [{
+      id: "e1", version: 2, name: "Seleção de novembro", preheader: "Veja a curadoria",
+      sender: "contato@marca.test", audience: { segment: "consentimento" },
+      preview: { subject: "Vinhos de novembro", html: "<img src='https://cdn.test/vinhos.png'>" },
+      versions: [{ version: 2, requested_at: "2026-11-21T12:00:00Z", requested_by: "autora" }],
+    }] }).mockResolvedValueOnce({ campaigns: [] });
+    await render("internal");
+    expect(host.querySelector(".approvalQueue strong")?.textContent).toBe("Seleção de novembro");
+    expect(host.textContent).toContain("Veja a curadoria");
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 500)); });
+    const iframe = host.querySelector("iframe")!;
+    expect(iframe.getAttribute("sandbox")).toBe("");
+    expect(iframe.getAttribute("srcdoc")).toContain("vinhos.png");
+    const mobile = [...host.querySelectorAll("button")].find((node) => node.textContent?.includes("Mobile"))!;
+    await act(async () => mobile.click());
+    expect(host.querySelector(".emFrameWrap.is-mobile")).not.toBeNull();
+    const approve = [...host.querySelectorAll("button")].find((node) => node.textContent?.includes("Aprovar agora"))!;
+    await act(async () => approve.click());
+    expect(email.decideEmailReview).toHaveBeenCalledWith("e1", 2, "approved", "");
+    expect(studio.sendForApproval).not.toHaveBeenCalled();
+  });
+
+  it("não consulta campanhas internas no perfil Cliente", async () => {
+    await render("internal", false);
+    expect(email.listEmailReviews).not.toHaveBeenCalled();
   });
 
   it("aprova um job pelo serviço de tarefas e atualiza a fila", async () => {

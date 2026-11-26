@@ -25,7 +25,16 @@ export type CampaignSummary = {
   id: string; name: string; subject: string; status: CampaignStatus; scheduled_at: string | null; started_at: string | null;
   finished_at: string | null; stats: Partial<CampaignStats>; created_at: string; updated_at: string;
 };
-export type Campaign = CampaignSummary & { preheader: string; design: EmailDesign; custom_html: string | null; audience: Audience };
+export type ReviewVersion = {
+  version: number; requested_by: string; requested_at: string; requested_by_name?: string | null;
+  decision?: "approved" | "changes_requested"; decided_by?: string; decided_by_name?: string | null; decided_at?: string; comment?: string;
+};
+export type CampaignReview = { status: "draft" | "pending" | "approved" | "changes_requested"; versions: ReviewVersion[] };
+export type EmailReviewEntry = CampaignReview & {
+  id: string; name: string; preheader: string; version: number; sender: string | null;
+  preview: EmailPreviewResult; audience: Audience;
+};
+export type Campaign = CampaignSummary & { review?: CampaignReview; can_dispatch?: boolean; preheader: string; design: EmailDesign; custom_html: string | null; audience: Audience };
 export type AudiencePreview = {
   provider: string | null; count: number; base: number; with_consent: number; blocked: number; source_count?: number | null; consent_known: boolean; audience: Audience;
 };
@@ -89,18 +98,25 @@ export const getCampaign = (id: string) =>
   http<{ campaign: Campaign; stats: CampaignStats | null }>(`/api/email/campaigns/${encodeURIComponent(id)}`);
 export const createCampaign = (body: Partial<Campaign> = {}) =>
   http<{ campaign: Campaign }>("/api/email/campaigns", { method: "POST", ...json(body) });
-export const updateCampaign = (id: string, body: Partial<Campaign>) =>
+export const updateCampaign = (id: string, body: Partial<Campaign> & { expected_updated_at?: string }) =>
   http<{ campaign: Campaign }>(`/api/email/campaigns/${encodeURIComponent(id)}`, { method: "PUT", ...json(body) });
 export const deleteCampaign = (id: string) => http<{ ok: boolean }>(`/api/email/campaigns/${encodeURIComponent(id)}`, { method: "DELETE" });
-export const sendTestEmail = (id: string, to: string) =>
-  http<{ status: string }>(`/api/email/campaigns/${encodeURIComponent(id)}/test`, { method: "POST", ...json({ to }) });
+export const sendTestEmail = (id: string, to: string, draft?: Partial<Campaign>) =>
+  http<{ status: string }>(`/api/email/campaigns/${encodeURIComponent(id)}/test`, { method: "POST", ...json({ to, draft }) });
 export type CampaignPreflight = {
-  ready: boolean; blockers: string[]; warnings: string[]; audience: AudiencePreview; subject: string; name: string;
+  ready: boolean; blockers: string[]; warnings: string[]; audience: AudiencePreview; updated_at: string; subject: string; name: string;
 };
 export const preflightCampaign = (id: string) =>
   http<CampaignPreflight>(`/api/email/campaigns/${encodeURIComponent(id)}/preflight`, { timeoutMs: 60_000 });
-export const scheduleCampaign = (id: string, at: string | null) =>
-  http<{ campaign: Campaign }>(`/api/email/campaigns/${encodeURIComponent(id)}/schedule`, { method: "POST", ...json({ at }) });
+export const scheduleCampaign = (id: string, at: string | null, expected_updated_at: string) =>
+  http<{ campaign: Campaign }>(`/api/email/campaigns/${encodeURIComponent(id)}/schedule`, { method: "POST", ...json({ at, expected_updated_at }) });
+export const listEmailReviews = () => http<{ campaigns: EmailReviewEntry[] }>("/api/email/internal-approval");
+export const submitEmailReview = (id: string, expected_updated_at: string) =>
+  http<{ review: CampaignReview }>(`/api/email/campaigns/${encodeURIComponent(id)}/internal-approval`,
+    { method: "POST", ...json({ expected_updated_at }) });
+export const decideEmailReview = (id: string, version: number, decision: "approved" | "changes_requested", comment: string) =>
+  http<{ review: CampaignReview }>(`/api/email/campaigns/${encodeURIComponent(id)}/internal-approval/decision`,
+    { method: "POST", ...json({ version, decision, comment }) });
 export const cancelCampaign = (id: string) =>
   http<{ campaign: Campaign }>(`/api/email/campaigns/${encodeURIComponent(id)}/cancel`, { method: "POST" });
 

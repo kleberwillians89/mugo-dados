@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from . import email_builder, email_resend
-from .ig_supabase import _request, sb_delete, sb_insert, sb_select, sb_update, sb_upsert
+from .ig_supabase import _request, sb_delete, sb_insert, sb_rpc, sb_select, sb_update, sb_upsert
 
 SETTINGS = "email_settings"
 SUPPRESSIONS = "email_suppressions"
@@ -407,7 +407,7 @@ async def audience_preview(client_id: str, audience: Any) -> Dict[str, Any]:
 
 # ---------------------------------------------------------------- campanhas
 
-CAMPAIGN_FIELDS = "id,name,subject,preheader,design,custom_html,audience,status,scheduled_at,started_at,finished_at,stats,created_at,updated_at"
+CAMPAIGN_FIELDS = "internal_review,legacy_dispatch,id,name,subject,preheader,design,custom_html,audience,status,scheduled_at,started_at,finished_at,stats,created_at,updated_at"
 EDITABLE = ("rascunho", "agendada")
 
 
@@ -441,6 +441,38 @@ def clean_campaign(body: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+REVIEW_FIELDS = ("name", "subject", "preheader", "custom_html", "design", "audience")
+
+
+def review_snapshot(campaign: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
+    return {"campaign": {key: campaign.get(key) for key in REVIEW_FIELDS},
+            "settings": {key: settings.get(key) for key in (
+                *SETTING_FIELDS, "updated_at",
+            )}}
+
+
+def approval_valid(campaign: Dict[str, Any], settings: Dict[str, Any]) -> bool:
+    state = campaign.get("internal_review") or {}
+    versions = state.get("versions") or []
+    return bool(state.get("status") == "approved" and versions
+                and versions[-1].get("decision") == "approved"
+                and versions[-1]["snapshot"] == review_snapshot(campaign, settings))
+
+
+async def campaign_transition(client_id: str, campaign: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+    rows = await sb_update(CAMPAIGNS, filters={
+        "client_id": f"eq.{client_id}", "id": f"eq.{campaign['id']}",
+        "updated_at": f"eq.{campaign['updated_at']}", "status": f"eq.{campaign['status']}",
+    }, patch={**patch, "updated_at": _now().isoformat()})
+    if not rows:
+        raise EmailError("STALE_CAMPAIGN", "A campanha mudou. Atualize a página e tente novamente.", 409)
+    return rows[0]
+
+
+def public_campaign(campaign: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in campaign.items() if key not in ("internal_review", "legacy_dispatch")}
+
+
 async def save_campaign(client_id: str, body: Dict[str, Any], *, user_id: Optional[str], campaign_id: Optional[str] = None) -> Dict[str, Any]:
     patch = clean_campaign(body)
     stamp = _now().isoformat()
@@ -448,9 +480,17 @@ async def save_campaign(client_id: str, body: Dict[str, Any], *, user_id: Option
         current = await get_campaign(client_id, campaign_id)
         if current["status"] not in EDITABLE:
             raise EmailError("LOCKED", "Esta campanha já foi enviada e não pode mais ser editada.", 409)
-        await sb_update(CAMPAIGNS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{campaign_id}"},
-                        patch={**patch, "updated_at": stamp}, returning="minimal")
-        return await get_campaign(client_id, campaign_id)
+        if body.get("expected_updated_at") and body["expected_updated_at"] != current["updated_at"]:
+            raise EmailError("STALE_CAMPAIGN", "A campanha mudou. Atualize a página antes de salvar.", 409)
+        patch = {key: value for key, value in patch.items() if current.get(key) != value}
+        if not patch:
+            return current
+        if current["status"] == "agendada":
+            raise EmailError("LOCKED", "Campanhas agendadas têm o conteúdo bloqueado.", 409)
+        state = current["internal_review"]
+        if state["status"] in ("pending", "approved"):
+            patch["internal_review"] = {**state, "status": "draft"}
+        return await campaign_transition(client_id, current, patch)
     row = {"client_id": client_id, "name": "Nova campanha", "design": email_builder.default_campaign_design(),
            "audience": clean_audience({}), **patch, "created_by": user_id, "created_at": stamp, "updated_at": stamp}
     created = await sb_insert(CAMPAIGNS, row)
@@ -459,9 +499,12 @@ async def save_campaign(client_id: str, body: Dict[str, Any], *, user_id: Option
 
 async def delete_campaign(client_id: str, campaign_id: str) -> None:
     current = await get_campaign(client_id, campaign_id)
-    if current["status"] != "rascunho":
-        raise EmailError("LOCKED", "Só rascunho pode ser apagado.", 409)
-    await sb_delete(CAMPAIGNS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{campaign_id}"}, returning="minimal")
+    if current["status"] != "rascunho" or current["internal_review"]["versions"]:
+        raise EmailError("LOCKED", "Só rascunhos sem histórico de aprovação podem ser apagados.", 409)
+    deleted = await sb_delete(CAMPAIGNS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{campaign_id}",
+                                                 "updated_at": f"eq.{current['updated_at']}"}, returning="representation")
+    if not deleted:
+        raise EmailError("STALE_CAMPAIGN", "A campanha mudou antes da exclusão.", 409)
 
 
 def _variables(contact: Dict[str, Any], settings: Dict[str, Any], client_id: str) -> Dict[str, str]:
@@ -524,6 +567,8 @@ async def campaign_preflight(client_id: str, campaign_id: str) -> Dict[str, Any]
     settings = await get_settings(client_id)
     blockers: List[str] = []
     warnings: List[str] = []
+    if not approval_valid(campaign, settings):
+        blockers.append("A versão atual precisa de Aprovação Interna.")
     if not _text(campaign.get("subject")):
         blockers.append("Escreva o assunto da campanha.")
     try:
@@ -536,16 +581,21 @@ async def campaign_preflight(client_id: str, campaign_id: str) -> Dict[str, Any]
     if not audience["consent_known"]:
         warnings.append("A loja não informa consentimento; nenhum contato não verificado será incluído.")
     return {"ready": not blockers, "blockers": blockers, "warnings": warnings, "audience": audience,
-            "subject": _text(campaign.get("subject"), 200), "name": _text(campaign.get("name"), 120)}
+            "updated_at": campaign["updated_at"], "subject": _text(campaign.get("subject"), 200), "name": _text(campaign.get("name"), 120)}
 
 
-async def schedule(client_id: str, campaign_id: str, when: Optional[str]) -> Dict[str, Any]:
+async def schedule(client_id: str, campaign_id: str, when: Optional[str], expected: Optional[str] = None) -> Dict[str, Any]:
     campaign = await get_campaign(client_id, campaign_id)
     if campaign["status"] not in EDITABLE:
         raise EmailError("LOCKED", "Esta campanha já foi enviada.", 409)
     if not _text(campaign.get("subject")):
         raise EmailError("NO_SUBJECT", "Escreva o assunto antes de enviar.")
-    sender(await get_settings(client_id))
+    if expected and expected != campaign["updated_at"]:
+        raise EmailError("STALE_CAMPAIGN", "A campanha mudou após a conferência de envio.", 409)
+    settings = await get_settings(client_id)
+    if not approval_valid(campaign, settings):
+        raise EmailError("APPROVAL_REQUIRED", "A versão atual precisa de Aprovação Interna.", 409)
+    sender(settings)
     # Não agenda uma campanha vazia; a lista é reavaliada no job de envio.
     size = (await audience_preview(client_id, campaign.get("audience") or {}))["count"]
     if size == 0:
@@ -559,21 +609,23 @@ async def schedule(client_id: str, campaign_id: str, when: Optional[str]) -> Dic
     at = _dt(when) if when else _now()
     if not at:
         raise EmailError("INVALID_DATE", "Data de envio inválida.")
-    await sb_update(CAMPAIGNS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{campaign_id}"},
-                    patch={"status": "agendada", "scheduled_at": at.isoformat(), "updated_at": _now().isoformat()}, returning="minimal")
-    return await get_campaign(client_id, campaign_id)
+    return await campaign_transition(client_id, campaign, {
+        "status": "agendada", "scheduled_at": at.isoformat(), "legacy_dispatch": False,
+    })
 
 
 async def cancel(client_id: str, campaign_id: str) -> Dict[str, Any]:
     campaign = await get_campaign(client_id, campaign_id)
     if campaign["status"] not in ("agendada", "enviando"):
         raise EmailError("LOCKED", "Só dá para cancelar campanha agendada ou em envio.", 409)
-    await sb_update(CAMPAIGNS, filters={"client_id": f"eq.{client_id}", "id": f"eq.{campaign_id}"},
-                    patch={"status": "cancelada" if campaign["status"] == "agendada" else "enviada",
-                           "finished_at": _now().isoformat(), "updated_at": _now().isoformat()}, returning="minimal")
+    updated = await campaign_transition(client_id, campaign, {
+        "status": "rascunho" if campaign["status"] == "agendada" and not campaign.get("legacy_dispatch")
+                  else "cancelada" if campaign["status"] == "agendada" else "enviada",
+        "scheduled_at": None, "legacy_dispatch": False, "finished_at": _now().isoformat(),
+    })
     if campaign["status"] == "enviando":
         await sb_delete(SENDS, filters={"campaign_id": f"eq.{campaign_id}", "status": "eq.na_fila"}, returning="minimal")
-    return await get_campaign(client_id, campaign_id)
+    return updated
 
 
 async def _insert_ignore(rows: List[Dict[str, Any]]) -> None:
@@ -604,19 +656,40 @@ def summarize_sends(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "open_rate": round(opened / base * 100, 1) if base else None, "click_rate": round(clicked / base * 100, 1) if base else None}
 
 
+async def invalidate_dispatch(client_id: str, campaign: Dict[str, Any]) -> None:
+    state = campaign["internal_review"]
+    started = campaign["status"] == "enviando"
+    await campaign_transition(client_id, campaign, {
+        "status": "falhou" if started else "rascunho",
+        "scheduled_at": None, "finished_at": _now().isoformat() if started else None,
+        "internal_review": {**state, "status": "draft"},
+    })
+    if started:
+        await sb_update(SENDS, filters={"client_id": f"eq.{client_id}", "campaign_id": f"eq.{campaign['id']}",
+                                        "status": "eq.na_fila"},
+                        patch={"status": "bloqueado", "error": "Revisão interna desatualizada",
+                               "updated_at": _now().isoformat()}, returning="minimal")
+
+
 async def _process_campaign(campaign: Dict[str, Any], client_id: str) -> Dict[str, Any]:
     cid, campaign_id = client_id, campaign["id"]
     settings = await get_settings(cid)
+    if not campaign.get("legacy_dispatch") and not approval_valid(campaign, settings):
+        await invalidate_dispatch(cid, campaign)
+        return {"sent": 0}
     _, contacts = await load_contacts(cid)
     by_hash = {c["hash"]: c for c in contacts}
     if campaign["status"] == "agendada":
         audience = clean_audience(campaign.get("audience") or {})
         members = await _audience_members(cid, audience, contacts)
         chosen = select_audience(contacts, audience, blocked=await suppressed(cid), list_hashes=members)
-        await _insert_ignore([{"client_id": cid, "kind": "campanha", "campaign_id": campaign_id, "email_hash": c["hash"],
-                               "idem_key": f"campanha/{campaign_id}/{c['hash']}"} for c in chosen])
-        await sb_update(CAMPAIGNS, filters={"id": f"eq.{campaign_id}"}, returning="minimal",
-                        patch={"status": "enviando", "started_at": _now().isoformat(), "stats": {"audience": len(chosen)}})
+        claimed = await sb_rpc("claim_email_campaign", {
+            "p_client_id": cid, "p_campaign_id": campaign_id, "p_expected": campaign["updated_at"],
+            "p_started": _now().isoformat(), "p_hashes": [c["hash"] for c in chosen],
+        })
+        if not claimed:
+            return {"sent": 0}
+        campaign = claimed[0]
     pending = await sb_select(SENDS, select="id,client_id,kind,campaign_id,email_hash,idem_key",
                               filters={"campaign_id": f"eq.{campaign_id}", "status": "eq.na_fila"}, order="id.asc", limit=SEND_PER_RUN)
     blocked = await suppressed(cid)
@@ -626,6 +699,12 @@ async def _process_campaign(campaign: Dict[str, Any], client_id: str) -> Dict[st
         pending = pending[:left]  # o resto fica na fila até o plano permitir (mês novo ou plano maior)
     sent = 0
     for offset in range(0, len(pending), email_resend.BATCH_MAX):
+        latest = await get_campaign(cid, campaign_id)
+        if latest["status"] != "enviando" or latest["updated_at"] != campaign["updated_at"]:
+            return {"sent": sent}
+        if not latest.get("legacy_dispatch") and not approval_valid(latest, await get_settings(cid)):
+            await invalidate_dispatch(cid, latest)
+            return {"sent": sent}
         chunk = pending[offset:offset + email_resend.BATCH_MAX]
         messages, rows, skipped = [], [], []
         for row in chunk:
@@ -657,8 +736,7 @@ async def _process_campaign(campaign: Dict[str, Any], client_id: str) -> Dict[st
     still_queued = await sb_select(SENDS, select="id", filters={"campaign_id": f"eq.{campaign_id}", "status": "eq.na_fila"}, limit=1)
     if not still_queued:
         stats = await campaign_stats(cid, campaign_id)
-        await sb_update(CAMPAIGNS, filters={"id": f"eq.{campaign_id}"}, returning="minimal",
-                        patch={"status": "enviada", "finished_at": _now().isoformat(), "stats": stats})
+        await campaign_transition(cid, campaign, {"status": "enviada", "finished_at": _now().isoformat(), "stats": stats})
     return {"sent": sent}
 
 
