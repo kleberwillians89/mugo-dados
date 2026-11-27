@@ -129,14 +129,17 @@ describe("nova entrada e processos", () => {
       campaign: ["media"],
       relationship: ["email_marketing", "capture", "engagement", "whatsapp", "whatsapp", "whatsapp"],
       analysis: ["origins", "ecommerce", "customers", "social_report", "brand_health", "ai_actions"],
-      social: ["meta", "tiktok", "pinterest", "linkedin"],
+      social: ["meta", "tiktok", "pinterest", "linkedin", "google"],
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
       await act(async () => root.render(<ProcessEntry kind={kind} canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
       const hrefs = [...host.querySelectorAll<HTMLAnchorElement>(".processToolCard, .planningToolCard")].map((item) => item.getAttribute("href"));
       expect(hrefs.length).toBeGreaterThanOrEqual(expected[kind].length);
       expect(hrefs.every((href) => Boolean(href) && href !== "/404")).toBe(true);
-      if (kind === "social") expect(hrefs).toContain("/meta");
+      if (kind === "social") {
+        expect(hrefs).toContain("/meta");
+        expect(hrefs).toContain("/google");
+      }
     }
   });
 
@@ -178,6 +181,6 @@ describe("nova entrada e processos", () => {
       ["Vendas", "E-commerce", "Clientes", "Relatórios", "Saúde da Marca", "O que a IA fez"]);
     for (const gone of ["Comentários", "Clipping", "Tira-dúvidas", "Meta", "Dashboard"]) expect(host.textContent).not.toContain(gone);
     await act(async () => root.render(<ProcessEntry kind="social" canView={(route) => route !== "tiktok"} canUse={() => true} onOpen={vi.fn()} />));
-    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Instagram e Facebook", "Pinterest", "LinkedIn"]);
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Instagram e Facebook", "Pinterest", "LinkedIn", "Google"]);
   });
 });
