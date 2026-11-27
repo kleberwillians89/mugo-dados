@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn(), createTask: vi.fn(), deleteTask: vi.fn(),
+const crm = vi.hoisted(() => ({ listCrmTasks: vi.fn(), taskApproval: vi.fn(), taskHistory: vi.fn(), updateTask: vi.fn(), createTask: vi.fn(), transitionTask: vi.fn(), cancelTask: vi.fn(),
   listAssignees: vi.fn(async () => ({ available: true, people: [{ user_id: "u-liliu", name: "Liliu" }, { user_id: "u-maria", name: "Maria Eduarda" }] })) }));
 vi.mock("../../app/crm", async (original) => ({ ...(await original<typeof import("../../app/crm")>()), ...crm }));
 const studio = vi.hoisted(() => ({ getPipeline: vi.fn(), updateCalendarItem: vi.fn(), decideCalendarItem: vi.fn(async () => ({ item: {} })),
@@ -27,6 +27,8 @@ beforeEach(() => {
   studio.updateCalendarItem.mockResolvedValue({ item: {} });
   crm.taskHistory.mockResolvedValue({ events: [{ id: "e1", kind: "enviado_interno", internal: true, comment: null, actor_name: "julia", actor_side: "mugo", created_at: "2026-11-10T20:00:00Z" }] });
   crm.taskApproval.mockImplementation(async (id: string, action: string) => ({ task: task(action === "client_approve" ? "completed" : action === "client_changes" ? "changes" : "internal_review", { id }), events: [] }));
+  crm.transitionTask.mockImplementation(async (id: string, status: string) => ({ task: task(status, { id }) }));
+  crm.cancelTask.mockImplementation(async (id: string) => ({ ok: true, task: task("cancelled", { id }) }));
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.clearAllMocks(); });
 const show = async (node: React.ReactNode) => { await act(async () => { root.render(node); }); await act(async () => {}); };
@@ -220,10 +222,22 @@ describe("cartão limpo e Nova tarefa simples (spec do Danilo)", () => {
     for (const key of ["status", "visible_to_client", "needs_client_approval", "send_whatsapp"]) expect(edit).not.toHaveProperty(key);
     await open("Post pending");
     await click("Iniciar");
-    expect(crm.updateTask).toHaveBeenLastCalledWith("t-pending", { status: "in_progress" });
+    expect(crm.transitionTask).toHaveBeenLastCalledWith("t-pending", "in_progress");
     await open("Post in_progress");
     await click("Concluir ✓");
-    expect(crm.updateTask).toHaveBeenLastCalledWith("t-in_progress", { status: "completed" });
+    expect(crm.transitionTask).toHaveBeenLastCalledWith("t-in_progress", "completed");
+  });
+
+  it("cancelar preserva a tarefa e usa a rota auditável", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    crm.listCrmTasks.mockImplementation(async (status?: string) => ({ available: true,
+      tasks: status === "completed" ? [] : [task("in_progress", { title: "Job de teste" })] }));
+    await show(<TaskBoard canManage isAgency />);
+    await open("Job de teste");
+    await click("Cancelar tarefa");
+    expect(confirm).toHaveBeenCalledWith('Cancelar a tarefa "Job de teste"? O histórico será preservado.');
+    expect(crm.cancelTask).toHaveBeenCalledWith("t-in_progress");
+    confirm.mockRestore();
   });
 
   it("hora sem data pede a data antes de salvar", async () => {

@@ -21,7 +21,7 @@ import hashlib
 from datetime import date, datetime, time, timezone
 from typing import Any, Dict, List, Optional
 
-from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
+from .ig_supabase import sb_insert, sb_select, sb_update
 from .studio_calendar import StudioError
 
 TABLE = "studio_tasks"
@@ -313,6 +313,8 @@ async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, cli
 async def update_task(client_id: str, task_id: str, data: Dict[str, Any], *, client_view: bool,
                       only_user: Optional[str] = None) -> Dict[str, Any]:
     await _owned(client_id, task_id, client_view=client_view, only_user=only_user)
+    if "status" in data:
+        raise StudioError("STATUS_TRANSITION_REQUIRED", "Use uma ação de etapa para mover a tarefa.")
     patch = _clean(data, partial=True)
     await _normalize_assignees(client_id, patch, only_user=only_user)
     if client_view:
@@ -324,9 +326,51 @@ async def update_task(client_id: str, task_id: str, data: Dict[str, Any], *, cli
     return task_view(rows[0], client_view=client_view)
 
 
-async def delete_task(client_id: str, task_id: str, *, client_view: bool, only_user: Optional[str] = None) -> None:
-    await _owned(client_id, task_id, client_view=client_view, only_user=only_user)
-    await sb_delete(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{task_id}"}, returning="minimal")
+MANUAL_TRANSITIONS = {
+    "pending": ("in_progress", "cancelled"),
+    "in_progress": ("pending", "completed", "cancelled"),
+    "changes": ("in_progress", "cancelled"),
+    "completed": ("in_progress",),
+    "cancelled": ("pending",),
+}
+
+
+async def transition_task(client_id: str, task_id: str, target: str, *, user_id: str,
+                          actor_name: str, is_agency: bool, client_view: bool,
+                          only_user: Optional[str] = None) -> Dict[str, Any]:
+    task = await _owned(client_id, task_id, client_view=client_view, only_user=only_user)
+    source = str(task.get("status") or "")
+    if target not in MANUAL_TRANSITIONS.get(source, ()):
+        raise StudioError("STAGE_INVALID", "Esta movimentação não é permitida para a etapa atual.")
+    now = datetime.now(timezone.utc).isoformat()
+    patch: Dict[str, Any] = {"status": target, "updated_at": now, "completed_at": None}
+    if target == "completed":
+        patch["completed_at"] = now
+        patch["approved_at"] = None  # conclusão operacional não é uma aprovação
+    kind = "cancelado" if target == "cancelled" else "reaberto" if source in ("completed", "cancelled") else "movido_manual"
+    rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{task_id}",
+                                           "status": f"eq.{source}"}, patch=patch)
+    if not rows:
+        raise StudioError("STAGE_INVALID", "Alguém mexeu nesta tarefa agora (atualize a tela).")
+    await sb_insert(EVENTS, {
+        "client_id": client_id, "task_id": task_id, "kind": kind,
+        "internal": not client_view,
+        "comment": f"{source} → {target}", "actor_id": user_id,
+        "actor_name": actor_name[:120], "actor_side": "mugo" if is_agency or only_user else "cliente",
+        "created_at": now,
+    })
+    return task_view(rows[0], client_view=client_view)
+
+
+async def delete_task(client_id: str, task_id: str, *, user_id: str, actor_name: str,
+                      is_agency: bool, client_view: bool, only_user: Optional[str] = None) -> Dict[str, Any]:
+    """Compatibilidade da rota DELETE: cancela com histórico; nunca remove fisicamente."""
+    task = await _owned(client_id, task_id, client_view=client_view, only_user=only_user)
+    if task.get("status") == "cancelled":
+        return task_view(task, client_view=client_view)
+    return await transition_task(client_id, task_id, "cancelled", user_id=user_id,
+                                 actor_name=actor_name, is_agency=is_agency,
+                                 client_view=client_view, only_user=only_user)
 
 
 # ------------------------------------------------------------------ aprovação

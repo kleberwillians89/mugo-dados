@@ -42,6 +42,7 @@ ERRORS = {
     "STAGE_INVALID": (409, "A tarefa mudou de etapa. Atualize a tela."),
     "COMMENT_REQUIRED": (422, "Escreva o que precisa mudar."),
     "DELIVERABLE_URL_INVALID": (422, "O link da entrega precisa começar com https://"),
+    "STATUS_TRANSITION_REQUIRED": (409, "Mova a tarefa usando uma ação de etapa."),
 }
 
 
@@ -72,6 +73,10 @@ class TaskApproval(BaseModel):
     action: Literal["submit", "internal_approve", "internal_changes", "client_approve", "client_changes", "comment"]
     comment: Optional[str] = Field(default=None, max_length=2000)
     internal: bool = False
+
+
+class TaskTransition(BaseModel):
+    status: Literal["pending", "in_progress", "completed", "cancelled"]
 
 
 async def _task_scope(authorization: Optional[str], cid: str) -> Dict[str, Any]:
@@ -145,13 +150,39 @@ async def crm_task_update(client_id: str, task_id: UUID, body: TaskInput, author
         raise _http(exc) from None
 
 
+@router.post("/tasks/{task_id}/transition")
+async def crm_task_transition(client_id: str, task_id: UUID, body: TaskTransition,
+                              authorization: Optional[str] = Header(None)):
+    from services.auth import get_user_from_bearer
+    cid = await require_client_role(client_id, authorization, allowed_roles=TASK_MANAGERS)
+    scope = await _task_scope(authorization, cid)
+    user = await get_user_from_bearer(authorization) or {}
+    uid = str(user.get("id") or await require_user_id(authorization))
+    name = str(user.get("email") or "").split("@")[0] or ("Equipe Mugô" if scope["team"] else "Integrante")
+    try:
+        task = await studio_tasks.transition_task(
+            cid, str(task_id), body.status, user_id=uid, actor_name=name,
+            is_agency=scope["team"], client_view=scope["client_view"], only_user=scope["only_user"],
+        )
+        return {"task": task}
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
 @router.delete("/tasks/{task_id}")
 async def crm_task_delete(client_id: str, task_id: UUID, authorization: Optional[str] = Header(None)):
+    from services.auth import get_user_from_bearer
     cid = await require_client_role(client_id, authorization, allowed_roles=TASK_MANAGERS)
     try:
         scope = await _task_scope(authorization, cid)
-        await studio_tasks.delete_task(cid, str(task_id), client_view=scope["client_view"], only_user=scope["only_user"])
-        return {"ok": True}
+        user = await get_user_from_bearer(authorization) or {}
+        uid = str(user.get("id") or await require_user_id(authorization))
+        name = str(user.get("email") or "").split("@")[0] or ("Equipe Mugô" if scope["team"] else "Integrante")
+        task = await studio_tasks.delete_task(
+            cid, str(task_id), user_id=uid, actor_name=name, is_agency=scope["team"],
+            client_view=scope["client_view"], only_user=scope["only_user"],
+        )
+        return {"ok": True, "task": task}
     except StudioError as exc:
         raise _http(exc) from None
 
