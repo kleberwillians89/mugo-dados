@@ -28,7 +28,7 @@ const PROCESS_ROUTES: Record<string, string[]> = {
   process_campaign: ["media"],
   process_relationship: ["email_marketing", "capture", "engagement", "whatsapp"],
   process_analysis: ["origins", "ecommerce", "customers", "social_report", "brand_health", "ai_actions"],
-  process_social: ["meta", "tiktok", "pinterest", "linkedin"],
+  process_social: ["meta", "tiktok", "pinterest", "linkedin", "google"],
 };
 
 /** Social Media reúne recursos distintos sem fundir suas permissões. */
