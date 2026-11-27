@@ -5,6 +5,7 @@ import { DATA_HEALTH_CHANGED } from "../app/dataHealth";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, listClientConnections, listGenericConnections, getApiVersion, isUsableGoogleConnection, isUsableMetaConnection, selectUsableGoogleConnection, selectUsableMetaConnection, type GenericConnection } from "../app/api";
+import ShopifyOwnApp from "../components/integrations/ShopifyOwnApp";
 import { disconnectClientConnection, activateMetaOrganic, configureExistingMetaOrganic, discoverExistingMetaAdAccounts, disconnectGenericConnection, discoverClientMetaAssets, linkClientAssets, listClientMetaAdsAccounts, formatGoogleAdsAccountLabel, formatGoogleAdsCustomerId, listGoogleAdsAccounts, listGoogleGa4Properties, listGoogleGa4Streams, selectGoogleAdsAccount, selectGoogleGa4Property, selectClientMetaAdsAccount, selectShopifyConnection, syncGoogleConnection, syncClientMetaAdsAccount, syncShopifyConnection, refreshAll, validateManualMetaAssets, saveManualMetaAssets, type GoogleAdsAccount, type GoogleGa4Property, type GoogleGa4Stream, type MetaAdsSelectableAccount, type ManualMetaAssetsValidation, startClientMetaOAuth, startGoogleOAuth, startShopifyOAuth } from "../app/onboardingApi";
 import { resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
 import useClientIntegrations from "../hooks/useClientIntegrations";
@@ -1741,6 +1742,7 @@ export default function Onboarding({
                       disabled={!canManageConnections || oauthLoading}
                       style={{ marginTop: 12, width: "100%" }}
                     />
+                    {activeRole === "agency_admin" || activeRole === "platform_admin" ? <ShopifyOwnApp shopDomain={shopifyDomain} /> : null}
                   </>
                 ) : null}
                 {definition.id === "fbits" ? (

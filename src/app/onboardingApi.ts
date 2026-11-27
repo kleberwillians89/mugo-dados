@@ -309,3 +309,9 @@ export async function refreshAll(
   return http<RefreshAllResponse>(`/api/ig/sync?${params.toString()}`, { method: "POST" });
 }
 
+
+/** App Shopify próprio da loja (distribuição personalizada: um app por loja). O segredo nunca volta. */
+export type ShopifyOwnApps = { apps: { shop_domain: string; client_id_hint: string; updated_at: string | null }[] };
+export const readShopifyOwnApps = () => http<ShopifyOwnApps>("/api/oauth/shopify/app");
+export const saveShopifyOwnApp = (input: { shop_domain: string; app_client_id: string; client_secret: string }) =>
+  http<ShopifyOwnApps>("/api/oauth/shopify/app", { method: "PUT", body: JSON.stringify(input) });
