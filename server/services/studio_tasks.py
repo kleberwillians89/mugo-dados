@@ -544,13 +544,16 @@ async def reconcile_calendar_tasks(client_id: str, rows: List[Dict[str, Any]]) -
         changes = stale_calendar_tasks(rows, posts)
         if not changes:
             return rows
+        confirmed: set[str] = set()
         for task_id, target in changes.items():
             task = next((row for row in rows if str(row.get("id")) == task_id), {})
             item_id = str(task.get("calendar_item_id") or "")
             post = posts.get(item_id) or {"id": item_id, "status": "excluido"}
-            await sync_calendar_item(client_id, post, actor_name="Calendário")
-        print(f"[studio_tasks] calendar_reconciled client_id={client_id} tasks={len(changes)}")
-        return [r for r in rows if str(r.get("id")) not in changes]
+            result = await sync_calendar_item(client_id, post, actor_name="Calendário")
+            if result is not None:
+                confirmed.add(task_id)
+        print(f"[studio_tasks] calendar_reconciled client_id={client_id} tasks={len(confirmed)}")
+        return [r for r in rows if str(r.get("id")) not in confirmed]
     except Exception as exc:  # noqa: BLE001
         print(f"[studio_tasks] calendar_reconcile_failed client_id={client_id} {type(exc).__name__}")
         return rows
