@@ -13,7 +13,8 @@ from typing import Any, Dict, List, Optional
 
 from .ig_supabase import sb_select
 from .studio_calendar import StudioError
-from .task_context import LINKS, MODULES, record_link, task_context
+from .task_context import (LINKS, MODULES, claim_work, complete_work, fail_work,
+                           record_link, task_context, work_operation_key)
 
 KIND_BY_WORD = (("roteiro", "roteiro"), ("legenda", "legenda"), ("release", "release"), ("artigo", "artigo"),
                 ("blog", "artigo"), ("e-mail", "email"), ("email", "email"), ("post", "post"), ("campanha", "campanha"))
@@ -60,18 +61,39 @@ async def document_from_task(client_id: str, task_id: str, scope: Dict[str, Any]
                 continue
             if doc.get("status") != "arquivado":
                 return {"created": None, "existing": [{"id": doc["id"], "title": doc.get("title"), "deliverable": link.get("deliverable")}]}
+    version = None
+    if new_version:
+        import uuid
+        version = str(uuid.uuid4())
+    claim = await claim_work(
+        client_id, ctx["task"]["id"], module="redacao",
+        operation_key=work_operation_key("redacao", deliverable, version=version),
+        deliverable=deliverable, brief_id=ctx.get("brief_id"), user_id=user_id,
+    )
+    if claim.get("link_status") == "linked":
+        for link in await _safe_linked(client_id, ctx["task"]["id"], deliverable):
+            try:
+                doc = await get_document(client_id, str(link["record_id"]))
+            except StudioError:
+                continue
+            return {"created": None, "existing": [{"id": doc["id"], "title": doc.get("title"), "deliverable": link.get("deliverable")}]}
+    if not claim.get("acquired"):
+        raise StudioError("WORK_IN_PROGRESS", "Este documento já está sendo criado. Aguarde e atualize a tela.")
     title = (ctx["task"]["title"] + (f" · {deliverable}" if deliverable else ""))[:200]
     kind = kind_for(deliverable or str((ctx.get("context") or {}).get("title") or ""))
     instruction = brief_instruction(ctx, deliverable)
-    doc = await create_document(client_id, {"title": title, "kind": kind}, user_id=user_id)
-    if mode == "ia":
-        written = await ai_write(client_id, {"action": "escrever", "kind": kind, "title": title, "instruction": instruction})
-        text = written.get("text") or ""
-    else:
-        text = "Briefing da tarefa (apague quando escrever):\n\n" + instruction
-    doc = await update_document(client_id, doc["id"], {"content_html": _html(text)}, user_id=user_id)
-    await record_link(client_id, ctx["task"]["id"], module="redacao", record_id=str(doc["id"]), deliverable=deliverable,
-                      brief_id=ctx.get("brief_id"), user_id=user_id)
+    try:
+        doc = await create_document(client_id, {"title": title, "kind": kind}, user_id=user_id)
+        if mode == "ia":
+            written = await ai_write(client_id, {"action": "escrever", "kind": kind, "title": title, "instruction": instruction})
+            text = written.get("text") or ""
+        else:
+            text = "Briefing da tarefa (apague quando escrever):\n\n" + instruction
+        doc = await update_document(client_id, doc["id"], {"content_html": _html(text)}, user_id=user_id)
+    except Exception:
+        await fail_work(claim)
+        raise
+    await complete_work(claim, str(doc["id"]))
     return {"created": {"id": doc["id"], "title": doc.get("title"), "kind": doc.get("kind")}, "existing": []}
 
 

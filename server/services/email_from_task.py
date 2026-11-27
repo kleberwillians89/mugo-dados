@@ -9,7 +9,9 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from .studio_calendar import StudioError
-from .task_context import links_for, max_percent_allowed, percents_over, record_link, task_context
+from .task_context import (claim_work, complete_work, fail_work, links_for,
+                           max_percent_allowed, percents_over, task_context,
+                           work_operation_key)
 
 MODULE = "email_marketing"
 
@@ -90,23 +92,40 @@ async def create_from_task(client_id: str, task_id: str, scope: Dict[str, Any], 
         found = await existing_campaigns(client_id, ctx["task"]["id"], deliverable)
         if found:
             return {"created": None, "existing": found}
+    version = None
+    if new_version:
+        import uuid
+        version = str(uuid.uuid4())
+    claim = await claim_work(
+        client_id, ctx["task"]["id"], module=MODULE,
+        operation_key=work_operation_key(MODULE, deliverable, version=version),
+        deliverable=deliverable, brief_id=ctx.get("brief_id"), user_id=user_id,
+    )
+    if claim.get("link_status") == "linked":
+        found = await existing_campaigns(client_id, ctx["task"]["id"], deliverable)
+        return {"created": None, "existing": found}
+    if not claim.get("acquired"):
+        raise StudioError("WORK_IN_PROGRESS", "Este e-mail já está sendo criado. Aguarde e atualize a tela.")
     from .email_marketing import save_campaign
     name = f"{ctx['task']['title']}" + (f" · {deliverable}" if deliverable else "")
-    if mode == "branco":
-        campaign = await save_campaign(client_id, {"name": name[:120]}, user_id=user_id)
-    else:
-        from .email_brand_look import ensure_brand_look, library_photos, pick_photos
-        from .mugo_ia_actions import email_body
-        data = await _generate(client_id, ctx, deliverable, instruction)
-        action = {"titulo": name[:120], "assunto": data.get("assunto"), "preheader": data.get("preheader"),
-                  "email_titulo": data.get("titulo"), "email_texto": data.get("texto"), "botao": data.get("botao"),
-                  "email_fotos": list(data.get("fotos") or [])[:3]}
-        try:
-            await ensure_brand_look(client_id, user_id=user_id)
-            photos = pick_photos(action["email_fotos"], await library_photos(client_id))
-        except Exception:  # noqa: BLE001 — sem foto/cor da marca, o rascunho sai igual, com os espaços marcados
-            photos = []
-        campaign = await save_campaign(client_id, email_body(action, photos), user_id=user_id)
-    await record_link(client_id, ctx["task"]["id"], module=MODULE, record_id=str(campaign["id"]), deliverable=deliverable,
-                      brief_id=ctx.get("brief_id"), user_id=user_id)
+    try:
+        if mode == "branco":
+            campaign = await save_campaign(client_id, {"name": name[:120]}, user_id=user_id)
+        else:
+            from .email_brand_look import ensure_brand_look, library_photos, pick_photos
+            from .mugo_ia_actions import email_body
+            data = await _generate(client_id, ctx, deliverable, instruction)
+            action = {"titulo": name[:120], "assunto": data.get("assunto"), "preheader": data.get("preheader"),
+                      "email_titulo": data.get("titulo"), "email_texto": data.get("texto"), "botao": data.get("botao"),
+                      "email_fotos": list(data.get("fotos") or [])[:3]}
+            try:
+                await ensure_brand_look(client_id, user_id=user_id)
+                photos = pick_photos(action["email_fotos"], await library_photos(client_id))
+            except Exception:  # noqa: BLE001 — sem foto/cor da marca, o rascunho sai igual, com os espaços marcados
+                photos = []
+            campaign = await save_campaign(client_id, email_body(action, photos), user_id=user_id)
+    except Exception:
+        await fail_work(claim)
+        raise
+    await complete_work(claim, str(campaign["id"]))
     return {"created": {"id": campaign["id"], "name": campaign.get("name"), "status": campaign.get("status")}, "existing": []}

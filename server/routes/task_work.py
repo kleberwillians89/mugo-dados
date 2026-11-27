@@ -19,7 +19,8 @@ from services.tenant import require_client_read, require_client_role, require_us
 router = APIRouter(prefix="/api/clients/{client_id}/crm/work", tags=["kanban-work"])
 EMAIL_WRITERS = ("agency_admin", "client_admin")
 ERRORS = {"TASK_NOT_FOUND": 404, "MODULE_INVALID": 400, "MODE_INVALID": 400, "EMAIL_OFFER_OVER_LIMIT": 422,
-          "AI_TENANT_LEAK": 422}
+          "AI_TENANT_LEAK": 422, "WORK_IN_PROGRESS": 409, "WORK_ALREADY_LINKED": 409,
+          "WORK_LINK_FAILED": 503}
 
 
 def _http(exc: StudioError) -> HTTPException:

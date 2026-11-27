@@ -58,6 +58,18 @@ class ScopeTests(unittest.IsolatedAsyncioTestCase):
                 await st.update_task("roove", "t1", {"status": "completed"}, client_view=True)
         self.assertEqual(raised.exception.code, "TASK_NOT_FOUND")
 
+    async def test_origin_key_recovers_concurrent_brief_task_creation(self):
+        insert = AsyncMock(side_effect=RuntimeError("duplicate key"))
+        select = AsyncMock(return_value=[ROW])
+        with patch.object(st, "sb_insert", insert), patch.object(st, "sb_select", select):
+            out = await st.create_task(
+                "roove", {"title": "Aprovar arte"}, user_id="u1", client_view=False,
+                origin_key="brief:b1:role:designer:assignee:u1",
+            )
+        self.assertEqual(out["id"], "t1")
+        self.assertEqual(select.await_args.kwargs["filters"]["origin_key"],
+                         "eq.brief:b1:role:designer:assignee:u1")
+
     async def test_update_is_scoped_to_company(self):
         update = AsyncMock(return_value=[ROW])
         with patch.object(st, "sb_select", AsyncMock(return_value=[ROW])), patch.object(st, "sb_update", update):

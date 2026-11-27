@@ -94,7 +94,9 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_task_for_a_person_carries_their_part(self):
         create = AsyncMock(return_value={"id": "t1"})
-        with patch.object(sb, "get_brief", AsyncMock(return_value=ROW)), patch.object(sb, "sb_update", AsyncMock()) as upd, \
+        appended = {**ROW, "tasks": [{"task_id": "t1", "role": "designer"}], "status": "distribuido"}
+        with patch.object(sb, "get_brief", AsyncMock(return_value=ROW)), \
+             patch("services.ig_supabase.sb_rpc", AsyncMock(return_value=appended)) as rpc, \
              patch("services.studio_tasks.create_task", create):
             out = await sb.create_person_task("ruah", "b1", role="designer", user_id="u", assignee_user_id="u-liliu",
                                               assignee_name="Liliu", due_date=None, note="Usar a paleta nova")
@@ -103,7 +105,8 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Sua parte (Designer): Capas dos Reels", data["notes"])
         self.assertIn("Recado: Usar a paleta nova", data["notes"])
         self.assertEqual(out["tasks"][0]["task_id"], "t1")
-        self.assertEqual(upd.await_args.kwargs["patch"]["status"], "distribuido")
+        self.assertTrue(create.await_args.kwargs["origin_key"].startswith("brief:b1:role:designer:"))
+        self.assertEqual(rpc.await_args.args[0], "append_studio_brief_task")
 
 
 if __name__ == "__main__":
