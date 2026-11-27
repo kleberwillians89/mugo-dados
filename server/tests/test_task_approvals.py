@@ -18,46 +18,45 @@ def task(status, visible=True, needs=True, rnd=0):
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
     async def run_action(self, current, action, *, agency=True, comment=None, internal=False):
-        updates, inserts = [], []
-
-        async def update(table, *, filters, patch, returning="representation"):
-            updates.append((filters, patch))
-            return [{**current, **patch}]
-        async def insert(table, row, returning="representation"):
-            inserts.append(row)
-            return row
-        with patch.object(st, "_owned", AsyncMock(return_value=current)), patch.object(st, "sb_update", side_effect=update), \
-             patch.object(st, "sb_insert", side_effect=insert), patch.object(st, "list_events", AsyncMock(return_value=[])):
+        target = st.next_status(action, current)
+        updated = {**current, **({"status": target} if target else {})}
+        if action == "submit":
+            updated["approval_round"] = int(current.get("approval_round") or 0) + 1
+        result = {"task": updated, "outbox": {"id": "o1", "client_id": "ruah", "kind": "crm_notification",
+                                                "payload": {}, "status": "pending", "attempts": 0}
+                  if action.startswith("client_") else None}
+        rpc = AsyncMock(return_value=result)
+        with patch.object(st, "_owned", AsyncMock(return_value=current)), patch.object(st, "sb_rpc", rpc), \
+             patch.object(st, "list_events", AsyncMock(return_value=[])), \
+             patch("services.studio_chat.post_decision", AsyncMock()), \
+             patch("services.task_sync_outbox.deliver", AsyncMock()):
             out = await st.approval_action("ruah", T, action, comment=comment, user_id="u1", actor_name="kleber",
                                            is_agency=agency, internal_comment=internal)
-        return out, updates, inserts
+        return out, rpc.await_args.args[1]
 
     async def test_submit_goes_to_internal_review_and_counts_round(self):
-        out, updates, inserts = await self.run_action(task("in_progress", rnd=1), "submit")
-        self.assertEqual(updates[0][1]["status"], "internal_review")
-        self.assertEqual(updates[0][1]["approval_round"], 2)
-        self.assertEqual(updates[0][0]["status"], "eq.in_progress")  # só move se ninguém mexeu antes
-        self.assertEqual((inserts[0]["kind"], inserts[0]["internal"]), ("enviado_interno", True))
+        out, payload = await self.run_action(task("in_progress", rnd=1), "submit")
+        self.assertEqual(out["task"]["status"], "internal_review")
+        self.assertEqual(out["task"]["approval_round"], 2)
+        self.assertEqual((payload["p_expected_status"], payload["p_action"], payload["p_internal"]),
+                         ("in_progress", "submit", True))
 
     async def test_internal_approve_sends_to_client_or_finishes(self):
-        out, updates, inserts = await self.run_action(task("internal_review"), "internal_approve")
-        self.assertEqual(updates[0][1]["status"], "client_review")
-        self.assertEqual([i["kind"] for i in inserts], ["aprovado_interno", "enviado_cliente"])
-        self.assertFalse(inserts[1]["internal"])
+        out, _ = await self.run_action(task("internal_review"), "internal_approve")
+        self.assertEqual(out["task"]["status"], "client_review")
         for t in (task("internal_review", visible=False), task("internal_review", needs=False)):
-            _, updates, _ = await self.run_action(t, "internal_approve")
-            self.assertEqual(updates[0][1]["status"], "completed")
-            self.assertIn("approved_at", updates[0][1])
+            out, _ = await self.run_action(t, "internal_approve")
+            self.assertEqual(out["task"]["status"], "completed")
 
     async def test_client_approves_or_asks_changes_with_comment(self):
-        out, updates, inserts = await self.run_action(task("client_review"), "client_approve", agency=False)
-        self.assertEqual(updates[0][1]["status"], "completed")
-        self.assertEqual((inserts[0]["actor_side"], inserts[0]["internal"]), ("cliente", False))
+        out, payload = await self.run_action(task("client_review"), "client_approve", agency=False)
+        self.assertEqual(out["task"]["status"], "completed")
+        self.assertEqual((payload["p_actor_side"], payload["p_internal"]), ("cliente", False))
         with self.assertRaises(StudioError) as err:
             await self.run_action(task("client_review"), "client_changes", agency=False, comment="  ")
         self.assertEqual(err.exception.code, "COMMENT_REQUIRED")
-        _, updates, inserts = await self.run_action(task("client_review"), "client_changes", agency=False, comment="Trocar a foto")
-        self.assertEqual((updates[0][1]["status"], inserts[0]["comment"]), ("changes", "Trocar a foto"))
+        out, payload = await self.run_action(task("client_review"), "client_changes", agency=False, comment="Trocar a foto")
+        self.assertEqual((out["task"]["status"], payload["p_comment"]), ("changes", "Trocar a foto"))
 
     async def test_client_cannot_do_internal_steps_nor_skip_stages(self):
         for action in ("submit", "internal_approve", "internal_changes"):
@@ -69,10 +68,10 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(err.exception.code, "STAGE_INVALID")
 
     async def test_comments_internal_only_for_team(self):
-        _, updates, inserts = await self.run_action(task("in_progress"), "comment", comment="briefing interno", internal=True)
-        self.assertEqual((updates, inserts[0]["internal"]), ([], True))
-        _, _, inserts = await self.run_action(task("client_review"), "comment", agency=False, comment="gostei", internal=True)
-        self.assertFalse(inserts[0]["internal"])
+        _, payload = await self.run_action(task("in_progress"), "comment", comment="briefing interno", internal=True)
+        self.assertTrue(payload["p_internal"])
+        _, payload = await self.run_action(task("client_review"), "comment", agency=False, comment="gostei", internal=True)
+        self.assertFalse(payload["p_internal"])
 
     def test_client_never_sees_internal_stage(self):
         self.assertEqual(st.task_view(task("internal_review"), client_view=True)["status"], "in_progress")
@@ -98,8 +97,8 @@ class PerPersonTests(unittest.IsolatedAsyncioTestCase):
         from services import studio_tasks as stk
         mine = {"id": "t1", "title": "Arte BF", "status": "in_progress", "assignee_user_id": "u1", "created_by": "u9", "visible_to_client": False}
         with patch.object(stk, "sb_select", AsyncMock(return_value=[mine])), \
-             patch.object(stk, "sb_update", AsyncMock(return_value=[{**mine, "status": "internal_review"}])), \
-             patch.object(stk, "sb_insert", AsyncMock()), patch.object(stk, "list_events", AsyncMock(return_value=[])):
+             patch.object(stk, "sb_rpc", AsyncMock(return_value={"task": {**mine, "status": "internal_review"}, "outbox": None})), \
+             patch.object(stk, "list_events", AsyncMock(return_value=[])):
             out = await stk.approval_action("roove", "t1", "submit", comment=None, user_id="u1", actor_name="liliu",
                                             is_agency=False, only_user="u1")
         self.assertEqual(out["task"]["status"], "internal_review")

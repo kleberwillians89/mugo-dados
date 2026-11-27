@@ -21,7 +21,7 @@ import hashlib
 from datetime import date, datetime, time, timezone
 from typing import Any, Dict, List, Optional
 
-from .ig_supabase import sb_insert, sb_select, sb_update
+from .ig_supabase import sb_insert, sb_rpc, sb_select, sb_update
 from .studio_calendar import StudioError
 
 TABLE = "studio_tasks"
@@ -399,7 +399,7 @@ async def approval_action(client_id: str, task_id: str, action: str, *, comment:
                           only_user: Optional[str] = None) -> Dict[str, Any]:
     if action not in ACTIONS:
         raise StudioError("ACTION_INVALID", "Ação inválida.")
-    who, sources, _, kind, internal, needs_comment = ACTIONS[action]
+    who, sources, _, _, internal, needs_comment = ACTIONS[action]
     # Quem é responsável pela tarefa (only_user) também manda para a aprovação interna; aprovar é da equipe.
     if who == "mugo" and not is_agency and not (action == "submit" and only_user):
         raise StudioError("FORBIDDEN", "Só quem tem a aprovação interna liberada aprova ou pede ajuste aqui.")
@@ -411,32 +411,33 @@ async def approval_action(client_id: str, task_id: str, action: str, *, comment:
         raise StudioError("COMMENT_REQUIRED", "Escreva o que precisa mudar." if action != "comment" else "Escreva o comentário.")
     if internal is None:  # comentário: interno só quando a equipe marca; cliente sempre público
         internal = bool(internal_comment) and is_agency
-    now = datetime.now(timezone.utc).isoformat()
-    destination = next_status(action, task)
-    events = [{"client_id": client_id, "task_id": task_id, "kind": kind, "internal": internal, "comment": text or None,
-               "actor_id": user_id, "actor_name": actor_name[:120], "actor_side": "mugo" if is_agency else "cliente", "created_at": now}]
-    if destination == "client_review":
-        events.append({**events[0], "kind": "enviado_cliente", "internal": False, "comment": None})
-    patch: Dict[str, Any] = {"updated_at": now}
-    if destination:
-        patch["status"] = destination
-        if destination == "completed":
-            patch.update({"completed_at": now, "approved_at": now})
-        if action == "submit":
-            patch["approval_round"] = int(task.get("approval_round") or 0) + 1
-    rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{task_id}",
-                                           "status": f"eq.{task['status']}"}, patch=patch) if destination else [task]
-    if not rows:
-        raise StudioError("STAGE_INVALID", "Alguém mexeu nesta tarefa agora (atualize a tela).")
-    for event in events:
-        await sb_insert(EVENTS, event)
+    try:
+        result = await sb_rpc("apply_studio_task_decision", {
+            "p_client_id": client_id, "p_task_id": task_id, "p_expected_status": task["status"],
+            "p_action": action, "p_comment": text or None, "p_actor_id": user_id or None,
+            "p_actor_name": actor_name[:120], "p_actor_side": "mugo" if is_agency else "cliente",
+            "p_internal": bool(internal),
+        })
+    except Exception as exc:
+        if "STAGE_INVALID" in str(exc):
+            raise StudioError("STAGE_INVALID", "Alguém mexeu nesta tarefa agora (atualize a tela).") from None
+        raise
+    row = (result or {}).get("task")
+    if not row:
+        raise StudioError("TASK_SAVE_FAILED")
     if not is_agency and action in ("client_approve", "client_changes"):
-        from .studio_team import notify_team
-        await notify_team(client_id, {"id": None, "title": f"Tarefa: {task.get('title') or ''}".strip()},
-                          "aprovado" if action == "client_approve" else "ajuste_solicitado",
-                          actor_name=actor_name, comment=text or None, user_id=user_id or None)
+        from .studio_chat import post_decision
+        await post_decision(client_id, "aprovado" if action == "client_approve" else "ajuste_solicitado",
+                            title=f"Tarefa: {task.get('title') or ''}".strip(), actor_name=actor_name,
+                            comment=text or None, user_id=user_id or None)
+        if result.get("outbox"):
+            from .task_sync_outbox import deliver
+            try:
+                await deliver(result["outbox"])
+            except Exception as exc:  # noqa: BLE001 - decisao ja foi confirmada; job permanece reexecutavel
+                print(f"[studio_tasks] task_sync_deferred id={result['outbox'].get('id')} error_type={type(exc).__name__}")
     team = is_agency or bool(only_user)
-    return {"task": task_view(rows[0], client_view=not team), "events": await list_events(client_id, task_id, client_view=not team)}
+    return {"task": task_view(row, client_view=not team), "events": await list_events(client_id, task_id, client_view=not team)}
 
 
 async def list_events(client_id: str, task_id: str, *, client_view: bool) -> List[Dict[str, Any]]:
@@ -462,7 +463,7 @@ async def task_history(client_id: str, task_id: str, *, client_view: bool, only_
 # a tarefa é o "a fazer" da equipe e fecha sozinha quando o post é aprovado ou publicado.
 
 CALENDAR_STAGE_TO_TASK = {"rejeitado": "changes", "em_revisao": "internal_review", "aprovado": "completed",
-                          "publicado": "completed", "rascunho": "in_progress"}
+                          "publicado": "completed", "rascunho": "in_progress", "excluido": "cancelled"}
 
 
 def _post_title(item: Dict[str, Any]) -> str:
@@ -474,7 +475,7 @@ def _post_title(item: Dict[str, Any]) -> str:
 
 async def sync_calendar_item(client_id: str, item: Dict[str, Any], *, comment: Optional[str] = None,
                              actor_name: Optional[str] = None, by_client: bool = False, with_client: bool = False) -> Optional[str]:
-    """Leva a etapa do post para a tarefa ligada (cria a tarefa quando o post entra em ajuste). Nunca levanta."""
+    """Enfileira e aplica a etapa do post de forma idempotente; falhas permanecem reexecutaveis."""
     try:
         status = str(item.get("status") or "")
         target = CALENDAR_STAGE_TO_TASK.get(status)
@@ -483,37 +484,27 @@ async def sync_calendar_item(client_id: str, item: Dict[str, Any], *, comment: O
         if not target or not item.get("id"):
             return None
         item_id = str(item["id"])
-        found = await sb_select(TABLE, select="id,status,approval_round", limit=1,
-                                filters={"client_id": f"eq.{client_id}", "calendar_item_id": f"eq.{item_id}"})
-        now = datetime.now(timezone.utc).isoformat()
         note = str(comment or "").strip()[:2000] or None
-        if not found:
-            if target != "changes":
-                return None  # só ajuste cria tarefa; post sem ajuste segue só no Calendário
-            created = await sb_insert(TABLE, {
-                "client_id": client_id, "title": _post_title(item), "status": "changes", "category": "Calendário",
-                "notes": note, "visible_to_client": False, "needs_client_approval": True, "calendar_item_id": item_id,
-                "due_date": str(item.get("scheduled_at") or "")[:10] or None, "approval_round": 1})
-            task_id = str((created or {}).get("id") or "")
-            if task_id:
-                await _event(client_id, task_id, "ajuste_cliente" if by_client else "ajuste_interno", note, actor_name, by_client, now)
-            return "created" if task_id else None
-        task = found[0]
-        if task["status"] == target or task["status"] == "cancelled":
-            return "unchanged"
-        patch: Dict[str, Any] = {"status": target, "updated_at": now}
-        if target == "completed":
-            patch.update({"completed_at": now, "approved_at": now})
-        if target == "changes":
-            patch["approval_round"] = int(task.get("approval_round") or 0) + 1
-        await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{task['id']}"}, patch=patch, returning="minimal")
-        kind = {"changes": "ajuste_cliente" if by_client else "ajuste_interno", "internal_review": "enviado_interno",
-                "client_review": "enviado_cliente",
-                "completed": "aprovado_cliente" if by_client else "aprovado_interno"}.get(target)
-        if kind:
-            await _event(client_id, str(task["id"]), kind, note, actor_name, by_client, now)
-        return "updated"
+        version = str(item.get("updated_at") or item.get("client_edited_at") or "legacy")[:80]
+        operation = hashlib.sha256(f"{item_id}|{status}|{target}|{version}|{note or ''}|{by_client}|{with_client}".encode()).hexdigest()
+        job = await sb_rpc("enqueue_studio_task_sync", {
+            "p_client_id": client_id, "p_kind": "calendar_sync", "p_operation_key": operation,
+            "p_payload": {"item_id": item_id, "target": target, "title": _post_title(item),
+                          "due_date": str(item.get("scheduled_at") or "")[:10] or None,
+                          "comment": note, "actor_name": actor_name or ("Cliente" if by_client else "Equipe Mugô"),
+                          "by_client": by_client},
+        })
+        processed = await sb_rpc("process_calendar_task_sync", {"p_outbox_id": job["id"]})
+        return str(processed.get("result") or "unchanged") if processed.get("task_id") else None
     except Exception as exc:  # noqa: BLE001 — sem a migração 000097 ou banco fora: o Calendário segue normal
+        try:
+            if 'job' in locals() and job.get("id"):
+                await sb_update("studio_task_sync_outbox", filters={"id": f"eq.{job['id']}", "client_id": f"eq.{client_id}"},
+                                patch={"status": "failed", "attempts": int(job.get("attempts") or 0) + 1,
+                                       "last_error": type(exc).__name__[:120], "updated_at": datetime.now(timezone.utc).isoformat()},
+                                returning="minimal")
+        except Exception:  # noqa: BLE001
+            pass
         print(f"[studio_tasks] calendar_sync_failed client_id={client_id} {type(exc).__name__}")
         return None
 
@@ -553,16 +544,16 @@ async def reconcile_calendar_tasks(client_id: str, rows: List[Dict[str, Any]]) -
         changes = stale_calendar_tasks(rows, posts)
         if not changes:
             return rows
-        now = datetime.now(timezone.utc).isoformat()
+        confirmed: set[str] = set()
         for task_id, target in changes.items():
-            patch: Dict[str, Any] = {"status": target, "updated_at": now}
-            if target == "completed":
-                patch.update({"completed_at": now, "approved_at": now})
-            await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{task_id}"}, patch=patch, returning="minimal")
-            note = "Post aprovado no Calendário." if target == "completed" else "Post removido do Calendário."
-            await _event(client_id, task_id, "aprovado_interno" if target == "completed" else "comentario", note, "Calendário", False, now)
-        print(f"[studio_tasks] calendar_reconciled client_id={client_id} tasks={len(changes)}")
-        return [r for r in rows if str(r.get("id")) not in changes]
+            task = next((row for row in rows if str(row.get("id")) == task_id), {})
+            item_id = str(task.get("calendar_item_id") or "")
+            post = posts.get(item_id) or {"id": item_id, "status": "excluido"}
+            result = await sync_calendar_item(client_id, post, actor_name="Calendário")
+            if result is not None:
+                confirmed.add(task_id)
+        print(f"[studio_tasks] calendar_reconciled client_id={client_id} tasks={len(confirmed)}")
+        return [r for r in rows if str(r.get("id")) not in confirmed]
     except Exception as exc:  # noqa: BLE001
         print(f"[studio_tasks] calendar_reconcile_failed client_id={client_id} {type(exc).__name__}")
         return rows

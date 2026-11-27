@@ -1,7 +1,8 @@
 """
-Ponte somente leituro Mugoverso -> CRM Mugô (tarefas e atendimento WhatsApp).
+Ponte de leitura de relacionamento e notificações externas para o CRM Mugô.
 
-O CRM continua sendo a fonte da verdade: nada é copiado nem guardado aqui. Cada chamada vai à
+As tarefas operacionais vivem em ``studio_tasks`` no Mugoverso. O CRM recebe eventos externos
+idempotentes e continua fornecendo atendimento/WhatsApp; ele não é uma segunda fonte do Kanban. Cada chamada vai à
 função `dados-ops-api` do CRM, que resolve organização + cliente a partir do id da empresa no Dados
 (tabela external_integrations do CRM). Este módulo nunca manda organization_id/client_id do CRM.
 

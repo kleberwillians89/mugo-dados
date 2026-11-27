@@ -23,13 +23,23 @@ class ReconcileTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_fixes_and_hides_resolved_posts(self):
         select = AsyncMock(side_effect=[ROWS, list(POSTS.values())])
-        update, event = AsyncMock(), AsyncMock()
-        with patch.object(st, "sb_select", select), patch.object(st, "sb_update", update), patch.object(st, "_event", event):
+        sync = AsyncMock(return_value="updated")
+        with patch.object(st, "sb_select", select), patch.object(st, "sync_calendar_item", sync):
             out = await st.list_tasks("roove")
         self.assertEqual([t["id"] for t in out["tasks"]], ["t3", "t5"])
-        patched = {c.kwargs["filters"]["id"]: c.kwargs["patch"]["status"] for c in update.await_args_list}
-        self.assertEqual(patched, {"eq.t1": "completed", "eq.t2": "completed", "eq.t4": "cancelled"})
-        self.assertEqual(event.await_count, 3)  # fica no histórico por que saiu de Ajustes
+        self.assertEqual(sync.await_count, 3)
+        self.assertEqual(
+            {call.args[1]["id"] for call in sync.await_args_list},
+            {"p1", "p2", "p4"},
+        )
+
+    async def test_failed_sync_keeps_unresolved_task_visible(self):
+        select = AsyncMock(side_effect=[ROWS, list(POSTS.values())])
+        async def sync(_client_id, post, **_kwargs):
+            return None if post["id"] == "p2" else "updated"
+        with patch.object(st, "sb_select", select), patch.object(st, "sync_calendar_item", side_effect=sync):
+            out = await st.list_tasks("roove")
+        self.assertEqual([t["id"] for t in out["tasks"]], ["t2", "t3", "t5"])
 
     async def test_failure_keeps_the_board_working(self):
         select = AsyncMock(side_effect=[ROWS, RuntimeError("banco fora")])

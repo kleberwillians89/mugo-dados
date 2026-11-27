@@ -41,24 +41,26 @@ class TaskDecisionTests(unittest.IsolatedAsyncioTestCase):
     async def test_client_adjust_on_a_task_tells_the_team(self):
         task = {"id": "t1", "title": "Landing BF", "status": "client_review", "visible_to_client": True}
         with patch.object(stk, "_owned", AsyncMock(return_value=task)), \
-             patch.object(stk, "sb_update", AsyncMock(return_value=[{**task, "status": "changes"}])), \
-             patch.object(stk, "sb_insert", AsyncMock()), patch.object(stk, "list_events", AsyncMock(return_value=[])), \
+             patch.object(stk, "sb_rpc", AsyncMock(return_value={"task": {**task, "status": "changes"},
+                 "outbox": {"id": "o1", "client_id": "roove", "kind": "crm_notification", "payload": {}, "status": "pending"}})), \
+             patch.object(stk, "list_events", AsyncMock(return_value=[])), \
              patch.object(stk, "task_view", lambda row, client_view: row), \
-             patch.object(st, "notify_team", AsyncMock()) as notify:
+             patch.object(sc, "post_decision", AsyncMock()) as notify, \
+             patch("services.task_sync_outbox.deliver", AsyncMock()):
             await stk.approval_action("roove", "t1", "client_changes", comment="Trocar o banner", user_id="u1",
                                       actor_name="gabi", is_agency=False)
         args, kwargs = notify.await_args
-        self.assertEqual(args[1]["title"], "Tarefa: Landing BF")
-        self.assertEqual(args[2], "ajuste_solicitado")
+        self.assertEqual(args[1], "ajuste_solicitado")
+        self.assertEqual(kwargs["title"], "Tarefa: Landing BF")
         self.assertEqual(kwargs["comment"], "Trocar o banner")
 
     async def test_team_actions_do_not_notify(self):
         task = {"id": "t1", "title": "Landing BF", "status": "internal_review", "visible_to_client": False}
         with patch.object(stk, "_owned", AsyncMock(return_value=task)), \
-             patch.object(stk, "sb_update", AsyncMock(return_value=[{**task, "status": "completed"}])), \
-             patch.object(stk, "sb_insert", AsyncMock()), patch.object(stk, "list_events", AsyncMock(return_value=[])), \
+             patch.object(stk, "sb_rpc", AsyncMock(return_value={"task": {**task, "status": "completed"}, "outbox": None})), \
+             patch.object(stk, "list_events", AsyncMock(return_value=[])), \
              patch.object(stk, "task_view", lambda row, client_view: row), \
-             patch.object(st, "notify_team", AsyncMock()) as notify:
+             patch.object(sc, "post_decision", AsyncMock()) as notify:
             await stk.approval_action("roove", "t1", "internal_approve", comment=None, user_id="u1", actor_name="kleber", is_agency=True)
         notify.assert_not_awaited()
 
