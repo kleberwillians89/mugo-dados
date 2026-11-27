@@ -24,6 +24,11 @@ describe("mobile product experience contracts", () => {
     expect(css).toMatch(/@media \(max-width: 1023px\)[\s\S]*?\.appSidebar\{[\s\S]*?transform: translateX\(-100%\)/);
   });
 
+  it("carrega os estilos do quadro junto com o TaskBoard no primeiro acesso", () => {
+    const board = readFileSync(path.join(root, "src/components/studio/TaskBoard.tsx"), "utf8");
+    expect(board).toContain('import "../../styles/studio.css"');
+  });
+
   it("keeps restricted destinations behind the existing role checks", () => {
     const nav = readFileSync(path.join(root, "src/components/shell/AppNavigation.tsx"), "utf8");
     expect(nav).toMatch(/showIntegrations = canManageIntegrations \?\? \(platformAdmin \|\| agencyAdmin\)/);
