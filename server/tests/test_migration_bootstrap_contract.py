@@ -9,6 +9,17 @@ MIGRATIONS = ROOT / "supabase" / "migrations"
 # A historical second 000116 file was added after that snapshot.
 HISTORICAL_ADDITIVE = "20270107_000116_relationship_audiences.sql"
 HISTORICAL_LAST_NUMBER = 117
+KNOWN_LOGICAL_COLLISIONS = {
+    116: [
+        "20270107_000116_relationship_audiences.sql",
+        "20270107_000116_task_multi_assignees.sql",
+    ],
+    164: [
+        "20270130_000164_client_final_approval_preset.sql",
+        "20270130_000164_mugo_notice_disposition.sql",
+    ],
+}
+KNOWN_UNPUBLISHED_NUMBERS = set(range(123, 130))
 
 
 def historical_migration_names() -> list[str]:
@@ -16,6 +27,41 @@ def historical_migration_names() -> list[str]:
         path.name for path in MIGRATIONS.glob("*.sql")
         if int(path.name.split("_", 2)[1]) <= HISTORICAL_LAST_NUMBER
         and path.name != HISTORICAL_ADDITIVE
+    )
+
+
+def assert_migration_sequence(test: unittest.TestCase, names: list[str]) -> None:
+    test.assertEqual(len(names), len(set(names)), "Migration filenames must be unique")
+    logical_numbers = [int(name.split("_", 2)[1]) for name in names]
+    unique_numbers = sorted(set(logical_numbers))
+    expected = [
+        number
+        for number in range(1, max(unique_numbers) + 1)
+        if number not in KNOWN_UNPUBLISHED_NUMBERS
+    ]
+    test.assertEqual(unique_numbers, expected)
+
+    duplicates = {
+        number: sorted(
+            name for name in names if int(name.split("_", 2)[1]) == number
+        )
+        for number in set(logical_numbers)
+        if logical_numbers.count(number) > 1
+    }
+    test.assertEqual(duplicates, KNOWN_LOGICAL_COLLISIONS)
+    test.assertEqual(
+        sorted(
+            set(
+                int(name.split("_", 2)[1])
+                for name in names
+                if int(name.split("_", 2)[1]) > HISTORICAL_LAST_NUMBER
+            )
+        ),
+        [
+            number
+            for number in range(HISTORICAL_LAST_NUMBER + 1, max(unique_numbers) + 1)
+            if number not in KNOWN_UNPUBLISHED_NUMBERS
+        ],
     )
 
 
@@ -144,31 +190,20 @@ class MigrationBootstrapContractTests(unittest.TestCase):
 
     def test_versions_are_unique_and_logical_numbers_are_ordered(self):
         names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
-        self.assertEqual(len(names), len(set(names)), "Migration filenames must be unique")
-        logical_numbers = [int(name.split("_", 2)[1]) for name in names]
-        unique_numbers = sorted(set(logical_numbers))
-        # 000123 a 000129 ficaram em branches que nunca entraram no main: buraco conhecido, não reutilizar.
-        never_published = set(range(123, 130))
-        expected = [n for n in range(1, max(unique_numbers) + 1) if n not in never_published]
-        self.assertEqual(unique_numbers, expected)
+        assert_migration_sequence(self, names)
 
-        # Existing collision: both scripts were already published.
-        # Never rename or reapply them solely to make a test pass.
-        duplicates = {
-            number: sorted(name for name in names if int(name.split("_", 2)[1]) == number)
-            for number in set(logical_numbers)
-            if logical_numbers.count(number) > 1
-        }
-        self.assertEqual(duplicates, {
-            116: [
-                "20270107_000116_relationship_audiences.sql",
-                "20270107_000116_task_multi_assignees.sql",
-            ]
-        })
-        self.assertEqual(
-            [int(name.split("_", 2)[1]) for name in names if int(name.split("_", 2)[1]) > 117],
-            [n for n in range(118, max(unique_numbers) + 1) if n not in never_published],
-        )
+    def test_unexpected_third_164_or_new_collision_is_rejected(self):
+        names = sorted(path.name for path in MIGRATIONS.glob("*.sql"))
+        with self.assertRaises(AssertionError):
+            assert_migration_sequence(
+                self,
+                [*names, "20270130_000164_unexpected_third_script.sql"],
+            )
+        with self.assertRaises(AssertionError):
+            assert_migration_sequence(
+                self,
+                [*names, "20270130_000163_unexpected_collision.sql"],
+            )
 
     def test_shopify_coverage_uses_completed_query_end(self):
         sql = (
