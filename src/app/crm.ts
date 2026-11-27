@@ -66,8 +66,13 @@ export function createTask(input: TaskInput) {
 export function updateTask(id: string, input: TaskInput) {
   return http<{ task: CrmTask }>(base(`/tasks/${encodeURIComponent(id)}`), { method: "PATCH", body: JSON.stringify(input) });
 }
-export function deleteTask(id: string) {
-  return http<{ ok: true }>(base(`/tasks/${encodeURIComponent(id)}`), { method: "DELETE" });
+export function transitionTask(id: string, status: Extract<TaskStatus, "pending" | "in_progress" | "completed" | "cancelled">) {
+  return http<{ task: CrmTask }>(base(`/tasks/${encodeURIComponent(id)}/transition`), {
+    method: "POST", body: JSON.stringify({ status }),
+  });
+}
+export function cancelTask(id: string) {
+  return http<{ ok: true; task: CrmTask }>(base(`/tasks/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 export type TaskAssignmentMessage = {
   id: string; task_id: string; title: string; body: string; task_url: string;
@@ -129,11 +134,12 @@ export function windowOpen(expiresAt: string | null, now = new Date()) {
 
 /** Aprovação de tarefa (fluxo do iAgência): interna (equipe Mugô) e do cliente. */
 export type TaskAction = "submit" | "internal_approve" | "internal_changes" | "client_approve" | "client_changes" | "comment";
-export type TaskEvent = { id: string; kind: "enviado_interno" | "aprovado_interno" | "ajuste_interno" | "enviado_cliente" | "aprovado_cliente" | "ajuste_cliente" | "comentario";
+export type TaskEvent = { id: string; kind: "enviado_interno" | "aprovado_interno" | "ajuste_interno" | "enviado_cliente" | "aprovado_cliente" | "ajuste_cliente" | "comentario" | "movido_manual" | "reaberto" | "cancelado";
   internal: boolean; comment: string | null; actor_name: string | null; actor_side: "mugo" | "cliente"; created_at: string };
 export const TASK_EVENT: Record<TaskEvent["kind"], string> = {
   enviado_interno: "Enviou para aprovação interna", aprovado_interno: "Aprovou internamente", ajuste_interno: "Pediu ajuste (interno)",
   enviado_cliente: "Enviada para o cliente aprovar", aprovado_cliente: "Cliente aprovou", ajuste_cliente: "Cliente pediu ajuste", comentario: "Comentou",
+  movido_manual: "Moveu a tarefa", reaberto: "Reabriu a tarefa", cancelado: "Cancelou a tarefa",
 };
 export function taskApproval(id: string, action: TaskAction, comment?: string, internal = false) {
   return http<{ task: CrmTask; events: TaskEvent[] }>(base(`/tasks/${encodeURIComponent(id)}/approval`), { method: "POST", body: JSON.stringify({ action, comment: comment || null, internal }) });

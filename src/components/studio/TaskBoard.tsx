@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
-import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listAssignees, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type Person, type TaskScope, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
+import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, cancelTask, createTask, dueInfo, listAssignees, listCrmTasks, taskApproval, taskHistory, transitionTask, updateTask, type CrmTask, type CrmUnavailable, type Person, type TaskScope, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
 import TaskProduced from "./TaskProduced";
 import { getPathForRoute } from "../../app/routes";
@@ -18,7 +18,13 @@ const DEPARTMENTS = ["Desenvolvimento", "Design", "Mídia", "Social Media", "Cri
 
 
 // Etapas que se escolhem à mão; as de aprovação só mudam pelas ações (enviar, aprovar, pedir ajuste).
-const MANUAL: TaskStatus[] = ["pending", "in_progress", "completed", "cancelled"];
+const MANUAL_TARGETS: Partial<Record<TaskStatus, TaskStatus[]>> = {
+  pending: ["in_progress", "cancelled"], in_progress: ["pending", "completed", "cancelled"],
+  changes: ["in_progress", "cancelled"], completed: ["in_progress"], cancelled: ["pending"],
+};
+const canMoveManually = (source: TaskStatus, target?: TaskStatus) => target
+  ? (MANUAL_TARGETS[source] || []).includes(target)
+  : Boolean(MANUAL_TARGETS[source]?.length);
 type Draft = { id?: string; title: string; notes: string; status: TaskStatus; priority: string; due_date: string; due_time: string;
   category: string; assignee_name: string; assignee_user_id: string; assignee_user_ids: string[]; visible_to_client: boolean; needs_client_approval: boolean; send_whatsapp: boolean; deliverable_url: string };
 const emptyDraft = (isAgency: boolean): Draft => ({ title: "", notes: "", status: "pending", priority: "", due_date: "", due_time: "",
@@ -163,7 +169,8 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   async function move(task: CrmTask, status: TaskStatus) {
     setError(null);
     setTasks((current) => current.map((t) => (t.id === task.id ? { ...t, status } : t)));
-    try { await updateTask(task.id, { status }); } catch (cause) { setError(message(cause, "Não foi possível mudar a etapa.")); await load(); }
+    try { await transitionTask(task.id, status as "pending" | "in_progress" | "completed" | "cancelled"); }
+    catch (cause) { setError(message(cause, "Não foi possível mudar a etapa.")); await load(); }
   }
 
   /** Iniciar / Concluir de dentro da tarefa (mesma regra do arrastar: só etapas de execução). */
@@ -177,7 +184,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     setDragging(null); setDropColumn(null);
     const task = tasks.find((t) => t.id === taskId);
     if (!task || task.status === status || !canManage || task.calendar_item_id ||
-      !MANUAL.includes(task.status) || !MANUAL.includes(status)) return;
+      !(MANUAL_TARGETS[task.status] || []).includes(status)) return;
     await move(task, status);
   }
 
@@ -273,10 +280,10 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   }
 
   async function remove() {
-    if (!draft?.id || busy || !window.confirm(`Excluir a tarefa "${draft.title}"?`)) return;
+    if (!draft?.id || busy || !window.confirm(`Cancelar a tarefa "${draft.title}"? O histórico será preservado.`)) return;
     setBusy(true); setError(null);
-    try { await deleteTask(draft.id); setDraft(null); await load(); }
-    catch (cause) { setError(message(cause, "Não foi possível excluir.")); }
+    try { await cancelTask(draft.id); setDraft(null); await load(); }
+    catch (cause) { setError(message(cause, "Não foi possível cancelar.")); }
     finally { setBusy(false); }
   }
 
@@ -329,12 +336,12 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         const list = sortTasks(visible.filter((t) => t.status === status));
         const colPosts = who ? [] : postsIn(status);
         return <section key={status} className={`kanbanCol is-task-${status}${dropColumn === status ? " is-drop-target" : ""}`} aria-label={TASK_STATUS[status]}
-          onDragOver={(event) => { if (dragging && MANUAL.includes(status) && canManage) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropColumn(status); } }}
+          onDragOver={(event) => { const source = tasks.find((task) => task.id === dragging); if (source && canManage && canMoveManually(source.status, status)) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropColumn(status); } }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropColumn(null); }}
           onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData("text/plain") || dragging; if (id) void dropTask(id, status); }}>
           <header><b>{TASK_STATUS[status]}</b><span>{list.length + colPosts.length}</span></header>
           {list.map((t) => <div key={t.id}
-            draggable={canManage && !busy && !t.calendar_item_id && MANUAL.includes(t.status)}
+            draggable={canManage && !busy && !t.calendar_item_id && canMoveManually(t.status)}
             onDragStart={(event) => { setDragging(t.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", t.id); }}
             onDragEnd={() => { setDragging(null); setDropColumn(null); }}
             className={dragging === t.id ? "is-task-dragging" : ""}>
@@ -415,7 +422,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
           </ol>
         </section> : null}
         {canManage ? <div className="taskFormActions">
-          {draft.id ? <button type="button" className="ds-link is-quiet taskDanger" disabled={busy} onClick={() => void remove()}>Excluir</button> : <span />}
+          {draft.id && current?.status !== "cancelled" ? <button type="button" className="ds-link is-quiet taskDanger" disabled={busy} onClick={() => void remove()}>Cancelar tarefa</button> : <span />}
           <span className="taskFormButtons"><button type="button" className="ds-button" onClick={() => setDraft(null)}>Cancelar</button>
             <button className="ds-button is-primary" disabled={busy || !draft.title.trim()}>{busy ? "Salvando…" : draft.id ? "Salvar" : "Criar tarefa"}</button></span>
         </div> : null}

@@ -73,18 +73,43 @@ class ScopeTests(unittest.IsolatedAsyncioTestCase):
     async def test_update_is_scoped_to_company(self):
         update = AsyncMock(return_value=[ROW])
         with patch.object(st, "sb_select", AsyncMock(return_value=[ROW])), patch.object(st, "sb_update", update):
-            await st.update_task("roove", "t1", {"status": "in_progress"}, client_view=False)
+            await st.update_task("roove", "t1", {"title": "Novo título"}, client_view=False)
         self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.t1"})
 
     async def test_cancel_preserves_task_and_approval_history(self):
         update = AsyncMock(return_value=[{**ROW, "status": "cancelled"}])
-        delete = AsyncMock()
+        insert = AsyncMock()
         with patch.object(st, "_owned", AsyncMock(return_value=ROW)), patch.object(st, "sb_update", update), \
-             patch.object(st, "sb_delete", delete):
-            out = await st.update_task("roove", "t1", {"status": "cancelled"}, client_view=False)
+             patch.object(st, "sb_insert", insert):
+            out = await st.delete_task("roove", "t1", user_id="u1", actor_name="Danilo", is_agency=True,
+                                       client_view=False)
         self.assertEqual(out["status"], "cancelled")
-        self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.t1"})
-        delete.assert_not_awaited()
+        self.assertEqual(update.await_args.kwargs["filters"]["status"], "eq.pending")
+        self.assertEqual(insert.await_args.args[1]["kind"], "cancelado")
+
+    async def test_generic_patch_cannot_bypass_transition_machine(self):
+        with patch.object(st, "_owned", AsyncMock(return_value=ROW)):
+            with self.assertRaises(StudioError) as raised:
+                await st.update_task("roove", "t1", {"status": "completed"}, client_view=False)
+        self.assertEqual(raised.exception.code, "STATUS_TRANSITION_REQUIRED")
+
+    async def test_manual_transition_records_history_and_reopen(self):
+        update = AsyncMock(return_value=[{**ROW, "status": "in_progress"}])
+        insert = AsyncMock()
+        with patch.object(st, "_owned", AsyncMock(return_value={**ROW, "status": "completed"})), \
+             patch.object(st, "sb_update", update), patch.object(st, "sb_insert", insert):
+            out = await st.transition_task("roove", "t1", "in_progress", user_id="u1", actor_name="Danilo",
+                                           is_agency=True, client_view=False)
+        self.assertEqual(out["status"], "in_progress")
+        self.assertEqual(insert.await_args.args[1]["kind"], "reaberto")
+        self.assertEqual(update.await_args.kwargs["filters"]["status"], "eq.completed")
+
+    async def test_manual_transition_cannot_enter_approval_stage(self):
+        with patch.object(st, "_owned", AsyncMock(return_value=ROW)):
+            with self.assertRaises(StudioError) as raised:
+                await st.transition_task("roove", "t1", "internal_review", user_id="u1", actor_name="Danilo",
+                                         is_agency=True, client_view=False)
+        self.assertEqual(raised.exception.code, "STAGE_INVALID")
 
 
 if __name__ == "__main__":
