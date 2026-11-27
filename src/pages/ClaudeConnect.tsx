@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
+import type { Session } from "@supabase/auth-js";
 import { http, setApiAccessToken } from "../app/api";
 import { supabase } from "../app/supabase";
 import Login from "./Login";

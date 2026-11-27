@@ -17,15 +17,15 @@ const int = (n: number | null | undefined) => n == null ? "—" : n.toLocaleStri
 const day = (iso: string) => iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "";
 
 /** O que está sendo veiculado: para o cliente acompanhar (somente leitura, sem verba nem botões). */
-export default function MediaLiveCampaigns() {
+export default function MediaLiveCampaigns({ defaultFilter = "no_ar", fixedFilter = false, title = "O que está sendo veiculado" }: { defaultFilter?: LiveCampaignState | "all"; fixedFilter?: boolean; title?: string } = {}) {
   const clientId = getActiveClientId();
   const [items, setItems] = useState<LiveCampaign[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<LiveCampaignState | "all">("no_ar");
+  const [filter, setFilter] = useState<LiveCampaignState | "all">(defaultFilter);
 
   useEffect(() => {
     let alive = true;
-    setFilter("no_ar"); setItems(null); setError(null);
+    // A página da Mídia On é recriada ao trocar de empresa (key), então o estado já começa limpo.
     getLiveCampaigns().then((r) => { if (alive && getActiveClientId() === clientId) setItems(r.campaigns); })
       .catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : "Não foi possível carregar as campanhas."); });
     return () => { alive = false; };
@@ -34,9 +34,9 @@ export default function MediaLiveCampaigns() {
   const visible = (items || []).filter((c) => filter === "all" || c.state === filter);
 
   return <section className="ds-section mediaLive" aria-labelledby="media-live-title">
-    <h2 id="media-live-title">O que está sendo veiculado</h2>
+    <h2 id="media-live-title">{title}</h2>
     <p className="ds-footnote">Campanhas que a Mugô colocou no Meta (Instagram e Facebook), com o anúncio e os números desde o início.</p>
-    <label className="ds-caption" style={{ display: "block", margin: "14px 0" }}>Filtrar campanhas
+    {!fixedFilter ? <label className="ds-caption" style={{ display: "block", margin: "14px 0" }}>Filtrar campanhas
       <select aria-label="Filtrar campanhas por status" value={filter} onChange={(e) => setFilter(e.target.value as LiveCampaignState | "all")} style={{ display: "block", minHeight: 40, marginTop: 6 }}>
         <option value="no_ar">Ativas (padrão)</option>
         <option value="pausada">Pausadas / desativadas</option>
@@ -47,10 +47,10 @@ export default function MediaLiveCampaigns() {
         <option value="desconhecido">Status indisponível</option>
         <option value="all">Todas as campanhas</option>
       </select>
-    </label>
+    </label> : null}
     {error ? <p className="studioError" role="alert">{error}</p> : null}
     {!items && !error ? <p role="status">Buscando as campanhas na Meta…</p> : null}
-    {items && !visible.length ? <p className="ds-noticeText">Nenhuma campanha neste status. Use o filtro para consultar as pausadas, encerradas ou todas.</p> : null}
+    {items && !visible.length ? <p className="ds-noticeText">Nenhuma campanha neste status.</p> : null}
     {visible.length ? <div className="mediaLiveGrid">{visible.map((c) => {
       const creative = c.creatives[0];
       return <article key={c.id} className="mediaLiveCard">

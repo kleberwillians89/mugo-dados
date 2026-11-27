@@ -1,3 +1,4 @@
+import type { AppRoute } from "./routes";
 import { http, clientClientPath, publicHttp } from "./api";
 
 export const STUDIO_FORMATS = { reels: "Reels", carrossel: "Carrossel", imagem: "Imagem", stories: "Stories", video: "Vídeo" } as const;
@@ -241,7 +242,9 @@ export function searchShopProducts(q: string, catalogId?: string) {
   return http<{ products: ShopProduct[] }>(base(`/calendar/shop/products?${params.toString()}`), { timeoutMs: 30_000 });
 }
 
-export function createCalendarItem(item: Required<Pick<CalendarItem, "scheduled_at" | "format" | "title">> & ItemPatch) {
+export type PublicationDestination = { channel: StudioChannel; format?: StudioFormat; caption_draft?: string; scheduled_at?: string; art_url?: string };
+
+export function createCalendarItem(item: Required<Pick<CalendarItem, "scheduled_at" | "format" | "title">> & ItemPatch & { destinations?: PublicationDestination[]; publication_group_id?: string }) {
   return http<{ item: CalendarItem }>(base("/calendar/items"), { method: "POST", body: JSON.stringify(item) });
 }
 export function deleteCalendarItem(id: string) {
@@ -468,6 +471,9 @@ export type TeachResult = { ok: true; document: BrandDocument; knowledge: string
   ocr?: { pages_read: number; pages_total: number; pages_limit: number; partial: boolean } };
 export type BrandKnowledge = { knowledge: string; sources: number; updated_at: string | null; documents: BrandDocument[] };
 export function getKnowledge() { return http<BrandKnowledge>(base("/knowledge")); }
+/** A IA lê os documentos da Biblioteca que ainda não viraram Conhecimento da marca (até 4 por rodada). */
+export type LibraryLearn = { running: boolean; read: { name: string; status: string }[]; skipped: { name: string; reason: string }[]; left: number | null };
+export function learnFromLibrary() { return http<LibraryLearn>(base("/library/learn"), { method: "POST", timeoutMs: 600_000 }); }
 export function saveKnowledge(knowledge: string) { return http<{ ok: true; knowledge: string; sources: number }>(base("/knowledge"), { method: "PUT", body: JSON.stringify({ knowledge }) }); }
 export const KNOWLEDGE_MAX_BYTES = 10 * 1024 * 1024;
 async function fileBase64(file: File): Promise<string> {
@@ -499,12 +505,27 @@ export function clearBrandAgent() { return http<{ ok: true }>(base("/brand-agent
 // Mugoverso IA: responde tudo do mundo do cliente, lendo todo o contexto dele (dados, material, saúde, concorrentes, clipping…).
 export type MugoIACoverage = { read: string[]; gaps: string[] };
 export type MugoIAWebSource = { title: string; url: string; researched_at: string; snippet?: string };
-export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string };
+/** Proposta de criação da Mugô IA: o botão Criar vira rascunho na ferramenta (nunca envia nem publica). */
+export type MugoIAAction = { tipo: "email" | "campanha_meta" | "briefing" | "whatsapp_modelo"; status: "proposta" | "criado"; titulo: string; pedido: string;
+  assunto?: string; preheader?: string; email_titulo?: string; email_texto?: string; botao?: string;
+  objetivo?: string; verba_diaria?: number; dias?: number; wa_corpo?: string; wa_rodape?: string; wa_nome?: string; wa_botao_texto?: string; wa_botao_url?: string;
+  criado?: { id: string; name?: string; route: AppRoute; label: string; status?: string; fotos?: number; espacos?: number } };
+export type MugoIAMeta = { on_topic?: boolean; sources?: string[]; new_facts?: string[]; follow_ups?: string[]; coverage?: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction; acoes?: MugoIAAction[] };
 export type MugoIAMessage = { id: string | null; role: "user" | "assistant"; content: string; created_at?: string; meta?: MugoIAMeta };
-export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string };
+export type MugoIAAnswer = { ok: true; id: string | null; answer: string } & Required<Pick<MugoIAMeta, "on_topic" | "sources" | "new_facts" | "follow_ups">> & { coverage: MugoIACoverage; web_sources?: MugoIAWebSource[]; web_status?: string; acao?: MugoIAAction; acoes?: MugoIAAction[] };
+/** Peças de uma resposta (pacote novo ou a proposta única das respostas antigas). */
+export function mugoIAActions(meta?: MugoIAMeta): MugoIAAction[] {
+  return meta?.acoes?.length ? meta.acoes : meta?.acao ? [meta.acao] : [];
+}
+export function createFromMugoIA(messageId: string, item = 0, edits?: { wa_botao_texto?: string; wa_botao_url?: string }) {
+  return http<{ ok: true; acao: MugoIAAction; item: number; already: boolean }>(
+    base(`/mugo-ia/${encodeURIComponent(messageId)}/criar?item=${item}`),
+    { method: "POST", timeoutMs: 180_000, ...(edits ? { body: JSON.stringify(edits) } : {}) });
+}
 export function getMugoIA() { return http<{ messages: MugoIAMessage[] }>(base("/mugo-ia")); }
-export function askMugoIA(question: string) {
-  return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question }), timeoutMs: 120_000 });
+export function askMugoIA(question: string, screen?: string) {
+  // Modelo forte que raciocina: dá mais tempo para a resposta (pesquisa + leitura + peças).
+  return http<MugoIAAnswer>(base("/mugo-ia"), { method: "POST", body: JSON.stringify({ question, ...(screen ? { screen } : {}) }), timeoutMs: 210_000 });
 }
 export function clearMugoIA() { return http<{ ok: true }>(base("/mugo-ia"), { method: "DELETE" }); }
 

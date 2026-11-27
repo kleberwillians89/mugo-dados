@@ -17,6 +17,7 @@ export type AppRoute =
   | "final_approval"
   | "media"
   | "tasks"
+  | "my_tasks"
   | "briefing"
   | "library"
   | "planning"
@@ -95,6 +96,7 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/aprovacao-final" || normalized.startsWith("/aprovacao-final/")) return "final_approval";
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
   if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
+  if (normalized === "/minhas-tarefas" || normalized.startsWith("/minhas-tarefas/")) return "my_tasks";
   if (normalized === "/briefing" || normalized.startsWith("/briefing/")) return "briefing";
   if (normalized === "/biblioteca" || normalized.startsWith("/biblioteca/")) return "library";
   if (normalized === "/planejamento" || normalized.startsWith("/planejamento/")) return "planning";
@@ -177,6 +179,7 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "final_approval") return "/aprovacao-final";
   if (route === "media") return "/midia";
   if (route === "tasks") return "/tarefas";
+  if (route === "my_tasks") return "/minhas-tarefas";
   if (route === "briefing") return "/briefing";
   if (route === "library") return "/biblioteca";
   if (route === "planning") return "/planejamento";
@@ -214,6 +217,13 @@ export function navigateToAppRoute(route: AppRoute, options?: { replace?: boolea
   const path = getPathForRoute(route);
   if (options?.replace) window.history.replaceState({ mugoDepth: appHistoryDepth() }, document.title, path);
   else window.history.pushState({ mugoDepth: appHistoryDepth() + 1 }, document.title, path);
+}
+
+/** Abre uma tela do Mugoverso de dentro de um componente (o App escuta o popstate). ``query`` vai na URL (ex.: campanha=id). */
+export function openAppRoute(route: AppRoute, query?: string) {
+  const path = `${getPathForRoute(route)}${query ? `?${query}` : ""}`;
+  window.history.pushState({ mugoDepth: appHistoryDepth() + 1 }, document.title, path);
+  window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
 }
 
 /**

@@ -19,7 +19,7 @@ const TOUCH_LABEL: Record<string, string> = { enviado: "enviado", simulado: "sim
 export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
   const [data, setData] = useState<CartOverview | null>(null);
   const [settings, setSettings] = useState<CartSettings | null>(null);
-  const [wa, setWa] = useState<{ numbers: WaNumber[]; templates: WaTemplate[] } | null>(null);
+  const [wa, setWa] = useState<{ numbers: WaNumber[]; templates: WaTemplate[]; provider?: string; send_supported?: boolean } | null>(null);
   const [busy, setBusy] = useState("");
   const [htmlMode, setHtmlMode] = useState<boolean | null>(null);
   const [report, setReport] = useState<HtmlReport | null>(null);
@@ -48,6 +48,7 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
   const hasWa = settings.steps.some((st) => st.channel === "whatsapp");
   const hasEmail = settings.steps.some((st) => st.channel === "email");
   const approved = (wa?.templates || []).filter((t) => t.status === "APPROVED");
+  const canAutoSendWa = wa?.send_supported !== false;
   const chosen = approved.find((t) => t.name === settings.whatsapp_template);
   const usingHtml = htmlMode ?? !!settings.email_custom_html;
 
@@ -152,14 +153,15 @@ export default function CartRecoveryPanel({ canEdit }: { canEdit: boolean }) {
             </section>
           ) : null}
 
-          {hasWa ? (
+          {hasWa && !canAutoSendWa ? <p className="emNotice" role="status">Modelos desta marca disponíveis para consulta, mas a recuperação automática ainda não envia pelo CRM próprio. O WhatsApp ficará em modo de simulação até integrar esse transmissor.</p> : null}
+        {hasWa ? (
             <section className="emCard">
               <h3>WhatsApp do carrinho</h3>
-              {wa && !wa.numbers.some((n) => n.status === "active") ? (
+              {wa && canAutoSendWa && !wa.numbers.some((n) => n.status === "active") ? (
                 <p className="emNotice">Esta marca ainda não tem número de WhatsApp ligado ao MUGOVERSO (Integrações → WhatsApp). Sem ele, o passo de WhatsApp é pulado.</p>
               ) : null}
               <label className="emField"><span>Template aprovado pela Meta</span>
-                <select value={settings.whatsapp_template || ""} disabled={!canEdit}
+                <select value={settings.whatsapp_template || ""} disabled={!canEdit || !canAutoSendWa}
                   onChange={(e) => {
                     const t = approved.find((x) => x.name === e.target.value);
                     change({ whatsapp_template: e.target.value || null, whatsapp_language: t?.language || "pt_BR" });

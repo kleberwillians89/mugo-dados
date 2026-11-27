@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { getActiveClientId, getActiveClientName } from "../../app/activeClient";
 import { CRM_UNAVAILABLE_TEXT, TASK_EVENT, TASK_PRIORITY, TASK_STATUS, createTask, deleteTask, dueInfo, listAssignees, listCrmTasks, taskApproval, taskHistory, updateTask, type CrmTask, type CrmUnavailable, type Person, type TaskScope, type TaskAction, type TaskEvent, type TaskInput, type TaskStatus } from "../../app/crm";
 import Drawer from "../Drawer";
+import TaskProduced from "./TaskProduced";
 import { getPathForRoute } from "../../app/routes";
 import { STUDIO_FORMATS, decideCalendarItem, getPipeline, listContacts, localParts, sendForApproval, updateCalendarItem, type PipelineItem, type Stage, type StudioStatus } from "../../app/studio";
 import PostReview from "./PostReview";
-import { OPEN, handleFromName, monthKey, sortTasks } from "./taskBoard.helpers";
+import AssigneePicker from "./AssigneePicker";
+import { OPEN, displayName, handleFromName, monthKey, sortTasks } from "./taskBoard.helpers";
 import { OPEN_TASK_EVENT } from "../shell/workKanban.helpers";
-import "../../styles/studio.css";
+import "../../styles/studio.css";  // o quadro também aparece no Início, fora das telas do Studio
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
-const DEPARTMENTS = ["Desenvolvimento", "Design", "Mídia", "Social Media", "Criação", "Dados", "CRM", "Operações", "Estratégia", "Atendimento"];
+const DEPARTMENTS = ["Desenvolvimento", "Design", "Mídia", "Social Media", "Criação", "Redação", "Dados", "CRM", "Operações", "Estratégia", "Atendimento"];
+
 
 
 
@@ -19,7 +22,7 @@ const MANUAL: TaskStatus[] = ["pending", "in_progress", "completed", "cancelled"
 type Draft = { id?: string; title: string; notes: string; status: TaskStatus; priority: string; due_date: string; due_time: string;
   category: string; assignee_name: string; assignee_user_id: string; assignee_user_ids: string[]; visible_to_client: boolean; needs_client_approval: boolean; send_whatsapp: boolean; deliverable_url: string };
 const emptyDraft = (isAgency: boolean): Draft => ({ title: "", notes: "", status: "pending", priority: "", due_date: "", due_time: "",
-  category: "", assignee_name: "", assignee_user_id: "", assignee_user_ids: [], visible_to_client: !isAgency, needs_client_approval: false, send_whatsapp: false, deliverable_url: "" });
+  category: "", assignee_name: "", assignee_user_id: "", assignee_user_ids: [], visible_to_client: !isAgency, needs_client_approval: false, send_whatsapp: true, deliverable_url: "" });
 const toDraft = (t: CrmTask): Draft => ({ id: t.id, title: t.title, notes: t.notes || "", status: t.status, priority: t.priority || "",
   due_date: t.due_date || "", due_time: t.due_time || "", category: t.category || "", assignee_name: t.assignee?.name || "", assignee_user_id: t.assignee?.user_id || "",
   assignee_user_ids: (t.assignees || (t.assignee ? [t.assignee] : [])).map((a) => a.user_id).filter((id): id is string => Boolean(id)),
@@ -52,6 +55,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   const [dropColumn, setDropColumn] = useState<TaskStatus | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [allPeople, setAllPeople] = useState(false);  // Nova tarefa: mostrar todos os responsáveis, não só os da área
   const [busy, setBusy] = useState(false);
   const [unavailable, setUnavailable] = useState<CrmUnavailable["reason"] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,21 +126,24 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!draft || busy) return;
-    const input: TaskInput = { title: draft.title.trim(), notes: draft.notes.trim() || null, status: draft.status, priority: draft.priority || null,
+    if (draft.due_time && !draft.due_date) { setError("Escolha a data do prazo para usar a hora."); return; }
+    const assignees = team?.length ? {
+      // Legacy Render versions still accept only the primary assignee.
+      // Send the new array only when it is needed for multiple people,
+      // or when editing a previously multi-assigned task (including removal).
+      assignee_user_id: draft.assignee_user_ids[0] || null,
+      assignee_name: team.find((person) => person.user_id === draft.assignee_user_ids[0])?.name || null,
+      ...((draft.assignee_user_ids.length > 1 ||
+        (tasks.find((task) => task.id === draft.id)?.assignees?.length || 0) > 1)
+        ? { assignee_user_ids: draft.assignee_user_ids } : {}),
+    } : {};
+    const base: TaskInput = { title: draft.title.trim(), notes: draft.notes.trim() || null, priority: draft.priority || null,
       due_date: draft.due_date || null, due_time: draft.due_time || null, category: draft.category.trim() || null,
-      assignee_name: draft.assignee_name.trim() || null, deliverable_url: draft.deliverable_url.trim() || null,
-      ...(team?.length ? {
-        // Legacy Render versions still accept only the primary assignee.
-        // Send the new array only when it is needed for multiple people,
-        // or when editing a previously multi-assigned task (including removal).
-        assignee_user_id: draft.assignee_user_ids[0] || null,
-        assignee_name: team.find((person) => person.user_id === draft.assignee_user_ids[0])?.name || null,
-        ...((draft.assignee_user_ids.length > 1 ||
-          (tasks.find((task) => task.id === draft.id)?.assignees?.length || 0) > 1)
-          ? { assignee_user_ids: draft.assignee_user_ids } : {}),
-      } : {}),
-      ...(isAgency ? { visible_to_client: draft.visible_to_client, needs_client_approval: draft.needs_client_approval && draft.visible_to_client } : {}),
-      ...(!draft.id ? { send_whatsapp: draft.send_whatsapp } : {}) };
+      assignee_name: draft.assignee_name.trim() || null, deliverable_url: draft.deliverable_url.trim() || null, ...assignees };
+    // Nova tarefa: sempre Pendente, interna (o cliente não vê) e sem WhatsApp. Editar nunca mexe em etapa, visibilidade
+    // nem aprovação: isso muda só pelas ações da tarefa.
+    const input: TaskInput = draft.id ? base
+      : { ...base, status: "pending", send_whatsapp: false, ...(isAgency ? { visible_to_client: false, needs_client_approval: false } : {}) };
     setBusy(true); setError(null);
     try {
       if (draft.id) {
@@ -144,9 +151,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
         setNotice("Tarefa atualizada.");
       } else {
         await createTask(input);
-        setNotice(draft.send_whatsapp
-          ? "Tarefa criada. O sistema tentou avisar pelo WhatsApp os responsáveis autorizados. Confira o status individual em Meu chat de tarefas."
-          : "Tarefa criada. Os responsáveis receberam o aviso no chat de tarefas.");
+        setNotice(draft.assignee_user_ids.length ? "Tarefa criada em Pendente. Os responsáveis foram avisados no chat de tarefas." : "Tarefa criada em Pendente.");
       }
       setDraft(null);
       await load();
@@ -161,6 +166,13 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     try { await updateTask(task.id, { status }); } catch (cause) { setError(message(cause, "Não foi possível mudar a etapa.")); await load(); }
   }
 
+  /** Iniciar / Concluir de dentro da tarefa (mesma regra do arrastar: só etapas de execução). */
+  async function stepTo(task: CrmTask, status: TaskStatus) {
+    await move(task, status);
+    setDraft((cur) => (cur && cur.id === task.id ? { ...cur, status } : cur));
+    setNotice(status === "in_progress" ? "Tarefa iniciada: está Em produção." : "Tarefa concluída.");
+  }
+
   async function dropTask(taskId: string, status: TaskStatus) {
     setDragging(null); setDropColumn(null);
     const task = tasks.find((t) => t.id === taskId);
@@ -170,7 +182,7 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   }
 
   async function openTask(task: CrmTask) {
-    setDraft(toDraft(task)); setComment(""); setInternalNote(false); setHistory(null); setNotice(null); setSentLink(null);
+    setDraft(toDraft(task)); setAllPeople(false); setComment(""); setInternalNote(false); setHistory(null); setNotice(null); setSentLink(null);
     try { const out = await taskHistory(task.id); setHistory({ id: task.id, events: out.events }); } catch { setHistory({ id: task.id, events: [] }); }
   }
 
@@ -250,23 +262,6 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     finally { setBusy(false); }
   }
 
-  /** Ações rápidas do card conforme a etapa e quem está vendo. */
-  function quick(t: CrmTask): Quick[] {
-    if (t.calendar_item_id) {
-      const calendar: Quick = { label: "Calendário →", run: () => window.location.assign(getPathForRoute("calendar")) };
-      if (!isAgency) return [{ ...calendar, label: "Abrir no Calendário →" }];
-      if (t.status === "changes" || t.status === "in_progress") return [{ label: "Enviar ao cliente →", run: () => void calendarStep(t, "send"), tone: "primary" }, calendar];
-      if (t.status === "internal_review") return [{ label: "Aprovar e enviar ao cliente", run: () => void calendarStep(t, "send"), tone: "primary" }, calendar];
-      return [calendar];
-    }
-    if (t.status === "pending" && canManage) return [{ label: "Iniciar →", run: () => void move(t, "in_progress") }];
-    if ((t.status === "in_progress" || t.status === "changes") && submitter) return [{ label: "Enviar p/ aprovação →", run: () => void act(t, "submit") }];
-    if (t.status === "in_progress" && canManage) return [{ label: "Concluir ✓", run: () => void move(t, "completed") }];
-    if (t.status === "internal_review" && approver) return [{ label: "Aprovar ✓", run: () => void act(t, "internal_approve"), tone: "primary" }, { label: "Ajuste", run: () => void openTask(t) }];
-    if (t.status === "client_review") return [{ label: "Aprovar ✓", run: () => void act(t, "client_approve"), tone: "primary" }, { label: "Pedir ajuste", run: () => void openTask(t) }];
-    return [];
-  }
-
   async function decidePost(post: PipelineItem, status: Extract<StudioStatus, "aprovado" | "rejeitado">, note?: string) {
     setBusy(true); setReviewError(null);
     try {
@@ -275,16 +270,6 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
       await load();
     } catch (cause) { setReviewError(message(cause, "Não foi possível salvar a decisão.")); }
     finally { setBusy(false); }
-  }
-
-  /** Ações do card de post: abrir a revisão (celular + comentário + botões) ou ir ao Calendário. */
-  function postQuick(p: PipelineItem): Quick[] {
-    const actions: Quick[] = [];
-    if (p.stage === "com_cliente" || (isAgency && (p.stage === "revisao_interna" || p.stage === "ajuste"))) {
-      actions.push({ label: p.stage === "ajuste" ? "Revisar" : "Aprovar / ajuste", run: () => { setReviewError(null); setReview(p); }, tone: "primary" });
-    }
-    if (isAgency) actions.push({ label: "Calendário →", run: () => window.location.assign(getPathForRoute("calendar")) });
-    return actions;
   }
 
   async function remove() {
@@ -353,12 +338,12 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
             onDragStart={(event) => { setDragging(t.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", t.id); }}
             onDragEnd={() => { setDragging(null); setDropColumn(null); }}
             className={dragging === t.id ? "is-task-dragging" : ""}>
-            <TaskCard task={t} onOpen={() => void openTask(t)} actions={busy ? [] : quick(t)} />
+            <TaskCard task={t} onOpen={() => void openTask(t)} />
           </div>)}
-          {colPosts.map((p) => <PostCard key={`post-${p.id}`} post={p} onOpen={() => { setReviewError(null); setReview(p); }} actions={busy ? [] : postQuick(p)} />)}
+          {colPosts.map((p) => <PostCard key={`post-${p.id}`} post={p} onOpen={() => { setReviewError(null); setReview(p); }} />)}
           {!list.length && !colPosts.length ? <p className="taskColEmpty">Nada aqui.</p> : null}
-          {canManage && MANUAL.includes(status) ? <button type="button" className="taskAddCard"
-            onClick={() => setDraft({ ...emptyDraft(isAgency), status, category: department })}>+ Adicionar cartão</button> : null}
+          {canManage && status === "pending" ? <button type="button" className="taskAddCard"
+            onClick={() => setDraft({ ...emptyDraft(isAgency), category: department })}>+ Nova tarefa</button> : null}
         </section>;
       })}
     </div> : null}
@@ -367,60 +352,32 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
     <Drawer open={Boolean(draft)} title={draft?.id ? (canManage ? "Editar tarefa" : draft.title) : "Nova tarefa"} onClose={() => { if (!busy) setDraft(null); }}>
       {draft ? <form className="taskForm" onSubmit={save}>
         <fieldset disabled={!canManage || busy}>
-          <label className="ds-field">Título<input required maxLength={200} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Ex.: Aprovar fotos do lançamento" /></label>
-          <div className="taskFormRow">
-            <label className="ds-field">Etapa<select value={draft.status} disabled={!MANUAL.includes(draft.status) || Boolean(current?.calendar_item_id)} onChange={(e) => setDraft({ ...draft, status: e.target.value as TaskStatus })}>
-              {(MANUAL.includes(draft.status) ? MANUAL : [draft.status]).map((k) => <option key={k} value={k}>{TASK_STATUS[k]}</option>)}</select></label>
-            <label className="ds-field">Prioridade<select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
-              <option value="">Sem prioridade</option>{Object.entries(TASK_PRIORITY).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
-          </div>
-          <div className="taskFormRow">
-            <label className="ds-field">Prazo<input type="date" value={draft.due_date} onChange={(e) => setDraft({ ...draft, due_date: e.target.value })} /></label>
-            <label className="ds-field">Hora<input type="time" value={draft.due_time} onChange={(e) => setDraft({ ...draft, due_time: e.target.value })} /></label>
-          </div>
-          <div className="taskFormRow">
-            {team?.length ? <fieldset className="taskAssigneePicker" disabled={scope.mine_only && !approver}>
-              <legend>Responsáveis <small>({draft.assignee_user_ids.length} selecionados)</small></legend>
-              <div className="taskAssigneeOptions" role="group" aria-label="Selecione vários responsáveis">
-                {team.map((p) => <label key={p.user_id} className={draft.assignee_user_ids.includes(p.user_id) ? "is-selected" : ""}>
-                  <input type="checkbox" checked={draft.assignee_user_ids.includes(p.user_id)}
-                    onChange={(e) => setDraft((current) => current ? {
-                      ...current, assignee_user_ids: e.target.checked
-                        ? [...current.assignee_user_ids, p.user_id]
-                        : current.assignee_user_ids.filter((id) => id !== p.user_id),
-                      send_whatsapp: e.target.checked ? current.send_whatsapp :
-                        current.assignee_user_ids.filter((id) => id !== p.user_id).length > 0 && current.send_whatsapp,
-                    } : current)} />
-                  <span>{p.name}</span>
-                </label>)}
-              </div>
-              <small>Você pode marcar várias pessoas na mesma tarefa.</small>
-            </fieldset>
+          <label className="ds-field">Título<input required maxLength={200} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Ex.: Criar peças para campanha de dezembro" /></label>
+          <label className="ds-field">Tarefa<textarea rows={6} maxLength={4000} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+            placeholder="Descreva o que precisa ser feito, orientações e informações necessárias." /></label>
+          <label className="ds-field">Link da entrega (Drive, Canva, Figma…) <small>opcional</small><input type="url" maxLength={1000} placeholder="https://" value={draft.deliverable_url} onChange={(e) => setDraft({ ...draft, deliverable_url: e.target.value })} /></label>
+          <label className="ds-field">Departamento<select value={draft.category} onChange={(e) => { setDraft({ ...draft, category: e.target.value }); setAllPeople(false); }}>
+            <option value="">Selecione a área</option>
+            {draft.category && !departments.includes(draft.category) ? <option value={draft.category}>{draft.category}</option> : null}
+            {departments.map((area) => <option key={area} value={area}>{area}</option>)}
+          </select></label>
+          {team?.length ? <AssigneePicker team={team} area={draft.category} all={allPeople} onAll={() => setAllPeople(true)}
+            selected={draft.assignee_user_ids} disabled={scope.mine_only && !approver}
+            onChange={(ids) => setDraft((cur) => cur ? { ...cur, assignee_user_ids: ids } : cur)} />
             : <label className="ds-field">Responsável<input maxLength={80} value={draft.assignee_name} onChange={(e) => setDraft({ ...draft, assignee_name: e.target.value })} placeholder="Nome" /></label>}
-            <label className="ds-field">Departamento<select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
-              <option value="">Selecione a área</option>
-              {draft.category && !departments.includes(draft.category) ? <option value={draft.category}>{draft.category}</option> : null}
-              {departments.map((area) => <option key={area} value={area}>{area}</option>)}
-            </select></label>
+          <div className="taskFormRow taskFormOptional">
+            <label className="ds-field">Prioridade <small>opcional</small><select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
+              <option value="">Sem prioridade</option>{Object.entries(TASK_PRIORITY).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+            <label className="ds-field">Prazo <small>opcional</small><input type="date" value={draft.due_date} onChange={(e) => setDraft({ ...draft, due_date: e.target.value })} /></label>
+            <label className="ds-field">Hora <small>opcional</small><input type="time" value={draft.due_time} onChange={(e) => setDraft({ ...draft, due_time: e.target.value })} /></label>
           </div>
-          <label className="ds-field">Observações<textarea rows={4} maxLength={4000} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
-          <label className="ds-field">Link da entrega (Drive, Canva, Figma…)<input type="url" maxLength={1000} placeholder="https://" value={draft.deliverable_url} onChange={(e) => setDraft({ ...draft, deliverable_url: e.target.value })} /></label>
-          {!draft.id ? <label className="taskCheck">
-            <input type="checkbox" checked={draft.send_whatsapp} disabled={!draft.assignee_user_ids.length}
-              onChange={(e) => setDraft({ ...draft, send_whatsapp: e.target.checked })} />
-            Avisar responsáveis também pelo WhatsApp
-          </label> : null}
-          {!draft.id ? <p className="libHint">O aviso no chat de tarefas é automático. O WhatsApp só será enviado a quem tiver telefone confirmado, aceitado receber notificações e tiver um modelo aprovado configurado.</p> : null}
-          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={draft.visible_to_client}
-            onChange={(e) => setDraft({ ...draft, visible_to_client: e.target.checked, needs_client_approval: e.target.checked ? draft.needs_client_approval : false })} /> Visível ao cliente</label> : null}
-          {isAgency ? <label className="taskCheck"><input type="checkbox" checked={draft.needs_client_approval}
-            disabled={!draft.visible_to_client}
-            onChange={(e) => setDraft({ ...draft, needs_client_approval: e.target.checked })} />
-            Exigir aprovação do cliente (opcional)</label> : null}
+          {draft.due_time && !draft.due_date ? <p className="libHint" role="status">Para usar a hora, escolha também a data do prazo.</p> : null}
+          {!draft.id ? <p className="libHint">A tarefa nasce em <b>Pendente</b>, só para a equipe. Os responsáveis recebem o aviso no chat de tarefas.</p> : null}
         </fieldset>
         {current ? <section className="taskApproval" aria-label="Aprovação">
           <p className={`taskStage is-${current.status}`}><b>{TASK_STATUS[current.status]}</b>{current.approval_round ? ` · rodada ${current.approval_round}` : ""}</p>
           {current.deliverable_url ? <a href={current.deliverable_url} target="_blank" rel="noreferrer noopener">Abrir a entrega ↗</a> : null}
+          <TaskProduced key={current.id} taskId={current.id} />
           {current.calendar_item_id ? <p className="libHint">Ligada a um post do <b>Calendário</b>: o que fizer aqui vale lá também (e vice-versa). <a href={getPathForRoute("calendar")}>Abrir no Calendário →</a></p> : null}
           {current.calendar_item_id && isAgency ? <div className="taskApprovalActions">
             {current.status === "changes" || current.status === "in_progress" ? <>
@@ -432,6 +389,10 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
               <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void calendarStep(current, "approve")}>Cliente aprovou ✓</button>
               <button type="button" className="ds-button" disabled={busy} onClick={() => void calendarStep(current, "send")}>Reenviar ao cliente</button>
             </> : null}
+          </div> : null}
+          {!current.calendar_item_id && canManage && (current.status === "pending" || current.status === "in_progress") ? <div className="taskApprovalActions">
+            {current.status === "pending" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void stepTo(current, "in_progress")}>Iniciar</button> : null}
+            {current.status === "in_progress" ? <button type="button" className="ds-button" disabled={busy} onClick={() => void stepTo(current, "completed")}>Concluir ✓</button> : null}
           </div> : null}
           {!current.calendar_item_id ? <div className="taskApprovalActions">
             {(current.status === "in_progress" || current.status === "changes" || current.status === "pending") && submitter ? <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void act(current, "submit")}>Enviar para aprovação interna</button> : null}
@@ -463,38 +424,37 @@ export default function TaskBoard({ onRefreshRef, canManage = false, isAgency = 
   </div>;
 }
 
-function TaskCard({ task: t, onOpen, actions }: { task: CrmTask; onOpen: () => void; actions: Quick[] }) {
+function TaskCard({ task: t, onOpen }: { task: CrmTask; onOpen: () => void }) {
   const due = dueInfo(t.due_date);
   const late = due.late && OPEN.includes(t.status);
   const urgent = t.priority === "urgent" || t.priority === "high";
-  return <article className={`kanbanCard taskCard${late ? " is-late" : ""}`}>
-    <button type="button" className="kanbanTitle" onClick={onOpen}>{t.title}</button>
-    <div className="taskMeta">
-      <span className={late ? "taskDue is-late" : "taskDue"}>{t.status === "completed" ? "✓ " : ""}{due.label}{t.due_time ? ` ${t.due_time.slice(0, 5)}` : ""}</span>
+  const people = t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : [];
+  // Cartão só informativo: o que é, de quem, até quando. Para agir, abre a tarefa (clique em qualquer parte).
+  return <article className={`kanbanCard taskCard${late ? " is-late" : ""}`} onClick={onOpen}>
+    <button type="button" className="kanbanTitle" onClick={(e) => { e.stopPropagation(); onOpen(); }}>{t.title}</button>
+    {t.status === "changes" && t.change_note ? <p className="taskChangeNote" title={t.change_note}>Ajustar: {t.change_note}</p> : null}
+    {t.due_date || urgent ? <div className="taskMeta">
+      {t.due_date ? <span className={late ? "taskDue is-late" : "taskDue"}>{t.status === "completed" ? "✓ " : ""}{due.label}{t.due_time ? ` ${t.due_time.slice(0, 5)}` : ""}</span> : null}
       {urgent ? <span className={`taskPrio is-${t.priority}`}>{TASK_PRIORITY[t.priority || ""]}</span> : null}
-    </div>
-    {t.calendar_item_id ? <span className="taskFromCalendar">Calendário</span> : null}
-    {t.deliverable_url ? <a className="taskLink" href={t.deliverable_url} target="_blank" rel="noreferrer noopener">Entrega ↗</a> : null}
-    {actions.length ? <div className="taskQuick">{actions.map((a) => <button key={a.label} type="button" className={`ds-link taskAdvance${a.tone === "primary" ? " is-primary" : " is-quiet"}`} onClick={a.run}>{a.label}</button>)}</div> : null}
-    {(t.assignees?.length || t.assignee || t.category) ? <small className="taskWho">
-      {(t.assignees?.length ? t.assignees : t.assignee ? [t.assignee] : []).map((person, index) => (
-        <span key={person.user_id || index} className="taskAssigneeBadge">
-          <i style={{ background: person.color || "#9aa3ad" }} aria-hidden="true" />{person.name}
-        </span>
-      ))}
-      {t.category ? <span>{t.category}</span> : null}
+    </div> : null}
+    {people.length || t.category || t.calendar_item_id ? <small className="taskWho">
+      {people.map((person, index) => <span key={person.user_id || index} className="taskAssigneeBadge">
+        <i style={{ background: person.color || "#9aa3ad" }} aria-hidden="true" />{displayName(person.name)}
+      </span>)}
+      {t.category && !(t.calendar_item_id && t.category === "Calendário") ? <span>{t.category}</span> : null}
+      {t.calendar_item_id ? <span className="taskFromCalendar is-quiet">Calendário</span> : null}
     </small> : null}
   </article>;
 }
 
-export function PostCard({ post: p, onOpen, actions }: { post: PipelineItem; onOpen: () => void; actions: Quick[] }) {
+export function PostCard({ post: p, onOpen }: { post: PipelineItem; onOpen: () => void }) {
   const when = localParts(p.scheduled_at);
   const feedback = p.client_feedback?.action === "ajuste_solicitado" && p.client_feedback.comment ? p.client_feedback.comment : null;
-  return <article className="kanbanCard taskCard taskPostCard">
-    <span className="taskFromCalendar">Post · {STUDIO_FORMATS[p.format]}</span>
-    <button type="button" className="kanbanTitle" onClick={onOpen}>{p.title}</button>
-    <small className="taskPostMeta">{when.label} · {when.time}{p.request?.contact_name ? ` · com ${p.request.contact_name}` : ""}</small>
-    {feedback ? <p className="kanbanNote">“{feedback}”{p.client_feedback?.reviewer_name ? ` — ${p.client_feedback.reviewer_name}` : ""}</p> : null}
-    {actions.length ? <div className="taskQuick">{actions.map((a) => <button key={a.label} type="button" className={`ds-link taskAdvance${a.tone === "primary" ? " is-primary" : " is-quiet"}`} onClick={a.run}>{a.label}</button>)}</div> : null}
+  return <article className="kanbanCard taskCard taskPostCard" onClick={onOpen}>
+    <button type="button" className="kanbanTitle" onClick={(e) => { e.stopPropagation(); onOpen(); }}>{p.title}</button>
+    {feedback ? <p className="taskChangeNote">Ajustar: {feedback}</p> : null}
+    <small className="taskPostMeta">{when.label} · {when.time}</small>
+    {p.stage === "com_cliente" ? <span className="taskWaiting">Esperando aprovação do cliente</span> : null}
+    <small className="taskWho"><span className="taskFromCalendar is-quiet">Post · {STUDIO_FORMATS[p.format]}</span></small>
   </article>;
 }

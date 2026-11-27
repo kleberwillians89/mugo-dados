@@ -45,6 +45,8 @@ ERRORS = {
     "DOCUMENT_SELECTION_REQUIRED": (422, "Selecione o trecho do texto antes de pedir para a IA."),
     "DOCUMENT_INSTRUCTION_REQUIRED": (422, "Diga o que a IA deve escrever."),
     "DOCUMENT_EMPTY": (422, "O documento está vazio."),
+    "TASK_NOT_FOUND": (404, "Tarefa não encontrada."),
+    "MODE_INVALID": (400, "Escolha escrever com a IA ou começar em branco."),
     "DOCUMENT_DATE_REQUIRED": (422, "Escolha a data do post."),
     "ACTION_INVALID": (400, "Ação inválida."),
     "CHANNEL_INVALID": (422, "Plataforma inválida."),
@@ -781,6 +783,42 @@ async def document_to_calendar(client_id: str, document_id: UUID, body: Document
         from services.studio_history import record
         await record(cid, result["calendar_item_id"], "criou a pauta pela Redação", actor_name=_chat_author(authorization, uid), actor_id=uid)
     return result
+
+
+class DocumentFromTaskInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    mode: Literal["ia", "branco"] = "ia"
+    deliverable: str = Field(default="", max_length=160)
+    new_version: bool = False
+
+
+@router.post("/documents/from-task/{task_id}", status_code=201)
+async def document_from_task(client_id: str, task_id: UUID, body: DocumentFromTaskInput,
+                             authorization: Optional[str] = Header(default=None)):
+    """Kanban → Redação: documento escrito a partir do briefing da tarefa (ou em branco), ligado a ela."""
+    from routes.crm import _task_scope
+    from services import redacao_from_task
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    uid = await require_user_id(authorization)
+    scope = await _task_scope(authorization, cid)
+    try:
+        return await redacao_from_task.document_from_task(cid, str(task_id), scope, user_id=uid, mode=body.mode,
+                                                          deliverable=body.deliverable, new_version=body.new_version)
+    except StudioError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/documents/{document_id}/email", status_code=201)
+async def document_to_email(client_id: str, document_id: UUID, authorization: Optional[str] = Header(default=None)):
+    """Redação → E-mail Marketing: o texto vira rascunho de e-mail (quem cria e-mail: admin do cliente ou equipe)."""
+    from services import redacao_from_task
+    cid = await require_client_role(client_id, authorization, allowed_roles=SOCIAL_MEDIA)
+    await require_client_role(cid, authorization, allowed_roles=("agency_admin", "client_admin"))
+    uid = await require_user_id(authorization)
+    try:
+        return await redacao_from_task.document_to_email(cid, str(document_id), user_id=uid)
+    except StudioError as exc:
+        raise _http(exc) from None
 
 
 # ---------------------------------------------------------------- saúde da marca

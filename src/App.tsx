@@ -1,10 +1,11 @@
 import { DataHealthProvider } from "./app/DataHealthContext";
 import { requestNewProject } from "./app/newProjectRequest";
+import { ASSIST_SCREENS, MugoIAAssistContext } from "./components/mugoIA/assist";
 import { PLANNING_TOOLS } from "./app/planningTools";
 import { DataHealthSummary } from "./components/data/DataFreshness";
 import { markReadStage } from "./app/readPerformance";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
+import type { Session } from "@supabase/auth-js";
 import {
   disableLocalAuth,
   getSupabaseBootstrapError,
@@ -16,6 +17,7 @@ import {
   getCurrentAppRoute,
   getPublicAppRouteFromPath,
   navigateToAppRoute,
+  openAppRoute,
   type AppRoute, approvalTokenFromPath,
 } from "./app/routes";
 import { routeAfterInvitationAccepted, shouldOpenHomeAfterSignIn } from "./app/authNavigation";
@@ -31,7 +33,11 @@ import DashboardErrorBoundary from "./components/dashboard/DashboardErrorBoundar
 import MugoLogo from "./components/MugoLogo";
 import "./components/mugo-logo.css";
 import { DashboardDataProvider } from "./app/DashboardDataContext";
-import { DataDeletionPage, DataProtectionPage, PrivacyPage, TermsPage } from "./pages/LegalPages";
+// Páginas legais só carregam quando alguém abre /termos, /privacidade… (antes iam junto em toda tela).
+const PrivacyPage = lazy(() => import("./pages/LegalPages").then((m) => ({ default: m.PrivacyPage })));
+const DataDeletionPage = lazy(() => import("./pages/LegalPages").then((m) => ({ default: m.DataDeletionPage })));
+const DataProtectionPage = lazy(() => import("./pages/LegalPages").then((m) => ({ default: m.DataProtectionPage })));
+const TermsPage = lazy(() => import("./pages/LegalPages").then((m) => ({ default: m.TermsPage })));
 
 const loadOnboarding = () => import("./pages/Onboarding");
 const loadDashboard = () => import("./pages/Dashboard");
@@ -43,6 +49,7 @@ const ProcessEntry = lazy(() => import("./pages/ProcessEntry"));
 const ApprovalWorkspace = lazy(() => import("./pages/ApprovalWorkspace"));
 const MediaOn = lazy(() => import("./pages/MediaOn"));
 const Tasks = lazy(() => import("./pages/Tasks"));
+const MyTasks = lazy(() => import("./pages/MyTasks"));
 const Central = lazy(() => import("./pages/Central"));
 const Clipping = lazy(() => import("./pages/Clipping"));
 const BrandHealthPage = lazy(() => import("./pages/BrandHealthPage"));
@@ -830,6 +837,16 @@ function PrivateApp() {
     markReadStage("tenant_ready");
   }, [clients]);
 
+  /** Alerta da Mugô IA: abre a tela na empresa do alerta (troca a empresa antes, se for outra). */
+  const openRouteIn = useCallback((clientId: string, nextRoute: AppRoute) => {
+    const canonicalId = canonicalizeClientId(clientId);
+    if (canonicalId !== activeClientId) {
+      if (!clients.some((client) => client.client_id === canonicalId)) return;
+      handleClientChange(canonicalId);
+    }
+    openRoute(nextRoute);
+  }, [activeClientId, clients, handleClientChange, openRoute]);
+
   const handleOpenCompany = useCallback(async (company: PlatformCompany, targetRoute: AppRoute = "meta") => {
     // Mantém o mecanismo de acesso/suporte auditado (openPlatformCompany) antes
     // de trocar de tenant — "Fazer onboarding" e "Abrir para suporte" só se
@@ -887,8 +904,14 @@ function PrivateApp() {
     return code.endsWith(".view") && code !== "team.view";
   };
   const canView = (target: AppRoute): boolean => {
+    // Aprovação Interna é só da equipe Mugô.
+    if (target === "internal_approval" && !teamHere && !localMode) return false;
     return canViewAppRoute(target, can);
   };
+  // Cliente — Aprovação Final: sem outro módulo, entra direto na Aprovação Final (o Início não teria nada para ele).
+  const approvalOnly = !teamHere && !localMode && canView("final_approval")
+    && !(["central", "meta", "google", "ecommerce", "customers", "origins", "calendar", "campaigns", "tasks", "media",
+      "brand_ai", "social_report", "clipping", "creators", "engagement"] as AppRoute[]).some((target) => canView(target));
   const canEdit = (module: string) => can(`${module}.edit`);
   // Kanban integrado (Shell): mesma regra da página Tarefas para escolher o quadro; o recorte é do backend.
   const workValue = useMemo<WorkValue>(() => ({
@@ -901,6 +924,12 @@ function PrivateApp() {
   // Planejar abre direto o "Criar planejamento" (formulário aberto), sem tela intermediária. Substitui a entrada do
   // histórico para o "voltar" não cair de novo em /planejar. Sem acesso ao Planejamento, mostra a entrada normal.
   // Lançar campanha voltou a ter entrada própria (Mídia On, E-mail Marketing, Captação e atalhos do WhatsApp).
+  const approvalLanding = approvalOnly && route === "home";
+  useEffect(() => {
+    if (!approvalLanding) return;
+    navigateToAppRoute("final_approval", { replace: true });
+    setRoute("final_approval");
+  }, [approvalLanding]);
   const planningGoesToForm = route === "process_planning" && canView("planning");
   useEffect(() => {
     if (!planningGoesToForm) return;
@@ -977,8 +1006,13 @@ function PrivateApp() {
     );
   }
 
+  // Mugô IA à mão nas telas de criação (botão no cabeçalho). Criar rascunho segue a permissão da Mugô IA.
+  const assistRoute: AppRoute = route === "approval" ? "calendar" : route;
+  const assist = ASSIST_SCREENS[assistRoute] && canView("mugo_ia") ? { screen: assistRoute, canCreate: canEdit("brand_ai") } : null;
+
   return (
     <DashboardErrorBoundary>
+      <MugoIAAssistContext.Provider value={assist}>
       <DataHealthProvider clientId={activeClientId} enabled={!!activeClientId && (tenantReady || localMode) && (!!session || localMode)}>
       <DashboardDataProvider resources={route === "meta" || route === "google" ? "campaigns" : route === "ecommerce" ? "products" : "none"} clientId={activeClientId} tenantReady={tenantReady || localMode} enabled={!!activeClientId && (!!session || localMode)}>
       <div className="appFrame">
@@ -1024,7 +1058,7 @@ function PrivateApp() {
       ) : (
       <>
       {route === "home" ? (
-        <Home key={`home:${activeClientId}`} canView={canView} onOpen={openRoute} />
+        <Home key={`home:${activeClientId}`} canView={canView} onOpen={openRoute} onOpenIn={openRouteIn} />
       ) : route === "process_planning" ? (
         <ProcessEntry key={`process-planning:${activeClientId}`} kind="planning" canView={canView} canUse={can} onOpen={openRoute} />
       ) : route === "process_content" ? (
@@ -1041,19 +1075,19 @@ function PrivateApp() {
         <ApprovalWorkspace key={`${route}:${activeClientId}`} mode={route === "internal_approval" ? "internal" : "final"} isAgency={teamHere}
           canDeleteCalendarContent={teamHere && canEdit("calendar")}
           canDeleteTaskContent={teamHere || canEdit("tasks")}
-          onOpenCalendar={() => openRoute("calendar")} />
+          onOpenCalendar={canView("calendar") ? () => openRoute("calendar") : undefined} />
       ) : route === "central" ? (
         <Central key={`central:${activeClientId}`} isAgency={teamHere} />
       ) : route === "goals" ? (
         <Goals key={`goals:${activeClientId}`} canManage={canEdit("central")} />
       ) : route === "calendar" || route === "approval" || route === "campaigns" ? (
         <Campaigns key={`social-media:${activeClientId}`} initialTab={route === "calendar" || route === "approval" ? "calendario" : undefined}
-          isAgency={teamHere} canViewSocial={can("social_media.view")} canManage={canEdit("social_media")}
+          isAgency={teamHere} canViewSocialPerformance={canView("process_social")} canViewSocial={can("social_media.view")} canManage={canEdit("social_media")}
           canViewCalendar={can("calendar.view")} canManageCalendar={canEdit("calendar")} canApproveMatrix={can("tasks.approve")} />
       ) : route === "redacao" ? (
         <RedacaoPage key={`redacao:${activeClientId}`} canManage={canEdit("social_media")} />
       ) : route === "media" ? (
-        <MediaOn key={`media:${activeClientId}`} canManage={teamHere} canManageCampaigns={teamHere} />
+        <MediaOn key={`media:${activeClientId}`} canManage={teamHere} canManageCampaigns={teamHere} canView={canView} />
       ) : route === "briefing" ? (
         <BriefingPage key={`briefing:${activeClientId}`} />
       ) : route === "library" ? (
@@ -1068,6 +1102,15 @@ function PrivateApp() {
           ? <Tasks key={`tasks:${activeClientId}`} canManage={teamHere || canEdit("tasks")} isAgency={teamHere}
               onOpenWhatsApp={canView("whatsapp") ? () => openRoute("whatsapp") : undefined} />
           : <ClientTasksPage key={`tasks:${activeClientId}`} />
+      ) : route === "my_tasks" ? (
+        <MyTasks onOpenIn={openRouteIn} onOpenTask={(clientId, taskId) => {
+          // Abre no quadro da empresa da tarefa: troca a empresa (se preciso) e o quadro abre o detalhe pelo ?task=.
+          if (clientId !== activeClientId) {
+            if (!clients.some((client) => client.client_id === canonicalizeClientId(clientId))) return;
+            handleClientChange(clientId);
+          }
+          openAppRoute("tasks", `task=${encodeURIComponent(taskId)}`);
+        }} />
       ) : route === "benchmark" ? (
         <Benchmark key={`benchmark:${activeClientId}`} />
       ) : route === "radar" || route === "clipping" ? (
@@ -1156,6 +1199,7 @@ function PrivateApp() {
       </div>
       </DashboardDataProvider>
       </DataHealthProvider>
+      </MugoIAAssistContext.Provider>
     </DashboardErrorBoundary>
   );
 }
@@ -1172,9 +1216,9 @@ export default function App() {
   const reportToken = reportTokenFromPath(window.location.pathname);
   if (reportToken) return <Suspense fallback={<AppLoading />}><PublicReport token={reportToken} /></Suspense>;
   const publicRoute = getPublicAppRouteFromPath(window.location.pathname);
-  if (publicRoute === "privacy") return <PrivacyPage />;
-  if (publicRoute === "data_deletion") return <DataDeletionPage />;
-  if (publicRoute === "data_protection") return <DataProtectionPage />;
-  if (publicRoute === "terms") return <TermsPage />;
+  if (publicRoute === "privacy") return <Suspense fallback={<AppLoading />}><PrivacyPage /></Suspense>;
+  if (publicRoute === "data_deletion") return <Suspense fallback={<AppLoading />}><DataDeletionPage /></Suspense>;
+  if (publicRoute === "data_protection") return <Suspense fallback={<AppLoading />}><DataProtectionPage /></Suspense>;
+  if (publicRoute === "terms") return <Suspense fallback={<AppLoading />}><TermsPage /></Suspense>;
   return <PrivateApp />;
 }

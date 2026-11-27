@@ -1,0 +1,102 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { getActiveClientId } from "../../app/activeClient";
+import { getLiveRead, getMediaNow, type LiveReadNote, type MediaNowCampaign, type MediaNowSignal } from "../../app/metaAds";
+
+const SIGNAL: Record<MediaNowSignal, { label: string; tone: string }> = {
+  bem: { label: "Indo bem", tone: "is-good" },
+  atencao: { label: "Atenção", tone: "is-warn" },
+  aprendendo: { label: "Aprendendo", tone: "is-learn" },
+};
+const brl = (n: number | null | undefined) => n == null ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+const int = (n: number | null | undefined) => n == null ? "—" : Math.round(n).toLocaleString("pt-BR");
+
+/** "Sua mídia agora": só campanhas no ar, cada uma com o número que importa para o objetivo dela. Sem palpite. */
+export default function MediaNow({ showRecommendations, history, reportLink }: { showRecommendations: boolean; history?: ReactNode; reportLink?: ReactNode }) {
+  const clientId = getActiveClientId();
+  const [items, setItems] = useState<MediaNowCampaign[] | null>(null);
+  const [channel, setChannel] = useState("");
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState<"active" | "closed">("active");
+  const [spend7, setSpend7] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [tips, setTips] = useState<LiveReadNote[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getMediaNow().then((out) => {
+      if (!alive || getActiveClientId() !== clientId) return;
+      setItems(out.campaigns); setSpend7(out.spend_7d);
+      const judgeable = new Set(out.campaigns.filter((c) => c.recomendavel).map((c) => c.id));
+      if (showRecommendations && judgeable.size) {
+        // Recomendação da IA só sobre campanha ativa com dado suficiente; no máximo 3.
+        getLiveRead().then((read) => { if (alive) setTips((read.melhorias || []).filter((n) => judgeable.has(n.id)).slice(0, 3)); })
+          .catch(() => { if (alive) setTips([]); });
+      } else setTips([]);
+    }).catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : "Não foi possível ler as campanhas agora."); });
+    return () => { alive = false; };
+  }, [clientId, showRecommendations]);
+
+  const counts = { atencao: 0, bem: 0, aprendendo: 0 };
+  for (const item of items || []) counts[item.sinal]++;
+  const priority = { atencao: 0, bem: 1, aprendendo: 2 };
+  const filtered = (items || []).filter((campaign) => (!channel || campaign.canal === channel)
+    && campaign.campanha.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))
+    .sort((a, b) => priority[a.sinal] - priority[b.sinal]);
+  return <>
+    <section className="ds-section mediaNow" aria-labelledby="media-now-title">
+      <div className="mediaNowHead">
+        <div><h2 id="media-now-title">Campanhas</h2><small>Meta ao vivo · Google pela última sincronização</small></div>
+        {reportLink}
+      </div>
+      <div className="mediaNowStatusFilters" role="group" aria-label="Status das campanhas">
+        <button type="button" className="ds-button" aria-pressed={view === "active"} onClick={() => setView("active")}>Ativas</button>
+        <button type="button" className="ds-button" aria-pressed={view === "closed"} onClick={() => setView("closed")}>Encerradas</button>
+      </div>
+      {view === "closed" ? history : <>
+      {error ? <p role="alert" className="studioError">{error}</p> : null}
+      {items === null && !error ? <p className="libHint" role="status">Lendo as campanhas no ar…</p> : null}
+      {items && !items.length ? <p className="mediaNowEmpty">Nenhuma campanha no ar agora.</p> : null}
+      {items && items.length ? <>
+        <div className="mediaNowFilters" role="group" aria-label="Filtrar campanhas">
+          <label>Campanha<input type="search" placeholder="Buscar por nome" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <label>Canal<select value={channel} onChange={(event) => setChannel(event.target.value)}>
+            <option value="">Todos</option><option>Meta</option><option>Google</option>
+          </select></label>
+        </div>
+        <p className="mediaNowResultCount" role="status">{filtered.length} de {items.length} campanhas</p>
+        {!filtered.length ? <p className="mediaNowEmpty">Nenhuma campanha corresponde aos filtros.</p> : null}
+        <ul className="mediaNowList">{filtered.map((c) => {
+          const s = SIGNAL[c.sinal];
+          return <li key={c.id} className={s.tone}>
+            <div className="mediaNowName"><b>{c.campanha}</b><small>{c.canal} · {c.objetivo}{c.verba_diaria ? ` · ${brl(c.verba_diaria)}/dia` : ""}</small></div>
+            <dl>
+              <div><dt>Investido</dt><dd>{brl(c.investido)}</dd></div>
+              <div><dt>{cap(c.resultado.label)}</dt><dd>{int(c.resultado.value)}</dd></div>
+              <div><dt>{cap(c.resultado.cost_label)}</dt><dd>{brl(c.resultado.cost)}</dd></div>
+              {c.resultado.roas != null ? <div><dt>ROAS</dt><dd>{c.resultado.roas.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</dd></div> : null}
+            </dl>
+            <details className="mediaNowSignal">
+              <summary><b className={s.tone}>{s.label}</b><span>Ver diagnóstico</span></summary>
+              <p>{c.motivo}</p>
+            </details>
+          </li>;
+        })}</ul>
+      </> : null}
+      </>}
+    </section>
+    {view === "active" && items ? <section className="ds-section mediaNowTips" aria-labelledby="media-now-analysis">
+      <h2 id="media-now-analysis">Resumo de desempenho</h2>
+      <dl className="mediaNowTotals" aria-label="Resumo de desempenho">
+        <div><dt>Campanhas no ar</dt><dd>{items.length}</dd></div>
+        <div><dt>Investimento nos últimos 7 dias</dt><dd>{brl(spend7)}</dd></div>
+        <div><dt>Pedem atenção</dt><dd className={counts.atencao ? "is-warn" : ""}>{counts.atencao}</dd></div>
+      </dl>
+    </section> : null}
+    {view === "active" && showRecommendations && tips && tips.length ? <section className="ds-section mediaNowTips" aria-labelledby="media-now-tips">
+      <h2 id="media-now-tips">O que a Mugô recomenda</h2>
+      <small>Só sobre campanhas no ar há pelo menos 7 dias e com investimento suficiente para julgar.</small>
+      <ol>{tips.map((t) => <li key={`${t.id}:${t.texto}`}><b>{t.campanha}</b> <small>({t.canal})</small>: {t.texto}</li>)}</ol>
+    </section> : null}
+  </>;
+}

@@ -31,7 +31,7 @@ function Numbers({ provider, m }: { provider: string; m: ChannelTotals }) {
 }
 
 /** TikTok Ads, TikTok orgânico, Pinterest e Clarity: ligar, ver se está coletando e os números da semana. */
-export default function ChannelsPanel({ canManage }: { canManage: boolean }) {
+export default function ChannelsPanel({ canManage, platform }: { canManage: boolean; platform?: "tiktok" | "pinterest" | "linkedin" | "clarity" }) {
   const [rows, setRows] = useState<Channel[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -57,13 +57,21 @@ export default function ChannelsPanel({ canManage }: { canManage: boolean }) {
     finally { setBusy(null); }
   };
 
+  const matching = rows?.filter((row) => !platform || row.provider === platform || row.provider.startsWith(`${platform}_`));
+  const groups = [
+    { title: "Contas conectadas", rows: matching?.filter((row) => row.status === "connected") },
+    { title: "Contas que precisam de atenção", rows: matching?.filter((row) => row.status !== "connected" && row.status !== "not_connected") },
+    { title: "Contas não conectadas", rows: matching?.filter((row) => row.status === "not_connected" && row.app_configured) },
+    { title: "Aguardando configuração", rows: matching?.filter((row) => row.status === "not_connected" && !row.app_configured) },
+  ];
+
   return <section className="chPanel" aria-label="Novos canais">
-    <header><h2>TikTok, Pinterest, LinkedIn e Clarity</h2>
+    <header><h2>{platform ? { tiktok: "TikTok", pinterest: "Pinterest", linkedin: "LinkedIn", clarity: "Clarity" }[platform] : "TikTok, Pinterest, LinkedIn e Clarity"}</h2>
       <p>Cada marca liga a própria conta. Os dados entram no MUGOVERSO sozinhos e reconectar nunca apaga o histórico.</p></header>
     {notice ? <p className="chNotice" role="status">{notice}</p> : null}
     {error ? <p className="chError" role="alert">{error}</p> : null}
-    {!rows ? <p className="chMuted">Carregando canais…</p> : <ul>
-      {rows.map((c) => {
+    {!rows ? <p className="chMuted">Carregando canais…</p> : groups.map((group) => group.rows?.length ? <section key={group.title} className="integrationAccountGroup"><h3>{group.title}</h3><ul>
+      {group.rows.map((c) => {
         const [label, tone] = STATUS[c.status] || [c.status, "off"];
         const connected = c.status !== "not_connected";
         const metrics = Object.entries(c.metrics || {});
@@ -105,6 +113,6 @@ export default function ChannelsPanel({ canManage }: { canManage: boolean }) {
           </form> : null}
         </li>;
       })}
-    </ul>}
+    </ul></section> : null)}
   </section>;
 }

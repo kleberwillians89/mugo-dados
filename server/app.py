@@ -51,6 +51,8 @@ from routes.google import router as google_router
 from routes.google_oauth import router as google_oauth_router
 from routes.fbits import router as fbits_router
 from routes.meta_legacy import router as meta_legacy_router
+from routes.me import router as me_router
+from routes.task_work import router as task_work_router
 from routes.invitations import router as invitations_router
 from routes.client_access import router as client_access_router
 from routes.team import router as team_router
@@ -388,6 +390,8 @@ app.include_router(studio_router)
 app.include_router(studio_public_router)
 app.include_router(studio_public_reports_router)
 app.include_router(crm_router)
+app.include_router(me_router)
+app.include_router(task_work_router)
 app.include_router(hooks_router)
 app.include_router(lead_capture_router)
 app.include_router(ruah_public_capture_router)

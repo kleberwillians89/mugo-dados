@@ -9,9 +9,12 @@ import Drawer from "../Drawer";
 import { STUDIO_FORMATS, type StudioFormat } from "../../app/studio";
 import { getActiveClientId } from "../../app/activeClient";
 import {
-  DOC_KIND_LABEL, PLATFORM_FORMATS, PLATFORM_LABEL, PLATFORM_ORDER, createDocument, documentAI, documentToCalendar, getDocument,
-  listDocuments, saveDocument, type DocAIAction, type DocAIResult, type DocKind, type DocSummary, type Platform, type StudioDocument,
+  DOC_KIND_LABEL, PLATFORM_FORMATS, PLATFORM_LABEL, PLATFORM_ORDER, WEEKDAY_LABEL, addOpportunity, createDocument, documentAI, documentToCalendar,
+  documentToEmail, getDocument, listDocuments, listMatrices, matrixWeeks, saveDocument, type DocAIAction, type DocAIResult, type DocKind,
+  type DocSummary, type MatrixSummary, type OpportunityCreate, type Platform, type StudioDocument,
 } from "../../app/contentOps";
+import { createDocumentFromTask, type TaskContext } from "../../app/taskWork";
+import KanbanTaskStart from "../work/KanbanTaskStart";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const SAVE_DELAY_MS = 1200;
@@ -30,13 +33,13 @@ function when(iso: string): string {
     : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
 }
 
-type Props = { canManage: boolean; onOpenCalendar?: () => void };
+type Props = { canManage: boolean; onOpenCalendar?: () => void; onOpenEmail?: () => void; onOpenSocial?: () => void };
 
 /**
  * Redação (trazida da iAgência): editor de texto estilo Word por marca, com a IA da marca para
  * escrever, continuar, reescrever, encurtar, expandir e corrigir. O texto pode virar post no Calendário.
  */
-export default function Redacao({ canManage, onOpenCalendar }: Props) {
+export default function Redacao({ canManage, onOpenCalendar, onOpenEmail, onOpenSocial }: Props) {
   const clientId = getActiveClientId();
   const [list, setList] = useState<DocSummary[]>([]);
   const [doc, setDoc] = useState<StudioDocument | null>(null);
@@ -45,6 +48,8 @@ export default function Redacao({ canManage, onOpenCalendar }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [fromTask, setFromTask] = useState(false);
+  const [noticeLink, setNoticeLink] = useState<"calendar" | "email" | "social" | null>("calendar");
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -56,6 +61,11 @@ export default function Redacao({ canManage, onOpenCalendar }: Props) {
     finally { setLoading(false); }
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
+  // ?doc=<id>: abre direto o documento (ex.: "Ir para o job" no detalhe da tarefa).
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("doc");
+    if (requested) void open(requested);
+  }, [clientId]);
 
   async function open(id: string) {
     setBusy(`open:${id}`); setError(null); setNotice(null);
@@ -83,6 +93,8 @@ export default function Redacao({ canManage, onOpenCalendar }: Props) {
     <aside className="redacaoList" aria-label="Documentos">
       {canManage ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void create()}>
         {busy === "create" ? "Criando…" : "+ Novo documento"}</button> : null}
+      {canManage ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => { setFromTask((v) => !v); setNotice(null); }}>
+        Selecionar tarefa do Kanban</button> : null}
       <input type="search" placeholder="Buscar nos textos" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar documentos" />
       {loading ? <p className="libHint">Carregando…</p> : null}
       {!loading && !list.length ? <p className="libHint">Nenhum documento ainda.{canManage ? " Clique em + Novo documento." : ""}</p> : null}
@@ -96,8 +108,16 @@ export default function Redacao({ canManage, onOpenCalendar }: Props) {
     </aside>
     <div className="redacaoMain">
       {error ? <p role="alert" className="studioError">{error}</p> : null}
-      {notice ? <p className="studioOk">{notice}{onOpenCalendar ? <> <button type="button" className="studioLink" onClick={onOpenCalendar}>Abrir o Calendário</button></> : null}</p> : null}
-      {doc ? <DocumentEditor key={doc.id} doc={doc} canManage={canManage} onSaved={onSaved} onNotice={setNotice}
+      {notice ? <p className="studioOk">{notice}{noticeLink === "calendar" && onOpenCalendar ? <> <button type="button" className="studioLink" onClick={onOpenCalendar}>Abrir o Calendário</button></> : null}
+        {noticeLink === "email" && onOpenEmail ? <> <button type="button" className="studioLink" onClick={onOpenEmail}>Abrir o E-mail Marketing</button></> : null}
+        {noticeLink === "social" && onOpenSocial ? <> <button type="button" className="studioLink" onClick={onOpenSocial}>Abrir a Matriz do Social Media</button></> : null}</p> : null}
+      {fromTask ? <KanbanTaskStart module="redacao" onCancel={() => setFromTask(false)}
+        actions={(ctx, deliverable) => <RedacaoFromTask ctx={ctx} deliverable={deliverable}
+          onOpen={(created, existed) => { setFromTask(false); void load();
+            void open(created).then(() => { setNoticeLink(null);
+              setNotice(existed ? "Esta tarefa já tem um documento na Redação: abrimos o que já existe." : "Documento criado a partir da tarefa e ligado a ela."); }); }} />} /> : null}
+      {doc ? <DocumentEditor key={doc.id} doc={doc} canManage={canManage} onSaved={onSaved}
+        onNotice={(text, link = "calendar") => { setNoticeLink(link); setNotice(text); }}
         onArchived={(id) => { setDoc(null); setList((l) => l.filter((x) => x.id !== id)); }} />
         : <div className="redacaoEmpty"><p>Abra um documento ao lado{canManage ? " ou crie um novo" : ""}.</p>
           <p className="libHint">A Redação é o editor de texto da marca: escreva posts, legendas, roteiros, artigos, e-mails e releases com a IA da marca. O texto pronto vira post no Calendário.</p></div>}
@@ -107,9 +127,31 @@ export default function Redacao({ canManage, onOpenCalendar }: Props) {
 
 type SaveState = "salvo" | "pendente" | "salvando" | "erro";
 
+/** Kanban → Redação: escrever com a IA a partir do briefing, ou começar em branco com o briefing anotado. */
+function RedacaoFromTask({ ctx, deliverable, onOpen }: { ctx: TaskContext; deliverable: string; onOpen: (id: string, existed: boolean) => void }) {
+  const [busy, setBusy] = useState<"ia" | "branco" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function start(mode: "ia" | "branco") {
+    setBusy(mode); setError(null);
+    try {
+      const r = await createDocumentFromTask(ctx.task.id, { mode, deliverable });
+      if (r.created) onOpen(r.created.id, false);
+      else if (r.existing[0]) onOpen(r.existing[0].id, true);
+    } catch (cause) { setError(message(cause, "Não foi possível criar o documento.")); } finally { setBusy(null); }
+  }
+  return <div className="kwActions">
+    <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void start("ia")}>{busy === "ia" ? "Escrevendo com a IA da marca…" : "Escrever com a IA da marca"}</button>
+    <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void start("branco")}>{busy === "branco" ? "Criando…" : "Começar em branco"}</button>
+    {error ? <p role="alert" className="studioError">{error}</p> : null}
+  </div>;
+}
+
 function DocumentEditor({ doc, canManage, onSaved, onNotice, onArchived }: {
-  doc: StudioDocument; canManage: boolean; onSaved: (d: StudioDocument) => void; onNotice: (n: string | null) => void; onArchived: (id: string) => void;
+  doc: StudioDocument; canManage: boolean; onSaved: (d: StudioDocument) => void;
+  onNotice: (n: string | null, link?: "calendar" | "email" | "social" | null) => void; onArchived: (id: string) => void;
 }) {
+  const [toSocial, setToSocial] = useState(false);
+  const [sending, setSending] = useState(false);
   const [title, setTitle] = useState(doc.title);
   const [kind, setKind] = useState<DocKind>(doc.kind);
   const [saveState, setSaveState] = useState<SaveState>("salvo");
@@ -164,6 +206,16 @@ function DocumentEditor({ doc, canManage, onSaved, onNotice, onArchived }: {
     words: ed?.storage.characterCount?.words() ?? 0, chars: ed?.storage.characterCount?.characters() ?? 0,
   }) });
 
+  async function sendToEmail() {
+    if (!window.confirm("Criar um rascunho no E-mail Marketing com este texto?")) return;
+    setSending(true);
+    try {
+      await flush();
+      const r = await documentToEmail(doc.id);
+      onNotice(`Rascunho "${r.campaign.name}" criado no E-mail Marketing. Lá você escolhe o público, revisa e agenda.`, "email");
+    } catch (cause) { onNotice(message(cause, "Não foi possível enviar para o E-mail Marketing."), null); } finally { setSending(false); }
+  }
+
   async function archive() {
     if (!window.confirm("Arquivar este documento? Ele some da lista (o que já foi para o Calendário continua lá).")) return;
     await flush();
@@ -198,7 +250,14 @@ function DocumentEditor({ doc, canManage, onSaved, onNotice, onArchived }: {
         <span className="redacaoCount">{counts?.words ?? 0} palavras · {counts?.chars ?? 0} caracteres</span>
         <button type="button" className="studioLink" onClick={() => void copyText()}>Copiar texto</button>
         <button type="button" className="studioLink" onClick={downloadWord}>Baixar (Word)</button>
-        {canManage ? <button type="button" className="ds-button" onClick={() => { void flush(); setToCalendar(true); }}>Enviar ao Calendário</button> : null}
+        {canManage ? <details className="redacaoSendTo">
+          <summary className="ds-button">{sending ? "Enviando…" : "Enviar para…"}</summary>
+          <div role="menu" aria-label="Enviar o texto para">
+            <button type="button" role="menuitem" disabled={sending} onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; void flush(); setToCalendar(true); }}>Calendário<small>Vira post em rascunho</small></button>
+            <button type="button" role="menuitem" disabled={sending} onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; void sendToEmail(); }}>E-mail Marketing<small>Vira rascunho de e-mail</small></button>
+            <button type="button" role="menuitem" disabled={sending} onClick={(e) => { (e.currentTarget.closest("details") as HTMLDetailsElement).open = false; void flush(); setToSocial(true); }}>Social Media<small>Vira pauta na Matriz de conteúdo</small></button>
+          </div>
+        </details> : null}
         {canManage ? <button type="button" className="studioLink" onClick={() => setAiOpen((v) => !v)}>{aiOpen ? "Esconder IA" : "IA da marca"}</button> : null}
         {canManage ? <button type="button" className="studioLink is-danger" onClick={() => void archive()}>Arquivar</button> : null}
       </div>
@@ -211,7 +270,9 @@ function DocumentEditor({ doc, canManage, onSaved, onNotice, onArchived }: {
       {aiOpen && canManage && editor ? <AIPanel editor={editor} kind={kind} title={title} onTitle={(t) => { setTitle(t); queue({ title: t }); }} /> : null}
     </div>
     <CalendarDrawer open={toCalendar} doc={{ ...doc, calendar_item_id: linked }} onClose={() => setToCalendar(false)}
-      onDone={(text, id) => { setToCalendar(false); setLinked(id); onNotice(text); }} />
+      onDone={(text, id) => { setToCalendar(false); setLinked(id); onNotice(text, "calendar"); }} />
+    <SocialDrawer open={toSocial} title={title} text={editor?.getText({ blockSeparator: "\n\n" }) || doc.content_text || ""}
+      onClose={() => setToSocial(false)} onDone={(text) => { setToSocial(false); onNotice(text, "social"); }} />
   </div>;
 }
 
@@ -364,6 +425,67 @@ function CalendarDrawer({ open, doc, onClose, onDone }: { open: boolean; doc: St
       {error ? <p role="alert" className="studioError">{error}</p> : null}
       <div className="studioActions"><button type="button" className="ds-button" disabled={busy} onClick={onClose}>Cancelar</button>
         <button className="ds-button is-primary" disabled={busy}>{busy ? "Enviando…" : already ? "Atualizar o post" : "Criar post"}</button></div>
+    </form>
+  </Drawer>;
+}
+
+/** Redação → Social Media: o texto vira pauta na Matriz de conteúdo ativa (com pilar, semana, dia e formato). */
+function SocialDrawer({ open, title, text, onClose, onDone }: { open: boolean; title: string; text: string; onClose: () => void; onDone: (text: string) => void }) {
+  const [matrices, setMatrices] = useState<MatrixSummary[] | null>(null);
+  const [matrixId, setMatrixId] = useState("");
+  const [platform, setPlatform] = useState<Platform>("instagram");
+  const [pillar, setPillar] = useState("");
+  const [week, setWeek] = useState(1);
+  const [weekday, setWeekday] = useState(0);
+  const [format, setFormat] = useState<StudioFormat>("imagem");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open || matrices) return;
+    listMatrices().then((r) => {
+      setMatrices(r.matrices);
+      const first = r.matrices[0];
+      if (first) { setMatrixId(first.id); setPlatform(first.platforms[0] || "instagram"); setPillar(first.pillars[0]?.name || ""); setFormat(PLATFORM_FORMATS[first.platforms[0] || "instagram"][0]); }
+    }).catch((cause) => { setMatrices([]); setError(message(cause, "Não foi possível ler as matrizes.")); });
+  }, [open, matrices]);
+  const matrix = matrices?.find((m) => m.id === matrixId) || null;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!matrix) return;
+    setBusy(true); setError(null);
+    try {
+      const input: OpportunityCreate = { platform, pillar, week, weekday, format, title: (title || "Texto da Redação").slice(0, 200),
+        hook: null, angle: null, caption_draft: text.slice(0, 4000), rationale: "Enviado pela Redação." } as OpportunityCreate;
+      await addOpportunity(matrix.id, input);
+      onDone(`Pauta "${input.title}" adicionada à Matriz do Social Media, semana ${week}, ${WEEKDAY_LABEL[weekday].toLowerCase()}.`);
+    } catch (cause) { setError(message(cause, "Não foi possível enviar para o Social Media.")); } finally { setBusy(false); }
+  }
+
+  return <Drawer open={open} title="Enviar para o Social Media" description="O texto vira uma pauta na Matriz de conteúdo, que segue para o Calendário e a aprovação de sempre."
+    onClose={() => { if (!busy) onClose(); }}>
+    <form className="studioForm" onSubmit={submit}>
+      {matrices === null ? <p className="libHint">Carregando as matrizes…</p> : !matrices.length ? <p className="libHint">Nenhuma matriz ativa. Gere uma matriz no Social Media antes.</p> : <>
+        {matrices.length > 1 ? <label>Matriz<select value={matrixId} onChange={(e) => setMatrixId(e.target.value)}>
+          {matrices.map((m) => <option key={m.id} value={m.id}>A partir de {m.week_start.split("-").reverse().join("/")} · {m.platforms.map((p) => PLATFORM_LABEL[p]).join(", ")}</option>)}</select></label> : null}
+        <div className="studioRow">
+          <label>Plataforma<select value={platform} onChange={(e) => { const p = e.target.value as Platform; setPlatform(p); if (!PLATFORM_FORMATS[p].includes(format)) setFormat(PLATFORM_FORMATS[p][0]); }}>
+            {(matrix?.platforms || []).map((p) => <option key={p} value={p}>{PLATFORM_LABEL[p]}</option>)}</select></label>
+          <label>Formato<select value={format} onChange={(e) => setFormat(e.target.value as StudioFormat)}>
+            {PLATFORM_FORMATS[platform].map((f) => <option key={f} value={f}>{STUDIO_FORMATS[f]}</option>)}</select></label>
+        </div>
+        <div className="studioRow">
+          <label>Pilar<select value={pillar} onChange={(e) => setPillar(e.target.value)}>
+            {(matrix?.pillars || []).map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}</select></label>
+          <label>Semana<select value={week} onChange={(e) => setWeek(Number(e.target.value))}>
+            {Array.from({ length: matrixWeeks(matrix) }, (_, i) => i + 1).map((n) => <option key={n} value={n}>Semana {n}</option>)}</select></label>
+          <label>Dia<select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}>
+            {WEEKDAY_LABEL.map((d, i) => <option key={d} value={i}>{d}</option>)}</select></label>
+        </div>
+      </>}
+      {error ? <p role="alert" className="studioError">{error}</p> : null}
+      <div className="studioActions"><button type="button" className="ds-button" disabled={busy} onClick={onClose}>Cancelar</button>
+        <button className="ds-button is-primary" disabled={busy || !matrix || !pillar}>{busy ? "Enviando…" : "Criar pauta"}</button></div>
     </form>
   </Drawer>;
 }

@@ -12,8 +12,8 @@ const ICON: Record<FlowKind, typeof Gift> = { boas_vindas: Gift, pos_venda: Hear
 const money = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const WA_VARS = [{ id: "nome", label: "Nome" }, { id: "marca", label: "Marca" }, { id: "link", label: "Link da loja" }] as const;
 
-function FlowEditor({ flow, canEdit, templates, onSaved }: {
-  flow: CommercialFlow; canEdit: boolean; templates: WaTemplate[]; onSaved: (flow: CommercialFlow) => void;
+function FlowEditor({ flow, canEdit, templates, waSendSupported, onSaved }: {
+  flow: CommercialFlow; canEdit: boolean; templates: WaTemplate[]; waSendSupported: boolean; onSaved: (flow: CommercialFlow) => void;
 }) {
   const [draft, setDraft] = useState(flow);
   const [html, setHtml] = useState(!!flow.custom_html);
@@ -26,6 +26,10 @@ function FlowEditor({ flow, canEdit, templates, onSaved }: {
   const chosen = approved.find((t) => t.name === draft.whatsapp_template);
 
   async function save(patch: Partial<CommercialFlow> = {}) {
+    if (!waSendSupported && draft.channel === "whatsapp" && (patch.enabled ?? draft.enabled)) {
+      setError("O envio WhatsApp pelo CRM da marca ainda não está disponível neste fluxo. Mantenha o fluxo desligado.");
+      return;
+    }
     setBusy(true); setError(""); setMessage("");
     const next = { ...draft, ...patch, custom_html: html ? draft.custom_html || "" : null };
     try {
@@ -77,8 +81,9 @@ function FlowEditor({ flow, canEdit, templates, onSaved }: {
             </>
           ) : (
             <>
+              {!waSendSupported ? <p className="emNotice">Os modelos do CRM desta marca já estão visíveis, mas o envio automático por esta integração ainda não está disponível. Não ative este fluxo WhatsApp antes de integrar o transmissor.</p> : null}
               <label className="emField"><span>Template aprovado pela Meta</span>
-                <select value={draft.whatsapp_template || ""} disabled={!canEdit}
+                <select value={draft.whatsapp_template || ""} disabled={!canEdit || !waSendSupported}
                   onChange={(e) => change({ whatsapp_template: e.target.value || null, whatsapp_language: approved.find((t) => t.name === e.target.value)?.language || "pt_BR" })}>
                   <option value="">Escolha…</option>
                   {approved.map((t) => <option key={`${t.name}:${t.language}`} value={t.name}>{t.name}</option>)}
@@ -120,11 +125,12 @@ export default function FlowsPanel({ canEdit }: { canEdit: boolean }) {
   const [data, setData] = useState<FlowsOverview | null>(null);
   const [open, setOpen] = useState<FlowKind | null>(null);
   const [templates, setTemplates] = useState<WaTemplate[]>([]);
+  const [waSendSupported, setWaSendSupported] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     getFlows(30).then(setData).catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível ler os fluxos."));
-    getWaTemplates().then((out) => setTemplates(out.templates)).catch(() => setTemplates([]));
+    getWaTemplates().then((out) => { setTemplates(out.templates); setWaSendSupported(out.send_supported !== false); }).catch(() => setTemplates([]));
   }, []);
 
   if (!data) return error ? <p className="emError" role="alert">{error}</p> : <p className="emMuted">Carregando fluxos…</p>;
@@ -163,7 +169,7 @@ export default function FlowsPanel({ canEdit }: { canEdit: boolean }) {
                 <button type="button" className="emLink" onClick={() => setOpen(open === flow.kind ? null : flow.kind)}>
                   {open === flow.kind ? "Fechar" : canEdit ? "Configurar mensagem" : "Ver mensagem"}
                 </button>
-                {open === flow.kind ? <FlowEditor flow={flow} canEdit={canEdit} templates={templates} onSaved={replace} /> : null}
+                {open === flow.kind ? <FlowEditor flow={flow} canEdit={canEdit} templates={templates} waSendSupported={waSendSupported} onSaved={replace} /> : null}
               </article>
             );
           })}

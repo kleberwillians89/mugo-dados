@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getPathForRoute } from "../../app/routes";
 import AppNavigation from "./AppNavigation";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,9 +63,10 @@ describe("AppNavigation — sidebar global", () => {
     expect(link("Início")?.getAttribute("aria-current")).toBe("page");
     expect(link("Início")?.getAttribute("href")).toBe("/inicio");
     expect(link("Dashboard")?.getAttribute("href")).toBe("/central");
-    expect(link("Meu trabalho")).toBeUndefined();
-    expect(link("Mugô IA")?.getAttribute("href")).toBe("/mugo-ia");
-    expect(link("Mugô IA")?.classList.contains("is-mugo-ia")).toBe(true);
+    expect(link("Meu trabalho")).toBeUndefined();  // o Kanban do Início é o acesso às tarefas
+    expect(link("Mugô IA")?.getAttribute("href")).toBe(getPathForRoute("mugo_ia"));
+    expect(link("Mugô IA")?.dataset.highlight).toBe("gold");
+    expect(link("Dashboard")?.dataset.highlight).toBeUndefined();
     expect(link("Biblioteca")?.getAttribute("href")).toBe("/biblioteca");
     expect(link("Integrações")?.getAttribute("href")).toBe("/integracoes");
     expect(link("Fornecedores")).toBeUndefined();
@@ -84,7 +86,7 @@ describe("AppNavigation — sidebar global", () => {
     await render({ agencyAdmin: true });
     expect(groupNames()).toEqual(["Configurações"]);
     expect([...container.querySelectorAll(".appNavPrimaryList a")].map((item) => item.textContent?.trim())).toEqual([
-      "Início", "Dashboard", "Mugô IA", "Biblioteca",
+      "Início", "Dashboard", "Mugô IA", "Aprovação Interna","Aprovação Final", "Biblioteca",
     ]);
     expect(groupLinks("config")).toEqual([
       "Contexto da Marca", "Integrações", "Usuários", "Empresas", "Saúde das integrações", "Plano e implantação", "Planos e cobrança", "Consumo de IA", "Automações",
@@ -167,8 +169,13 @@ describe("AppNavigation — sidebar global", () => {
     await render({ agencyAdmin: true, canView: (route) => route !== "central" });
     expect(container.querySelectorAll('a[href="/central"]')).toHaveLength(0);
     expect(link("Início")).toBeTruthy();
-    expect(link("Meu trabalho")).toBeUndefined();
     expect(link("Mugô IA")).toBeTruthy();
+  });
+
+  it("Mugô IA some sem a permissão dela", async () => {
+    await render({ canView: (route) => route !== "mugo_ia" });
+    expect(link("Mugô IA")).toBeUndefined();
+    expect(link("Biblioteca")).toBeTruthy();
   });
 
   it("mantém IA da marca fora da navegação sem alterar suas permissões de rota", async () => {

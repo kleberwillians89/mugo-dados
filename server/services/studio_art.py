@@ -29,12 +29,16 @@ async def upload_target(client_id: str, item_id: str, content_type: str) -> Dict
     safe_client = re.sub(r"[^a-zA-Z0-9_-]", "", client_id)[:80]
     safe_item = re.sub(r"[^a-fA-F0-9-]", "", item_id)[:40] or "nova"
     path = f"studio-art/{safe_client}/{safe_item}/{uuid.uuid4().hex}.{ext}"
+    return await signed_upload_target(_bucket(), path, content_type)
+
+
+async def signed_upload_target(bucket: str, path: str, content_type: str) -> Dict[str, str]:
     base = (os.getenv("SUPABASE_URL") or "").rstrip("/")
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
     if not base or not key:
         raise StudioError("STORAGE_NOT_CONFIGURED")
     async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(f"{base}/storage/v1/object/upload/sign/{_bucket()}/{path}",
+        response = await client.post(f"{base}/storage/v1/object/upload/sign/{bucket}/{path}",
                                      headers={"Authorization": f"Bearer {key}", "apikey": key}, json={"expiresIn": 7200})
     if response.status_code >= 400:
         raise StudioError("STORAGE_UPLOAD_FAILED")
@@ -42,4 +46,4 @@ async def upload_target(client_id: str, item_id: str, content_type: str) -> Dict
     if not signed:
         raise StudioError("STORAGE_UPLOAD_FAILED")
     return {"upload_url": f"{base}/storage/v1{signed}" if signed.startswith("/") else signed,
-            "public_url": f"{base}/storage/v1/object/public/{_bucket()}/{path}", "content_type": content_type}
+            "public_url": f"{base}/storage/v1/object/public/{bucket}/{path}", "content_type": content_type}

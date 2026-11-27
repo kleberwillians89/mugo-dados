@@ -10,6 +10,8 @@ import {
   type ContentMatrix as Matrix, type MatrixSummary, type Opportunity, type OpportunityCreate, type OpportunityPatch, type Platform,
 } from "../../app/contentOps";
 import { listBriefs, type Brief } from "../../app/briefs";
+import { linkTaskWork, taskDirection } from "../../app/taskWork";
+import KanbanTaskStart from "../work/KanbanTaskStart";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const NEW_OPPORTUNITY_ID = "__new_opportunity__";
@@ -82,6 +84,9 @@ export default function ContentMatrix({ canManage, canApprove = false, onOpenCal
   const [start, setStart] = useState("");
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [briefMode, setBriefMode] = useState<"none" | "existing" | "direction">("none");
+  // Tarefa do Kanban escolhida como insumo: a matriz gerada fica ligada a ela.
+  const [pickingTask, setPickingTask] = useState(false);
+  const [fromTask, setFromTask] = useState<{ id: string; title: string; deliverable: string } | null>(null);
   const [briefId, setBriefId] = useState("");
   const [direction, setDirection] = useState("");
   const [approvalComment, setApprovalComment] = useState("");
@@ -100,8 +105,11 @@ export default function ContentMatrix({ canManage, canApprove = false, onOpenCal
       setList(data.matrices || []);
       setProfile(profile?.profile || null);
       setBriefs((briefData?.briefs || []).filter((item) => item.status !== "arquivado"));
-      if (data.matrices?.[0]) {
-        const opened = (await getMatrix(data.matrices[0].id)).matrix;
+      // ?matriz=<id>: abre essa matriz (ex.: "Ir para o job" no detalhe da tarefa); senão, a mais recente.
+      const requested = new URLSearchParams(window.location.search).get("matriz");
+      const first = data.matrices?.find((m) => m.id === requested) || data.matrices?.[0];
+      if (first) {
+        const opened = (await getMatrix(first.id)).matrix;
         setMatrix(opened); syncBriefControls(opened);
       }
     } catch (cause) { setError(message(cause, "Não foi possível carregar a matriz.")); }
@@ -141,6 +149,14 @@ export default function ContentMatrix({ canManage, canApprove = false, onOpenCal
     if (r) {
       setMatrix(r.matrix); syncBriefControls(r.matrix); setPlatform("todas");
       setList((l) => [r.matrix, ...l.filter((x) => x.id !== r.matrix.id)]);
+      if (fromTask) {
+        const task = fromTask;
+        setFromTask(null);
+        try {
+          await linkTaskWork(task.id, { module: "social_media", record_id: r.matrix.id, deliverable: task.deliverable || "Matriz de conteúdo" });
+          setNotice(`Matriz gerada a partir da tarefa "${task.title}" e ligada a ela.`);
+        } catch { setNotice("Matriz gerada. Não foi possível ligar à tarefa agora."); }
+      }
     }
   }
 
@@ -275,7 +291,18 @@ export default function ContentMatrix({ canManage, canApprove = false, onOpenCal
         placeholder="Campanha, datas, lançamento, público, prioridades e o que não comunicar" onChange={(e) => setDirection(e.target.value)} /></label> : null}
       {matrix ? <button type="button" className="ds-button" disabled={Boolean(busy) || (briefMode === "existing" && !briefId) || (briefMode === "direction" && !direction.trim())}
         onClick={() => void saveBriefingLink()}>{busy === "briefing" ? "Salvando…" : briefMode === "none" ? "Remover vínculo" : "Atualizar vínculo"}</button> : null}
+      <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => setPickingTask((v) => !v)}>Selecionar tarefa do Kanban</button>
+      {fromTask ? <p className="matrixHint">Insumo: tarefa “{fromTask.title}”. A próxima matriz gerada fica ligada a ela. <button type="button" className="ds-link is-quiet" onClick={() => setFromTask(null)}>Tirar</button></p> : null}
       <p className="matrixHint">O briefing orienta a IA e fica vinculado à nova matriz. Trocar ou remover exige escolher outra opção antes de gerar.</p>
+      {pickingTask ? <KanbanTaskStart module="social_media" onCancel={() => setPickingTask(false)}
+        actions={(ctx, deliverable) => <div className="kwActions">
+          <button type="button" className="ds-button is-primary" onClick={() => {
+            if (ctx.brief_id) { setBriefMode("existing"); setBriefId(ctx.brief_id); }
+            else { setBriefMode("direction"); setDirection(taskDirection(ctx, deliverable)); }
+            setFromTask({ id: ctx.task.id, title: ctx.task.title, deliverable }); setPickingTask(false);
+          }}>Usar o briefing desta tarefa</button>
+          <small className="matrixHint">Depois clique em {matrix ? "Gerar nova matriz" : "Gerar matriz"}. A matriz fica ligada à tarefa.</small>
+        </div>} /> : null}
     </div> : null}
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
     {notice ? <div className="ds-notice is-positive" role="status"><p className="ds-noticeTitle">{notice}{onOpenCalendar ? <> <button type="button" className="ds-link" onClick={onOpenCalendar}>Abrir o Calendário</button></> : null}</p></div> : null}

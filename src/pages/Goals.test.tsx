@@ -92,3 +92,9 @@ test("indicador relacionado vira submeta só com confirmação",async () => {
  await act(async () => { node.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true})); });
  expect(state.saveGoal).toHaveBeenCalledWith(expect.objectContaining({metric:"orders",parent_goal_id:"1",relation:"Faturamento = Pedidos × Ticket médio",is_primary:false}),undefined);
 });
+test("ritmo sazonal aparece só quando calculado e diz o necessário hoje",async () => {
+ state.getGoals.mockResolvedValue({client_id:"a",goals:[{...goal(),pace_model:"sazonal",required_today:140,curve:[1,1,1,1,1,2,2]}]});
+ await render();
+ expect(node.textContent).toContain("Necessário hoje (dias da semana)");
+ expect(node.textContent).toContain("ritmo pelos dias da semana da marca");
+});

@@ -95,9 +95,7 @@ export default function ClientTasks({ isAgency, clientId, standalone = false }: 
       const cards = postsOf(status);
       return <section key={status} className={`kanbanCol is-task-${status}`} aria-label={TASK_STATUS[status]}>
         <header><b>{TASK_STATUS[status]}</b><span>{list.length + cards.length}</span></header>
-        {cards.map((p) => <PostCard key={`post-${p.id}`} post={p} onOpen={() => { setReviewError(null); setNotice(null); setReview(p); }}
-          actions={[{ label: p.stage === "com_cliente" ? "Aprovar / ajuste" : "Ver post", tone: p.stage === "com_cliente" ? "primary" : "quiet",
-            run: () => { setReviewError(null); setNotice(null); setReview(p); } }]} />)}
+        {cards.map((p) => <PostCard key={`post-${p.id}`} post={p} onOpen={() => { setReviewError(null); setNotice(null); setReview(p); }} />)}
         {list.map((t) => {
           const due = dueInfo(t.due_date);
           const late = due.late && t.status !== "completed";

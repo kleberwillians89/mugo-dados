@@ -165,3 +165,47 @@ body:has(.drawerBackdrop) .cw{visibility:hidden;pointer-events:none}
 .metaImportList b{font-size:13px;overflow-wrap:anywhere}
 .metaImportList small{font-size:11px;color:var(--text-secondary,#62717c)}
 .metaImportDone{font-size:12px;font-weight:600;color:#185f3b;white-space:nowrap}
+
+/* Criador igual ao Gerenciador: blocos dos 3 níveis */
+.metaLevel{display:flex;flex-direction:column;gap:14px}
+.metaLevelBlock{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--border-subtle);border-radius:10px;background:var(--surface,#fff);min-width:0}
+.metaLevelBlock h3{margin:0;font-size:14px;font-weight:700;color:var(--text-primary)}
+.metaLevelBlock summary{display:flex;flex-direction:column;gap:2px;cursor:pointer;list-style:none}
+.metaLevelBlock summary::-webkit-details-marker{display:none}
+.metaLevelBlock summary small{color:var(--text-muted);font-size:12px}
+.metaObjectives{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.metaObjective{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:10px;cursor:pointer;min-width:0}
+.metaObjective input{margin-top:3px;flex:none}
+.metaObjective svg{flex:none;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--accent,#2563eb)}
+.metaObjective span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.metaObjective small{color:var(--text-muted);font-size:12px;line-height:1.35}
+.metaObjective.is-selected,.metaLocation.is-selected{border-color:var(--accent,#2563eb);box-shadow:0 0 0 1px var(--accent,#2563eb) inset}
+.metaLocations{display:flex;flex-wrap:wrap;gap:8px}
+.metaLocation{display:inline-flex;gap:6px;align-items:center;padding:7px 12px;border:1px solid var(--border-subtle);border-radius:999px;cursor:pointer;font-size:13px}
+.metaChecks{display:flex;flex-wrap:wrap;gap:6px 16px}
+.metaSwitch{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.metaSwitch input{margin-top:3px}
+.metaSwitch span{display:flex;flex-direction:column;gap:2px}
+.metaSwitch small{color:var(--text-muted);font-size:12px}
+.metaIdentityRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.metaIdentityRow span{display:grid;grid-template-columns:32px 1fr;column-gap:8px;align-items:center}
+.metaIdentityRow img,.metaIdentityRow i{grid-row:span 2;width:32px;height:32px;border-radius:50%;background:var(--surface-muted,#eee);object-fit:cover}
+.metaIdentityRow small{color:var(--text-muted);font-size:12px;overflow-wrap:anywhere}
+.metaExistingPosts{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.metaExistingPosts label{position:relative;display:flex;flex-direction:column;gap:4px;padding:4px;border:1px solid var(--border-subtle);border-radius:8px;cursor:pointer}
+.metaExistingPosts label.is-selected{border-color:var(--accent,#2563eb);box-shadow:0 0 0 1px var(--accent,#2563eb) inset}
+.metaExistingPosts input{position:absolute;top:8px;left:8px}
+.metaExistingPosts img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px}
+.metaExistingPosts small{font-size:11px;color:var(--text-muted)}
+.metaInterests{display:flex;flex-direction:column;gap:8px}
+.metaInterestResults{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border:1px solid var(--border-subtle);border-radius:8px;max-height:220px;overflow:auto}
+.metaInterestResults button{display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:8px 10px;border:0;border-bottom:1px solid var(--border-subtle);background:none;text-align:left;cursor:pointer;color:inherit}
+.metaInterestResults button:disabled{opacity:.5;cursor:default}
+.metaInterestResults small{color:var(--text-muted);font-size:12px}
+.metaChips{display:flex;flex-wrap:wrap;gap:6px}
+.metaChips span{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border-radius:999px;background:var(--surface-muted,#eef2ff);font-size:13px}
+.metaChips button{border:0;background:none;cursor:pointer;font-size:15px;line-height:1;padding:0 4px;color:inherit}
+.metaOfficialPreviewHead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.metaOfficialPreviewHead h3{margin-right:auto}
+.metaOfficialPreviewFrame{width:100%;max-width:420px;height:640px;border:0;align-self:center;border-radius:10px;background:var(--surface-muted,#f4f4f5)}
+@media(max-width:650px){.metaObjectives{grid-template-columns:1fr}.metaOfficialPreviewFrame{height:560px}}

@@ -715,7 +715,13 @@ def outgoing_payloads(decision: Dict[str, Any], *, meta: Optional[Dict[str, Any]
     """Mensagens a enviar, em ordem: (corpo da Meta, texto para a conversa, payload para a tela)."""
     out: List[Tuple[Dict[str, Any], str, Dict[str, Any]]] = []
     reply, buttons, products = decision["reply"], decision["buttons"], decision["products"]
-    if buttons:
+    url_button = decision.get("url_button")
+    if url_button:
+        out.append(({"type": "interactive", "interactive": {"type": "cta_url",
+            "body": {"text": reply[:1024]}, "action": {"name": "cta_url", "parameters": {
+                "display_text": url_button["label"], "url": url_button["url"],
+            }}}}, reply, {"url_button": url_button}))
+    elif buttons:
         out.append(({"type": "interactive", "interactive": {"type": "button", "body": {"text": reply[:1024]}, "action": {
             "buttons": [{"type": "reply", "reply": {"id": f"ai_{i}", "title": b[:20]}} for i, b in enumerate(buttons)]}}},
             reply, {"buttons": buttons}))
@@ -773,7 +779,13 @@ async def send_decision(client_id: str, thread: Dict[str, Any], number: Dict[str
             out = await _graph("POST", f"{number['phone_number_id']}/messages", number["access_token"],
                                json_body={"messaging_product": "whatsapp", "to": thread["wa_id"], **body})
         except WhatsAppNativeError as exc:
-            if card_handles:
+            if decision.get("url_button") and exc.code in {"CTA_REJECTED", "NOT_FOUND"}:
+                text = decision["url_fallback"]
+                body = {"type": "text", "text": {"body": text, "preview_url": False}}
+                payload = {}
+                out = await _graph("POST", f"{number['phone_number_id']}/messages", number["access_token"],
+                                   json_body={"messaging_product": "whatsapp", "to": thread["wa_id"], **body})
+            elif card_handles:
                 # Catálogo não ligado à WABA ou item fora do ar: manda a lista com link da loja.
                 print(f"[whatsapp_ai] product_card_failed client_id={client_id} code={exc.code}")
                 fallback = product_text([p for p in decision["products"] if p["handle"] in card_handles])
@@ -865,6 +877,14 @@ async def typing(number: Dict[str, Any], message_id: Optional[str]) -> None:
         print(f"[whatsapp_ai] typing_failed {type(exc).__name__}")
 
 
+def group_invite_text(settings: Dict[str, Any]) -> str:
+    link = str(settings.get("ad_group_link") or "").strip()
+    if not link:
+        return ""
+    template = str(settings.get("ad_group_message") or "").strip() or DEFAULT_GROUP_MESSAGE
+    return (template.replace("{link}", link) if "{link}" in template else f"{template}\n{link}")[:1000]
+
+
 async def ad_group_plan(client_id: str, thread: Dict[str, Any], settings: Dict[str, Any]) -> Optional[Dict[str, str]]:
     """Conversa que começou por anúncio (Click-to-WhatsApp) e ainda não recebeu o link do grupo → texto do convite."""
     link = str(settings.get("ad_group_link") or "").strip()
@@ -883,9 +903,7 @@ async def ad_group_plan(client_id: str, thread: Dict[str, Any], settings: Dict[s
         return None
     if not touches:
         return None
-    template = str(settings.get("ad_group_message") or "").strip() or DEFAULT_GROUP_MESSAGE
-    text = template.replace("{link}", link) if "{link}" in template else f"{template}\n{link}"
-    return {"text": text[:1000], "headline": str(touches[0].get("headline") or "")[:120]}
+    return {"text": group_invite_text(settings), "headline": str(touches[0].get("headline") or "")[:120]}
 
 
 async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[str, Any]) -> str:
@@ -897,11 +915,24 @@ async def process_thread(client_id: str, thread: Dict[str, Any], settings: Dict[
     number = await _number(client_id, thread["number_id"])
     if not number:
         return "numero_desligado"
+    last = str(messages[-1].get("text") or "")
+    if settings["mode"] == "auto" and _norm(last) in {"entrar no grupo", "quero entrar no grupo", "link do grupo", "quero o link do grupo"}:
+        invite = group_invite_text(settings)
+        if invite:
+            decision = {"reply": invite, "buttons": [], "products": [], "handoff": False}
+            if client_id != "roove":
+                link = str(settings["ad_group_link"]).strip()
+                copy = invite.replace(link, "").strip().rstrip(":").strip() or "Aqui está o convite."
+                decision.update(reply=copy, url_button={"label": "Entrar no grupo", "url": link}, url_fallback=invite)
+            await send_decision(client_id, thread, number, decision, meta=None, match=None)
+            await _save_insight(client_id, thread["id"], decision, {
+                "ai_group_sent_at": now.isoformat(), "ai_suggestion": None,
+            })
+            return "respondida"
     if settings["mode"] == "auto":
         await typing(number, messages[-1].get("provider_message_id"))
     (catalog, meta, match), group = await asyncio.gather(_commerce(client_id, settings, number),
                                                          ad_group_plan(client_id, thread, settings))
-    last = str(messages[-1].get("text") or "")
     order = parse_catalog_order(last)
     order_note, cart = "", None
     if order:

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
 import {
-  OPT_IN_CODES, USERNAME_RE, createTeamMember, generatePassword, getTeamCatalog, listTeamMembers, removeTeamMember,
+  OPT_IN_CODES, USERNAME_RE, createTeamMember, generatePassword, getTeamCatalog, getTeamDepartments, listTeamMembers, removeTeamMember,
   resetTeamMemberPassword, setTeamMemberStatus, updateTeamMember,
   type PermissionInput, type TeamCatalog, type TeamMember, type TeamPreset,
 } from "../app/team";
@@ -10,6 +10,8 @@ import Shell from "../components/Shell";
 import StatusBadge from "../components/StatusBadge";
 import PageHeader from "../components/data/PageHeader";
 import SegmentedControl from "../components/data/SegmentedControl";
+import MemberDepartmentsEditor, { DepartmentChips } from "../components/team/MemberDepartments";
+import LinkExistingDrawer from "../components/team/LinkExistingDrawer";
 import "../styles/users.css";
 
 function message(cause: unknown, fallback: string) {
@@ -34,12 +36,16 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<"active" | "inactive" | "all">("active");
+  const [areas, setAreas] = useState<{ catalog: string[]; by_user: Record<string, string[]> } | null>(null);
+  const [areasFor, setAreasFor] = useState<TeamMember | null>(null);
+  const [linking, setLinking] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const [cat, list] = await Promise.all([getTeamCatalog(), listTeamMembers()]);
       if (getActiveClientId() !== clientId) return;
       setCatalog(cat); setMembers(list.items);
+      getTeamDepartments().then((d) => { if (getActiveClientId() === clientId) setAreas(d); }).catch(() => setAreas(null));
     } catch (cause) { setError(message(cause, "Não foi possível carregar os usuários.")); }
   }, [clientId]);
   useEffect(() => { void load(); }, [load]);
@@ -102,8 +108,16 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
       setError("Usuário: 3 a 32 caracteres, só letras minúsculas, números, ponto, hífen ou _."); return;
     }
     const password = editing.password;
-    const ok = await run("save", () => createTeamMember({ ...input, name: editing.name.trim(), login, password }), "Não foi possível criar o usuário.");
-    if (ok) { setEditing(null); setSecret({ login, password }); await load(); }
+    let created: Awaited<ReturnType<typeof createTeamMember>> | null = null;
+    const ok = await run("save", async () => { created = await createTeamMember({ ...input, name: editing.name.trim(), login, password }); },
+      "Não foi possível criar o usuário.");
+    if (!ok) return;
+    setEditing(null);
+    // Conta que já existia: só foi vinculada, com a senha de sempre. Nunca mostrar a senha digitada como se valesse.
+    if (created && (created as { account_created: boolean }).account_created === false) {
+      setNotice(`${login} já tinha conta: foi vinculada a ${clientName} sem alterar a senha. A pessoa entra com a senha que já usa.`);
+    } else setSecret({ login, password });
+    await load();
   }
 
   async function resetPassword(member: TeamMember) {
@@ -143,6 +157,7 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
     <div className="usersToolbar">
       <SegmentedControl ariaLabel="Status" value={filter} onSelect={(id) => setFilter(id as typeof filter)}
         options={[{ id: "active", label: "Ativos" }, { id: "inactive", label: "Inativos" }, { id: "all", label: "Todos" }]} />
+      {canManage && isTeam ? <button type="button" className="ds-button" onClick={() => setLinking(true)}>Adicionar usuário existente</button> : null}
       {canManage ? <button type="button" className="ds-button is-primary" onClick={openNew} disabled={!catalog}>+ Novo usuário</button> : null}
     </div>
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
@@ -158,10 +173,13 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
 
     {!members ? <p>Carregando…</p> : !shown.length ? <p className="usersMuted">Nenhum usuário {filter === "inactive" ? "inativo" : filter === "active" ? "ativo" : ""}.</p> :
       <div className="usersScroll"><table className="ds-table usersTable">
-        <thead><tr><th>Pessoa</th><th>Perfil</th><th>Acesso</th><th>Status</th><th>Último acesso</th><th aria-label="Ações" /></tr></thead>
+        <thead><tr><th>Pessoa</th><th>Perfil</th><th>Áreas</th><th>Acesso</th><th>Status</th><th>Último acesso</th><th aria-label="Ações" /></tr></thead>
         <tbody>{shown.map((m) => <tr key={m.user_id}>
           <td><b>{m.name || m.login}</b>{m.name ? <small>{m.login}</small> : null}</td>
           <td>{m.is_global_role ? "Equipe Mugô" : m.preset_label}</td>
+          <td><DepartmentChips areas={areas?.by_user[m.user_id] || []} />
+            {areas && canManage && (!m.is_global_role || isTeam) ? <button type="button" className="ds-link is-quiet usersAreasEdit"
+              onClick={() => setAreasFor(m)}>Editar áreas</button> : null}</td>
           <td><small>{m.is_global_role || m.access_total ? "Acesso total" : `${m.codes.length} permissões${m.view_all ? " · vê tudo" : ""}`}</small></td>
           <td><StatusBadge label={m.status === "active" ? "Ativo" : "Inativo"} tone={m.status === "active" ? "success" : "neutral"} /></td>
           <td><small>{m.last_sign_in_at ? new Date(m.last_sign_in_at).toLocaleString("pt-BR") : "Nunca"}</small></td>
@@ -170,10 +188,22 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
             <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void resetPassword(m)}>Nova senha</button>
             <button type="button" className="ds-link is-quiet" disabled={Boolean(busy)} onClick={() => void toggleStatus(m)}>{m.status === "active" ? "Desativar" : "Reativar"}</button>
             <button type="button" className="ds-link is-quiet usersDanger" disabled={Boolean(busy)} onClick={() => void remove(m)}>Remover</button>
+          </div> : canManage && isTeam && m.is_global_role && m.role === "account_manager" ? <div className="usersActions">
+            <button type="button" className="ds-link is-quiet usersDanger" disabled={Boolean(busy)} onClick={() => void remove(m)}>Desvincular</button>
           </div> : null}</td>
         </tr>)}</tbody>
       </table></div>}
 
+    {areasFor && areas ? <MemberDepartmentsEditor member={areasFor} catalog={areas.catalog} current={areas.by_user[areasFor.user_id] || []}
+      onClose={() => setAreasFor(null)} onSaved={(saved) => {
+        setAreas((cur) => cur && { ...cur, by_user: { ...cur.by_user, [areasFor.user_id]: saved } });
+        setNotice(`Áreas de ${areasFor.name || areasFor.login} salvas.`); setAreasFor(null);
+      }} /> : null}
+    <LinkExistingDrawer open={linking} clientName={clientName} onClose={() => setLinking(false)} onLinked={(who) => {
+      setLinking(false);
+      setNotice(`${who.name || who.login} agora tem acesso a ${clientName}${who.team ? " e já aparece entre os responsáveis das tarefas" : ""}. Senha e outros acessos não mudaram.`);
+      void load();
+    }} />
     <Drawer open={Boolean(editing)} width="lg" title={editing?.member ? `Permissões de ${editing.member.name || editing.member.login}` : "Novo usuário"}
       description="Escolha um perfil pronto e ajuste tela por tela. Alterar exige ver." onClose={() => { if (!busy) setEditing(null); }}>
       {editing && catalog ? <form className="usersForm" onSubmit={submit}>
@@ -181,7 +211,7 @@ export default function Users({ canManage = false, myCodes, isTeam = false, myAc
           <label className="ds-field">Nome<input maxLength={120} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Ana Souza" /></label>
           <label className="ds-field">Usuário (é com ele que a pessoa entra)<input required value={editing.login} autoCapitalize="none" spellCheck={false}
             onChange={(e) => setEditing({ ...editing, login: e.target.value.toLowerCase().replace(/\s+/g, ".") })} placeholder="ana.roove" /></label>
-          <label className="ds-field">Senha
+          <label className="ds-field">Senha (só para conta nova; se a pessoa já tiver conta, a senha dela não muda)
             <span className="usersPasswordRow">
               <input required minLength={8} value={editing.password} onChange={(e) => setEditing({ ...editing, password: e.target.value })} />
               <button type="button" className="ds-button" onClick={() => setEditing({ ...editing, password: generatePassword() })}>Gerar senha</button>

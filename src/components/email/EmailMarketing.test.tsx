@@ -104,6 +104,31 @@ describe("E-mail marketing", () => {
     expect(button("+ Produtos do carrinho")).toBeUndefined();
   });
 
+  it("HTML próprio continua no editor e pode ser enviado como teste antes da aprovação", async () => {
+    const custom_html = "<html><body>Seleção de vinhos</body></html>";
+    api.getCampaign.mockResolvedValue({
+      campaign: { ...CAMPAIGN_FIXTURE, custom_html, review: { status: "draft", versions: [] }, can_dispatch: false }, stats: null,
+    });
+    api.sendTestEmail.mockResolvedValue({ status: "enviado" });
+    await act(async () => { root.render(<CampaignsPanel canEdit />); });
+    await flush();
+    await act(async () => { button("Reativação 90 dias").click(); });
+    await flush();
+    expect(host.querySelectorAll('input[aria-label="E-mail para teste"]')).toHaveLength(1);
+    expect(host.querySelector(".emQuickTest")).not.toBeNull();
+    const to = host.querySelector<HTMLInputElement>('input[aria-label="E-mail para teste"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(to, "equipe@example.org");
+      to.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => button("Enviar teste").click());
+    expect(api.sendTestEmail).toHaveBeenCalledWith(CAMPAIGN_FIXTURE.id, "equipe@example.org", expect.objectContaining({ custom_html }));
+    expect(api.updateCampaign).not.toHaveBeenCalled();
+    expect(api.scheduleCampaign).not.toHaveBeenCalled();
+    expect(button("Enviar para Aprovação Interna")).toBeDefined();
+    expect(button("Enviar agora")).toBeUndefined();
+  });
+
   it("HTML: importa arquivo .html e mostra o relatório", async () => {
     const onChange = vi.fn();
     const report = { bytes: 110_000, too_big: false, gmail_clip: true, full_document: true, variables: ["primeiro_nome"], has_unsubscribe: false, removed_unsafe: true };

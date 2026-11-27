@@ -114,6 +114,8 @@ async def _graph(method: str, path: str, token: str, params: Optional[Dict[str, 
             raise WhatsAppNativeError("TOKEN_INVALID", "A Meta recusou o token. Gere um token do usuário do sistema com acesso a esta WABA.")
         if code in {"100", "803"} or resp.status_code == 404:
             raise WhatsAppNativeError("NOT_FOUND", "A Meta não encontrou esse ID. Confira o ID da WABA e o ID do número.")
+        if code in {"131008", "131009"} and ((json_body or {}).get("interactive") or {}).get("type") == "cta_url":
+            raise WhatsAppNativeError("CTA_REJECTED", "A Meta recusou o botão de link.")
         if code == "131047":
             raise WhatsAppNativeError("OUTSIDE_WINDOW", "Passaram 24 horas desde a última mensagem da pessoa: o WhatsApp só aceita resposta livre dentro desse prazo.")
         if code in {"10", "200", "294"} or resp.status_code == 403:
@@ -429,9 +431,21 @@ async def conversations(client_id: str, limit: int = 60) -> Dict[str, Any]:
     ai_fields = ",ai_paused_until,ai_handoff_reason,ai_stage,ai_interests,ai_objections,ai_summary,ai_next_step,ai_updated_at,ai_suggestion"
     query = {"filters": {"client_id": f"eq.{client_id}"}, "order": "last_message_at.desc", "limit": max(1, min(int(limit), 200))}
     try:
-        rows = await sb_select("whatsapp_threads", select=base_fields + ai_fields, **query)
-    except Exception:  # noqa: BLE001 — migration 000131 (atendente de IA) ainda não aplicada
-        rows = await sb_select("whatsapp_threads", select=base_fields, **query)
+        fields = base_fields + ai_fields + ",has_campaign"
+        rows = await sb_select("whatsapp_threads", select=fields, **{
+            **query, "filters": {**query["filters"], "or": "(has_campaign.eq.false,last_inbound_at.not.is.null)"},
+        })
+        campaign_rows = await sb_select("whatsapp_threads", select=fields, **{
+            **query, "filters": {**query["filters"], "has_campaign": "eq.true"},
+        })
+        seen = {r["id"] for r in rows}
+        rows.extend(r for r in campaign_rows if r["id"] not in seen)
+        rows.sort(key=lambda r: r.get("last_message_at") or "", reverse=True)
+    except Exception:  # noqa: BLE001 — preserve inbox during migration rollout
+        try:
+            rows = await sb_select("whatsapp_threads", select=base_fields + ai_fields, **query)
+        except Exception:  # noqa: BLE001
+            rows = await sb_select("whatsapp_threads", select=base_fields, **query)
     ai_mode = "off"
     try:
         from .whatsapp_ai import get_settings as ai_settings
@@ -444,7 +458,7 @@ async def conversations(client_id: str, limit: int = 60) -> Dict[str, Any]:
         inbound = r.get("last_inbound_at")
         window = (datetime.fromisoformat(str(inbound).replace("Z", "+00:00")) + timedelta(hours=24)).isoformat() if inbound else None
         out.append({
-            "id": r["id"], "status": None, "attendance_mode": _attendance(ai_mode, r), "unread_count": r.get("unread_count") or 0,
+            "id": r["id"], "status": None, "has_campaign": bool(r.get("has_campaign")), "attendance_mode": _attendance(ai_mode, r), "unread_count": r.get("unread_count") or 0,
             "last_message_at": r.get("last_message_at"), "service_window_expires_at": window,
             "contact": {"name": (r.get("profile_name") or None), "phone_masked": mask_phone(r.get("wa_id")),
                         "phone_key": r.get("phone_key"), "first_seen_at": r.get("first_seen_at")},
@@ -553,7 +567,8 @@ async def list_templates(client_id: str, number_id: Optional[str] = None) -> Lis
 
 
 async def send_template(client_id: str, *, number_id: Optional[str], to: str, template: str, language: str,
-                        params: List[str], header_media: Optional[Dict[str, str]] = None) -> str:
+                        params: List[str], header_media: Optional[Dict[str, str]] = None,
+                        receipt: Optional[Dict[str, str]] = None) -> str:
     """Envia um template aprovado para um número (fora da janela de 24 h). Devolve o id da mensagem na Meta.
     ``header_media`` = {"type": "image"|"video"|"document", "link": "https://..."} para modelo com mídia no topo."""
     digits = re.sub(r"\D", "", str(to or ""))
@@ -569,6 +584,9 @@ async def send_template(client_id: str, *, number_id: Optional[str], to: str, te
     out = await _graph("POST", f"{number['phone_number_id']}/messages", number["access_token"],
                        json_body={"messaging_product": "whatsapp", "to": digits, "type": "template",
                                   "template": {"name": template, "language": {"code": language or "pt_BR"}, "components": components}})
+    if receipt is not None:
+        recipient = str(((out.get("contacts") or [{}])[0] or {}).get("wa_id") or "")
+        receipt.update(number_id=str(number["id"]), wa_id=recipient if recipient.isdigit() else digits)
     return str(((out.get("messages") or [{}])[0] or {}).get("id") or "")
 
 
@@ -578,7 +596,7 @@ _TEMPLATE_PARAM = re.compile(r"\{\{(\d+)\}\}")
 
 
 def validate_template_input(*, name: str, category: str, language: str, body: str,
-                            examples: List[str], footer: str = "") -> Dict[str, Any]:
+                            examples: List[str], footer: str = "", buttons: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Whitelisted v1 template builder: body + optional footer, positional variables only.
     Sending or campaign automation is not triggered by creating a template.
     """
@@ -606,16 +624,28 @@ def validate_template_input(*, name: str, category: str, language: str, body: st
     components: List[Dict[str, Any]] = [component]
     if footer:
         components.append({"type": "FOOTER", "text": footer})
+    # Botões de link (ex.: "Entrar no grupo"): até 2, texto até 25 caracteres, só https e sem variável no link.
+    clean_buttons = []
+    for button in (buttons or [])[:2]:
+        text, url = str((button or {}).get("text") or "").strip(), str((button or {}).get("url") or "").strip()
+        if not text and not url:
+            continue
+        if not (1 <= len(text) <= 25) or not re.match(r"^https://[^\s{}]{4,1990}$", url):
+            raise WhatsAppNativeError("TEMPLATE_INVALID", "Botão: texto de até 25 caracteres e um link completo começando com https://.")
+        clean_buttons.append({"type": "URL", "text": text, "url": url})
+    if clean_buttons:
+        components.append({"type": "BUTTONS", "buttons": clean_buttons})
     return {"name": name, "category": category, "language": language,
             "allow_category_change": True, "components": components}
 
 
 async def create_template(client_id: str, *, number_id: Optional[str], name: str, category: str,
-                          language: str, body: str, examples: List[str], footer: str = "") -> Dict[str, Any]:
+                          language: str, body: str, examples: List[str], footer: str = "",
+                          buttons: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Submits to this tenant's own WABA; Meta decides approval state."""
     number = await _active_number(client_id, number_id)
     payload = validate_template_input(name=name, category=category, language=language,
-                                      body=body, examples=examples, footer=footer)
+                                      body=body, examples=examples, footer=footer, buttons=buttons)
     result = await _graph("POST", f"{number['waba_id']}/message_templates", number["access_token"],
                           json_body=payload)
     return {"id": str(result.get("id") or ""), "name": payload["name"],

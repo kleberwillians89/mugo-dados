@@ -54,14 +54,14 @@ async def _captured_audience(client_id: str) -> dict[str, Any]:
 
 
 async def audience_preview(client_id: str, provider: str = "all") -> dict[str, Any]:
-    if provider not in ("all", "shopify", "fbits", "whatsapp", "capture"):
+    if provider not in ("all", "shopify", "fbits", "whatsapp", "capture", "planilha", "leads_unificados"):
         raise ValueError("Origem inválida.")
     if provider == "capture":
         return await _captured_audience(client_id)
 
     base = {"client_id": f"eq.{client_id}"}
     if provider != "all":
-        base["provider"] = f"eq.{provider}"
+        base["provider"] = "eq.planilha" if provider == "leads_unificados" else f"eq.{provider}"
     total = eligible = 0
     seen = set()
     truncated = False
@@ -85,7 +85,7 @@ async def audience_preview(client_id: str, provider: str = "all") -> dict[str, A
         truncated = True
 
     claimed = 0
-    if provider == "all":
+    if provider in ("all", "leads_unificados"):
         captured = await _captured_audience(client_id)
         # Count source records independently, not a falsely merged customer identity.
         total += captured["total_contacts"]
@@ -148,9 +148,17 @@ async def save_draft(client_id: str, payload: dict, *, approved: bool) -> dict:
     header = str(payload.get("header_media_url") or "").strip() or None
     if header and (not header.startswith("https://") or len(header) > 1000):
         raise ValueError("Link da imagem do topo inválido.")
+    import re
+    selection = sorted({str(h) for h in (payload.get("selected_contacts") or []) if re.fullmatch(r"[0-9a-f]{64}", str(h))})
+    if payload.get("selected_contacts") and provider != "planilha":
+        raise ValueError("Escolher contatos à mão só vale para a planilha importada.")
+    if len(selection) > 5000:
+        raise ValueError("Escolha até 5 mil contatos, ou envie para todos da planilha.")
     audience = await audience_preview(client_id, provider)
     if audience["truncated"]:
         raise ValueError("Público incompleto. Escolha uma origem menor.")
+    if selection:
+        audience = {**audience, "total_contacts": len(selection), "reason": f"{len(selection)} contato(s) escolhido(s) da planilha."}
     row = await sb_insert(DRAFTS, {
         "client_id": client_id, "name": name, "template_name": template,
         "language": language, "provider": "whatsapp",
@@ -158,5 +166,6 @@ async def save_draft(client_id: str, payload: dict, *, approved: bool) -> dict:
         "audience_provider": provider, "status": "draft",
         "simulated_count": 0,
         **({"header_media_url": header} if header else {}),
+        **({"audience_selection": selection} if selection else {}),
     })
     return {"draft": row, "audience": audience, "messages_sent": 0}

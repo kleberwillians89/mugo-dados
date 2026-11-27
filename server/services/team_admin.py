@@ -21,7 +21,8 @@ from typing import Any, Dict, Iterable, List, Optional
 from . import team_access as ta
 from .client_access import (
     AccessError, _admin_request, _auth_user_view, _create_auth_user, _delete_auth_user,
-    _holds_global_role, _membership, find_auth_user_by_email, normalize_email, validate_password,
+    SHARED_ACCOUNT_MESSAGE, _holds_global_role, _membership, find_auth_user_by_email, is_shared_account,
+    normalize_email, validate_password,
 )
 from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update, sb_upsert
 
@@ -218,7 +219,6 @@ async def create_member(*, client_id: str, actor: Dict[str, Any], name: Any, log
                         preset: Any, view_all: Any, access_total: Any, codes: Optional[Iterable[str]]) -> Dict[str, Any]:
     email, username = login_email(login)
     safe_name = _text(name)[:120]
-    secret = validate_password(password, password)
     safe_preset = _preset(preset)
     total, see_all = bool(access_total), bool(view_all)
     wanted = _opt_in_guard(actor, set(codes) if codes is not None else ta.base_codes(safe_preset), set())
@@ -238,6 +238,8 @@ async def create_member(*, client_id: str, actor: Dict[str, Any], name: Any, log
             raise AccessError("ACCESS_ROLE_NOT_ALLOWED", "Contas da equipe Mugô não são administradas nesta tela.",
                               status_code=403)
     else:
+        # Senha só para conta NOVA. Conta existente é apenas vinculada: senha e autenticação intocadas.
+        secret = validate_password(password, password)
         created = await _create_auth_user(email=email, password=secret, name=safe_name)
         user_id = _text(created.get("id"))
         created_now = True
@@ -253,11 +255,10 @@ async def create_member(*, client_id: str, actor: Dict[str, Any], name: Any, log
             await _delete_auth_user(user_id)
         raise AccessError("ACCESS_MEMBERSHIP_FAILED", "A conta não pôde ser vinculada à empresa. Tente novamente.",
                           status_code=502) from None
-    if not created_now:
-        await _admin_request("PUT", f"/users/{user_id}", json={"password": secret, "email_confirm": True})
     ta.invalidate(client_id, user_id)
     print(f"[team][create] client_id={client_id} actor={actor['user_id']} preset={safe_preset} status=ok")
-    return {"ok": True, "user_id": user_id, "login": display_login(email, username), "account_created": created_now}
+    return {"ok": True, "user_id": user_id, "login": display_login(email, username), "account_created": created_now,
+            "password_applied": created_now}
 
 
 async def _target(client_id: str, actor: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -273,6 +274,15 @@ async def _target(client_id: str, actor: Dict[str, Any], user_id: str) -> Dict[s
     if not actor["team"] and not actor["access_total"] and bool(row.get("access_total")):
         raise AccessError("TEAM_GRANT_NOT_ALLOWED", "Só quem tem acesso total altera um administrador.", status_code=403)
     return row
+
+
+async def _linked_team_row(client_id: str, actor: Dict[str, Any], user_id: str) -> bool:
+    """Equipe Mugô vinculada a esta empresa como account_manager: a equipe pode desfazer só esse vínculo
+    (a conta, o papel global e os outros vínculos ficam). Nunca remove um agency_admin."""
+    if not actor["team"] or _text(user_id) == actor["user_id"]:
+        return False
+    rows = await _members(client_id, _text(user_id))
+    return bool(rows) and _text(rows[0].get("role")).lower() == "account_manager"
 
 
 async def update_permissions(*, client_id: str, actor: Dict[str, Any], user_id: str, preset: Any, view_all: Any,
@@ -310,6 +320,9 @@ async def set_status(*, client_id: str, actor: Dict[str, Any], user_id: str, sta
 
 async def reset_password(*, client_id: str, actor: Dict[str, Any], user_id: str, password: Any) -> Dict[str, Any]:
     await _target(client_id, actor, user_id)
+    # Conta usada em outras empresas: o admin de UMA empresa não troca a senha de todas (só a equipe Mugô).
+    if not actor["team"] and await is_shared_account(_text(user_id), client_id):
+        raise AccessError("ACCESS_SHARED_ACCOUNT", SHARED_ACCOUNT_MESSAGE, status_code=403)
     secret = validate_password(password, password)
     await _admin_request("PUT", f"/users/{_text(user_id)}", json={"password": secret})
     print(f"[team][reset_password] client_id={client_id} actor={actor['user_id']} status=ok")
@@ -317,10 +330,85 @@ async def reset_password(*, client_id: str, actor: Dict[str, Any], user_id: str,
 
 
 async def remove_member(*, client_id: str, actor: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-    await _target(client_id, actor, user_id)
+    linked_team = await _linked_team_row(client_id, actor, user_id)
+    if not linked_team:
+        await _target(client_id, actor, user_id)
     await sb_delete("client_member_permissions", filters={"client_id": f"eq.{client_id}", "user_id": f"eq.{user_id}"},
                     returning="minimal")
     await sb_delete("client_memberships", filters={"client_id": f"eq.{client_id}", "user_id": f"eq.{user_id}"})
     ta.invalidate(client_id, user_id)
     print(f"[team][remove] client_id={client_id} actor={actor['user_id']} status=ok")
     return {"ok": True, "user_id": user_id, "account_preserved": True}
+
+
+# ------------------------------------------------------------------ vincular conta que já existe (equipe Mugô)
+
+async def search_linkable(*, client_id: str, actor: Dict[str, Any], query: Any) -> Dict[str, Any]:
+    """Contas já cadastradas que ainda não estão nesta empresa. Só a equipe Mugô consulta: o admin de um cliente
+    nunca vê a lista geral de contas. Devolve no máximo 20, sem dado sensível."""
+    if not actor["team"]:
+        raise AccessError("TEAM_LINK_NOT_ALLOWED", "Só a equipe Mugô vincula contas que já existem.", status_code=403)
+    term = _text(query).lower()
+    if len(term) < 2:
+        return {"ok": True, "items": []}
+    members = {_text(r.get("user_id")) for r in await _members(client_id)}
+    payload = await _admin_request("GET", "/users", params={"page": 1, "per_page": 1000})
+    listed = payload.get("users") if isinstance(payload, dict) else payload
+    found = []
+    for user in listed if isinstance(listed, list) else []:
+        if not isinstance(user, dict):
+            continue
+        view = _auth_user_view(user)
+        if not view["user_id"] or view["user_id"] in members:
+            continue
+        if term in (view["email"] or "") or term in (view["name"] or "").lower():
+            found.append(view)
+        if len(found) >= 20:
+            break
+    internal = await _internal_team_user_ids([{"user_id": v["user_id"], "role": ""} for v in found])
+    return {"ok": True, "items": [{"user_id": v["user_id"], "name": v["name"], "login": display_login(v["email"], None),
+                                   "team": v["user_id"] in internal} for v in found]}
+
+
+async def link_existing(*, client_id: str, actor: Dict[str, Any], user_id: Any, preset: Any = None, view_all: Any = False,
+                        access_total: Any = False, codes: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+    """Vincula uma conta que JÁ existe a esta empresa. Nunca cria conta, nunca troca senha, nunca mexe em papel global
+    nem em vínculos com outras empresas.
+
+    - Equipe Mugô (papel global em algum lugar): entra como ``account_manager`` só NESTA empresa — aparece entre os
+      responsáveis e trabalha aqui; o papel global continua exatamente como estava.
+    - Conta de cliente (de outra empresa): entra com o perfil escolhido, com as mesmas travas de concessão.
+    """
+    if not actor["team"]:
+        raise AccessError("TEAM_LINK_NOT_ALLOWED", "Só a equipe Mugô vincula contas que já existem.", status_code=403)
+    uid = _text(user_id)
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", uid):
+        raise AccessError("ACCESS_NOT_FOUND", "Conta não encontrada.", status_code=404)
+    try:
+        await _admin_request("GET", f"/users/{uid}")
+    except AccessError:
+        raise AccessError("ACCESS_NOT_FOUND", "Conta não encontrada.", status_code=404) from None
+    if await _membership(client_id, uid):
+        raise AccessError("ACCESS_ALREADY_EXISTS", "Esta pessoa já tem acesso a esta empresa.", status_code=409)
+    internal = uid in await _internal_team_user_ids([{"user_id": uid, "role": ""}])
+    if internal:
+        row = {"user_id": uid, "client_id": client_id, "status": "active", "role": "account_manager"}
+        overrides: List[tuple] = []
+    else:
+        safe_preset = _preset(preset)
+        total, see_all = bool(access_total), bool(view_all)
+        wanted = set(codes) if codes is not None else ta.base_codes(safe_preset)
+        overrides = ta.overrides_for(safe_preset, see_all, wanted)
+        row = {"user_id": uid, "client_id": client_id, "status": "active", **_permission_fields(safe_preset, see_all, total)}
+    try:
+        await sb_insert("client_memberships", row, returning="minimal")
+        if overrides:
+            await _save_overrides(client_id, uid, overrides)
+    except Exception as exc:  # noqa: BLE001 — a conta existente nunca é apagada aqui
+        print(f"[team][link] client_id={client_id} stage=membership error_type={type(exc).__name__}")
+        raise AccessError("ACCESS_MEMBERSHIP_FAILED", "Não foi possível vincular agora. Tente novamente.",
+                          status_code=502) from None
+    ta.invalidate(client_id, uid)
+    print(f"[team][link] client_id={client_id} actor={actor['user_id']} team_member={str(internal).lower()} status=ok")
+    return {"ok": True, "user_id": uid, "team_member": internal, "role": row["role"], "account_created": False,
+            "password_applied": False}

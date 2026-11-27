@@ -21,10 +21,10 @@ import InstagramInbox from "../components/whatsapp/InstagramInbox";
 import WhatsAppAiAttendant, { AiExtras } from "../components/whatsapp/WhatsAppAiAttendant";
 import "../styles/whatsapp.css";
 
-type Filter = "all" | "ad" | "bought" | "waiting";
+type Filter = "all" | "campaign" | "ad" | "bought" | "waiting";
 type WorkspaceView = "conversations" | "ai" | "models" | "analytics" | "connection" | "bulk";
 const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "Todas" }, { key: "ad", label: "De anúncio" },
+  { key: "all", label: "Recentes" }, { key: "campaign", label: "Campanhas" }, { key: "ad", label: "De anúncio" },
   { key: "bought", label: "Compraram" }, { key: "waiting", label: "Sem resposta" },
 ];
 
@@ -63,6 +63,9 @@ export default function WhatsApp() {
   const [query, setQuery] = useState("");
   const [channel, setChannel] = useState<"whatsapp" | "instagram">("whatsapp");
   const [draft, setDraft] = useState("");
+  const messageList = useRef<HTMLOListElement>(null);
+  const lastScrolled = useRef<{ conversation: string; message: string } | null>(null);
+  const replyAttempt = useRef<{ clientId: string; conversationId: string; text: string; id: string } | null>(null);
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -144,10 +147,17 @@ export default function WhatsApp() {
 
   async function sendReply(event: FormEvent) {
     event.preventDefault();
-    if (!openId || !draft.trim()) return;
+    const text = draft.trim();
+    if (!openId || !text || sending) return;
+    let attempt = replyAttempt.current;
+    if (!attempt || attempt.clientId !== clientId || attempt.conversationId !== openId || attempt.text !== text) {
+      attempt = { clientId, conversationId: openId, text, id: crypto.randomUUID() };
+      replyAttempt.current = attempt;
+    }
     setSending(true); setSendNote(null);
     try {
-      const out = await replyWhatsApp(openId, draft.trim());
+      const out = await replyWhatsApp(openId, text, attempt.id);
+      replyAttempt.current = null;
       setDraft("");
       setSendNote({ ok: true, text: out.ai_paused_minutes ? `Enviada. A IA fica quieta nesta conversa por ${Math.round(out.ai_paused_minutes / 60)} h.` : "Enviada." });
       await openConversation(openId, true);
@@ -167,6 +177,8 @@ export default function WhatsApp() {
   const conversations = useMemo(() => {
     const term = query.trim().toLowerCase();
     return (inbox.data?.conversations || []).filter((conv) => {
+      if (filter === "all" && !term && conv.has_campaign && !conv.service_window_expires_at) return false;
+      if (filter === "campaign" && !conv.has_campaign) return false;
       if (filter === "ad" && conv.origin.bucket !== "ad") return false;
       if (filter === "bought" && !conv.purchase) return false;
       if (filter === "waiting" && !isWaiting(conv)) return false;
@@ -177,6 +189,21 @@ export default function WhatsApp() {
   }, [inbox.data, filter, query]);
   const open = (inbox.data?.conversations || []).find((conv) => conv.id === openId) || null;
   const messages = thread.id === openId ? thread.messages : [];
+  const latestMessageId = messages.at(-1)?.id;
+  useEffect(() => {
+    if (!openId || !latestMessageId || channel !== "whatsapp") return;
+    const list = messageList.current;
+    if (!list || !list.clientHeight) return;
+    const previous = lastScrolled.current;
+    if (previous?.conversation === openId && previous.message === latestMessageId) return;
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 150;
+    if (previous?.conversation !== openId || nearBottom) list.scrollTop = list.scrollHeight;
+    lastScrolled.current = { conversation: openId, message: latestMessageId };
+  }, [openId, latestMessageId, channel, mobileThread, journeyOpen]);
+  useEffect(() => {
+    if (!openId) lastScrolled.current = null;
+  }, [openId]);
+
 
   return (
     <Shell title="WhatsApp" variant="editorial">
@@ -386,6 +413,7 @@ export default function WhatsApp() {
                     </span>
                     <span className="waTags">
                       <span className={`waTag is-${conv.origin.bucket}`}>{conv.origin.label}</span>
+                      {conv.has_campaign ? <span className="waTag is-link">Campanha</span> : null}
                       {conv.insight ? <span className={`waTag is-stage-${conv.insight.stage}`}>{STAGE_LABELS[conv.insight.stage] || conv.insight.stage}</span> : null}
                       {conv.purchase ? <span className="waTag is-bought">Comprou {money(conv.purchase.revenue)}</span> : null}
                       {!conv.purchase && isWaiting(conv) ? <span className="waTag is-waiting">Aguardando resposta</span> : null}
@@ -410,7 +438,7 @@ export default function WhatsApp() {
                   <button type="button" className="waJourneyToggle" aria-expanded={journeyOpen} onClick={() => setJourneyOpen((v) => !v)}>
                     {journeyOpen ? "Fechar origem" : "Origem"}</button>
                 </header>
-                <ol className="waMessages">
+                <ol className="waMessages" ref={messageList}>
                   {open.origin.bucket === "ad" ? <li className="waEvent">Veio do anúncio{open.origin.ad_headline ? ` “${open.origin.ad_headline}”` : ""}</li> : null}
                   {open.origin.bucket === "link" ? <li className="waEvent">Veio do link {open.origin.entry_code}</li> : null}
                   {thread.loading ? <li className="waEvent is-plain">Carregando…</li> : null}
@@ -419,7 +447,7 @@ export default function WhatsApp() {
                     <li key={m.id} className={`waBubble${isOutbound(m.direction) ? " is-out" : ""}${m.by_ai ? " is-ai" : ""}${m.failed ? " is-failed" : ""}`}>
                       <p>{m.text || (m.template_name ? `Modelo: ${m.template_name}` : `[${m.type}]`)}</p>
                       {m.payload ? <AiExtras buttons={m.payload.buttons || []} products={m.payload.cards === false || !m.payload.products ? [] : m.payload.products} /> : null}
-                      <small>{m.by_ai ? "IA · " : ""}{fullWhen(m.at)}{isOutbound(m.direction) && m.read_at ? " · lida" : ""}{m.failed ? " · falhou" : ""}</small>
+                      <small>{m.payload?.campaign_test ? "Teste de campanha · " : m.payload?.campaign_id ? "Campanha · " : m.by_ai ? "IA · " : ""}{fullWhen(m.at)}{m.failed ? " · falhou" : isOutbound(m.direction) && (m.read_at || m.status === "read") ? " · lida" : (m.payload?.campaign_id || m.payload?.campaign_test) && m.status === "delivered" ? " · entregue" : (m.payload?.campaign_id || m.payload?.campaign_test) && m.status === "sent" ? " · enviada" : ""}</small>
                     </li>
                   ))}
                   {open.purchase ? (
@@ -448,12 +476,12 @@ export default function WhatsApp() {
                     </div>
                   </div>
                 ) : null}
-                {inbox.data?.channel_provider === "mugozap_crm"
+                {inbox.data?.channel_provider === "mugozap_crm" && !inbox.data.reply_enabled
                   ? <p className="waMuted waPad">As conversas da Mugô já estão sincronizadas. Para responder, use o CRM Mugô por enquanto; o envio por esta tela ainda não foi habilitado.</p>
                   : windowOpen(open.service_window_expires_at) ? (
                   <form className="waComposer" onSubmit={sendReply}>
                     <label className="waSrOnly" htmlFor="wa-reply">Responder no WhatsApp</label>
-                    <textarea id="wa-reply" rows={2} maxLength={4096} value={draft} placeholder="Responder pelo WhatsApp da marca…" onChange={(e) => setDraft(e.target.value)}
+                    <textarea id="wa-reply" rows={2} maxLength={inbox.data?.channel_provider === "mugozap_crm" ? 4000 : 4096} value={draft} placeholder="Responder pelo WhatsApp da marca…" onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
                     <button type="submit" className="ds-button is-primary" disabled={sending || !draft.trim()}>{sending ? "Enviando…" : "Enviar"}</button>
                     {sendNote ? <p className="waMuted waSmall" role={sendNote.ok ? "status" : "alert"}>{sendNote.text}</p>

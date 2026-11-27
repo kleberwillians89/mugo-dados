@@ -1,3 +1,6 @@
+import { decideEmailReview, listEmailReviews, SEGMENT_LABEL, type EmailReviewEntry } from "../app/emailMarketing";
+import EmailPreview from "../components/email/EmailPreview";
+import "../styles/emailMarketing.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Monitor, Smartphone } from "lucide-react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
@@ -26,7 +29,7 @@ import {
 import { artSlides } from "../app/artLinks";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
-import ArtCarousel from "../components/studio/ArtCarousel";
+import ApprovalArtPreview from "../components/studio/ApprovalArtPreview";
 import PostComments from "../components/studio/PostComments";
 import "../styles/studio.css";
 import "../styles/approval-workspace.css";
@@ -35,7 +38,8 @@ export type ApprovalMode = "internal" | "final";
 type PreviewMode = "desktop" | "mobile";
 type QueueEntry =
   | { key: string; kind: "calendar"; item: PipelineItem }
-  | { key: string; kind: "task"; task: CrmTask };
+  | { key: string; kind: "task"; task: CrmTask }
+  | { key: string; kind: "email"; email: EmailReviewEntry };
 type HistoryEntry = { id: string; action: string; detail: string | null; actor_name: string | null; actor_side: "mugo" | "cliente" | "sistema"; created_at: string };
 
 const monthKey = (offset = 0) => {
@@ -55,7 +59,8 @@ type Props = {
   isAgency: boolean;
   canDeleteCalendarContent: boolean;
   canDeleteTaskContent: boolean;
-  onOpenCalendar: () => void;
+  /** Sem acesso ao Calendário (perfil Cliente — Aprovação Final), o botão não aparece. */
+  onOpenCalendar?: () => void;
 };
 
 export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarContent, canDeleteTaskContent, onOpenCalendar }: Props) {
@@ -63,6 +68,7 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
   const clientName = getActiveClientName() || "marca";
   const [month, setMonth] = useState(monthKey);
   const [items, setItems] = useState<PipelineItem[]>([]);
+  const [emails, setEmails] = useState<EmailReviewEntry[]>([]);
   const [tasks, setTasks] = useState<CrmTask[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewMode>("desktop");
@@ -80,14 +86,16 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
     ...items.filter((item) => item.stage === stage).map((item) => ({ key: `calendar:${item.id}`, kind: "calendar" as const, item })),
     ...(mode === "internal" ? tasks.filter((task) => task.status === "internal_review" && !task.calendar_item_id)
       .map((task) => ({ key: `task:${task.id}`, kind: "task" as const, task })) : []),
-  ], [items, mode, stage, tasks]);
+    ...(mode === "internal" && isAgency ? emails.map((email) => ({ key: `email:${email.id}:${email.version}`, kind: "email" as const, email })) : []),
+  ], [emails, isAgency, items, mode, stage, tasks]);
   const selected = pending.find((entry) => entry.key === selectedId) || pending[0] || null;
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    const [calendarResult, taskResult] = await Promise.allSettled([
+    const [calendarResult, taskResult, emailResult] = await Promise.allSettled([
       getPipeline(month),
       mode === "internal" ? listCrmTasks("internal_review") : Promise.resolve(null),
+      mode === "internal" && isAgency ? listEmailReviews() : Promise.resolve(null),
     ]);
     if (getActiveClientId() !== clientId) return;
     const errors: string[] = [];
@@ -99,9 +107,11 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
     } else if (taskResult.status === "rejected") {
       setTasks([]); errors.push(message(taskResult.reason, "Não foi possível carregar os jobs para aprovação."));
     } else setTasks([]);
+    if (emailResult.status === "fulfilled") setEmails(emailResult.value?.campaigns || []);
+    else { setEmails([]); errors.push(message(emailResult.reason, "Não foi possível carregar os e-mails para aprovação.")); }
     setError(errors.length ? errors.join(" ") : null);
     setLoading(false);
-  }, [clientId, mode, month]);
+  }, [clientId, isAgency, mode, month]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -110,6 +120,18 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
   useEffect(() => {
     setNote(""); setHistory([]);
     if (!selected || (selected.kind === "calendar" && !isAgency)) return;
+    if (selected.kind === "email") {
+      setHistory(selected.email.versions.flatMap((entry): HistoryEntry[] => {
+        const version = `Versão ${entry.version}`;
+        const events: HistoryEntry[] = [{ id: `${entry.version}-request`, action: `${version} solicitada`, detail: null,
+          actor_name: entry.requested_by_name || entry.requested_by, actor_side: "mugo", created_at: entry.requested_at }];
+        if (entry.decided_at) events.push({ id: `${entry.version}-decision`,
+          action: `${version} ${entry.decision === "approved" ? "aprovada" : "devolvida para ajustes"}`, detail: entry.comment || null,
+          actor_name: entry.decided_by_name || entry.decided_by || null, actor_side: "mugo", created_at: entry.decided_at });
+        return events;
+      }));
+      return;
+    }
     let alive = true;
     const request = selected.kind === "calendar"
       ? getItemHistory(selected.item.id).then((response) => (response.events || []).map((event: ItemEvent) => ({
@@ -130,10 +152,11 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
     if (!text) { setError("Descreva o ajuste necessário antes de enviar."); return; }
     setBusy(true); setError(null); setNotice(null);
     try {
-      if (selected.kind === "task") await taskApproval(selected.task.id, "internal_changes", text);
+      if (selected.kind === "email") await decideEmailReview(selected.email.id, selected.email.version, "changes_requested", text);
+      else if (selected.kind === "task") await taskApproval(selected.task.id, "internal_changes", text);
       else if (mode === "internal") await updateCalendarItem(selected.item.id, { status: "rejeitado", review_note: text });
       else await decideCalendarItem(selected.item.id, "rejeitado", text);
-      setNotice(`Ajuste solicitado. ${selected.kind === "task" ? "O job" : "A peça"} saiu desta fila.`); setNote("");
+      setNotice(`Ajuste solicitado. ${selected.kind === "email" ? "A campanha" : selected.kind === "task" ? "O job" : "A peça"} saiu desta fila.`); setNote("");
       await load();
     } catch (cause) { setError(message(cause, "Não foi possível solicitar o ajuste.")); }
     finally { setBusy(false); }
@@ -143,7 +166,10 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
     if (!selected || busy) return;
     setBusy(true); setError(null); setNotice(null); setApprovalLink(null);
     try {
-      if (selected.kind === "task") {
+      if (selected.kind === "email") {
+        await decideEmailReview(selected.email.id, selected.email.version, "approved", note.trim());
+        setNotice("Versão aprovada. A campanha está disponível para agendamento ou envio.");
+      } else if (selected.kind === "task") {
         await taskApproval(selected.task.id, "internal_approve");
         setNotice(selected.task.visible_to_client && selected.task.needs_client_approval !== false
           ? "Job aprovado internamente e enviado para a aprovação do cliente."
@@ -162,7 +188,7 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
   }
 
   async function remove() {
-    if (!selected || busy) return;
+    if (!selected || selected.kind === "email" || busy) return;
     const allowed = selected.kind === "calendar" ? canDeleteCalendarContent : canDeleteTaskContent;
     if (!allowed) return;
     const title = selected.kind === "calendar" ? selected.item.title : selected.task.title;
@@ -184,7 +210,7 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
   }
 
   const controls = <div className="approvalWorkspaceTopActions">
-    <button type="button" className="ds-button" onClick={onOpenCalendar}><CalendarDays size={16} aria-hidden="true" /> Calendário</button>
+    {onOpenCalendar ? <button type="button" className="ds-button" onClick={onOpenCalendar}><CalendarDays size={16} aria-hidden="true" /> Calendário</button> : null}
   </div>;
 
   return <Shell title={title} variant="editorial"><div className="ds-page approvalWorkspacePage">
@@ -205,8 +231,8 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
           const calendarWhen = entry.kind === "calendar" ? localParts(entry.item.scheduled_at) : null;
           const taskDue = entry.kind === "task" ? dueInfo(entry.task.due_date) : null;
           return <li key={entry.key}><button type="button" className={selected?.key === entry.key ? "is-active" : ""} onClick={() => { setSelectedId(entry.key); setNotice(null); setApprovalLink(null); }}>
-            <small>{entry.kind === "calendar" ? `${entry.item.channel || "social"} · ${STUDIO_FORMATS[entry.item.format]}` : `Job · ${entry.task.category || "Tarefa"}`}</small>
-            <strong>{entry.kind === "calendar" ? entry.item.title : entry.task.title}</strong>
+            <small>{entry.kind === "calendar" ? `${entry.item.channel || "social"} · ${STUDIO_FORMATS[entry.item.format]}` : entry.kind === "email" ? `E-mail Marketing · Versão ${entry.email.version}` : `Job · ${entry.task.category || "Tarefa"}`}</small>
+            <strong>{entry.kind === "calendar" ? entry.item.title : entry.kind === "email" ? entry.email.name : entry.task.title}</strong>
             <span>{calendarWhen ? `${calendarWhen.label} · ${calendarWhen.time}` : taskDue?.label}</span>
           </button></li>;
         })}</ol>
@@ -217,7 +243,16 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
           <button type="button" className={preview === "desktop" ? "is-active" : ""} aria-pressed={preview === "desktop"} onClick={() => setPreview("desktop")}><Monitor size={15} aria-hidden="true" /> Desktop</button>
           <button type="button" className={preview === "mobile" ? "is-active" : ""} aria-pressed={preview === "mobile"} onClick={() => setPreview("mobile")}><Smartphone size={15} aria-hidden="true" /> Mobile</button>
         </div>
-        {selected ? (selected.kind === "calendar" ? <ContentPreview item={selected.item} mode={preview} /> : <TaskPreview task={selected.task} mode={preview} />)
+        {selected ? (selected.kind === "calendar" ? <ContentPreview item={selected.item} mode={preview} /> : selected.kind === "email" ? (
+          <section className="emCard" key={selected.key}>
+            <h3>{selected.email.name}</h3>
+            <p>{clientName} · Versão {selected.email.version}</p>
+            <p>Pré-cabeçalho · {selected.email.preheader || "Sem pré-cabeçalho"}</p>
+            <p>Remetente · {selected.email.sender || "Sem remetente configurado"}</p>
+            <p>Segmentação · {SEGMENT_LABEL[selected.email.audience.segment]}</p>
+            <EmailPreview load={async () => selected.email.preview} deps={[selected.key]} deviceMode={preview} />
+          </section>
+        ) : <TaskPreview task={selected.task} mode={preview} />)
           : <div className="approvalPreviewEmpty"><p>Selecione um conteúdo pendente para revisar.</p></div>}
       </main>
 
@@ -232,9 +267,9 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
       </aside>
     </div>
     {selected ? <footer className="approvalDecisionBar">
-      {(selected.kind === "calendar" ? canDeleteCalendarContent : canDeleteTaskContent)
+      {(selected.kind === "calendar" ? canDeleteCalendarContent : selected.kind === "task" && canDeleteTaskContent)
         ? <button type="button" className="ds-button" disabled={busy} onClick={() => void remove()}>Excluir conteúdo</button> : null}
-      <button type="button" className="ds-button" disabled={busy} onClick={() => void requestChanges()}>Solicitar ajuste</button>
+      <button type="button" className="ds-button" disabled={busy} onClick={() => void requestChanges()}>{selected.kind === "email" ? "Solicitar ajustes" : "Solicitar ajuste"}</button>
       <button type="button" className="ds-button is-primary" disabled={busy} onClick={() => void approve()}>{busy ? "Salvando…" : "Aprovar agora"}</button>
     </footer> : null}
   </div></Shell>;
@@ -243,22 +278,18 @@ export default function ApprovalWorkspace({ mode, isAgency, canDeleteCalendarCon
 function ContentPreview({ item, mode }: { item: PipelineItem; mode: PreviewMode }) {
   const slides = artSlides(item.art_url);
   const when = localParts(item.scheduled_at);
+  const account = getActiveClientName() || "marca";
   return <article className={`approvalDevice is-${mode}`}>
-    <div className="approvalDeviceChrome"><span /><span /><span /></div>
     <header><small>{item.channel || "Social Media"} · {STUDIO_FORMATS[item.format]}</small><strong>{item.title}</strong></header>
-    <div className="approvalDeviceMedia">{slides.length ? <ArtCarousel images={slides} /> : <div className="approvalMediaFallback">{item.hook || item.title}</div>}</div>
-    <div className="approvalDeviceCopy">
-      {item.hook ? <b>{item.hook}</b> : null}
-      <p>{item.caption_draft || "Sem legenda cadastrada."}</p>
-      <small>{when.weekday}, {when.label} · {when.time}</small>
-    </div>
+    <ApprovalArtPreview key={`${item.id}:${slides.join("|")}`} slides={slides} format={item.format} mode={mode} account={account} fallback={item.hook || item.title}
+      caption={<>{item.hook ? <b>{item.hook}</b> : null}<p>{item.caption_draft || "Sem legenda cadastrada."}</p></>}
+      meta={<>{when.weekday}, {when.label} · {when.time}</>} />
   </article>;
 }
 
 function TaskPreview({ task, mode }: { task: CrmTask; mode: PreviewMode }) {
   const due = dueInfo(task.due_date);
-  return <article className={`approvalDevice is-${mode}`}>
-    <div className="approvalDeviceChrome"><span /><span /><span /></div>
+  return <article className={`approvalDevice is-task is-${mode}`}>
     <header><small>Job · {task.category || "Tarefa"}</small><strong>{task.title}</strong></header>
     <div className="approvalDeviceMedia"><div className="approvalMediaFallback">{task.deliverable_url
       ? <a href={task.deliverable_url} target="_blank" rel="noreferrer noopener">Abrir material para revisão ↗</a>

@@ -4,48 +4,8 @@ import QuietBoundary from "../components/meta/QuietBoundary";
 import { DATA_HEALTH_CHANGED } from "../app/dataHealth";
 import NextAutoRefresh from "../components/data/NextAutoRefresh";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  disconnectClientConnection,
-  activateMetaOrganic,
-  configureExistingMetaOrganic,
-  discoverExistingMetaAdAccounts,
-  ApiError,
-  disconnectGenericConnection,
-  discoverClientMetaAssets,
-  linkClientAssets,
-  listClientConnections,
-  listClientMetaAdsAccounts,
-  listGenericConnections,
-  getApiVersion,
-  isUsableGoogleConnection,
-  isUsableMetaConnection,
-  selectUsableGoogleConnection,
-  selectUsableMetaConnection,
-  formatGoogleAdsAccountLabel,
-  formatGoogleAdsCustomerId,
-  listGoogleAdsAccounts,
-  listGoogleGa4Properties,
-  listGoogleGa4Streams,
-  selectGoogleAdsAccount,
-  selectGoogleGa4Property,
-  selectClientMetaAdsAccount,
-  selectShopifyConnection,
-  syncGoogleConnection,
-  syncClientMetaAdsAccount,
-  syncShopifyConnection,
-  refreshAll,
-  validateManualMetaAssets,
-  saveManualMetaAssets,
-  type GenericConnection,
-  type GoogleAdsAccount,
-  type GoogleGa4Property,
-  type GoogleGa4Stream,
-  type MetaAdsSelectableAccount,
-  type ManualMetaAssetsValidation,
-  startClientMetaOAuth,
-  startGoogleOAuth,
-  startShopifyOAuth,
-} from "../app/api";
+import { ApiError, listClientConnections, listGenericConnections, getApiVersion, isUsableGoogleConnection, isUsableMetaConnection, selectUsableGoogleConnection, selectUsableMetaConnection, type GenericConnection } from "../app/api";
+import { disconnectClientConnection, activateMetaOrganic, configureExistingMetaOrganic, discoverExistingMetaAdAccounts, disconnectGenericConnection, discoverClientMetaAssets, linkClientAssets, listClientMetaAdsAccounts, formatGoogleAdsAccountLabel, formatGoogleAdsCustomerId, listGoogleAdsAccounts, listGoogleGa4Properties, listGoogleGa4Streams, selectGoogleAdsAccount, selectGoogleGa4Property, selectClientMetaAdsAccount, selectShopifyConnection, syncGoogleConnection, syncClientMetaAdsAccount, syncShopifyConnection, refreshAll, validateManualMetaAssets, saveManualMetaAssets, type GoogleAdsAccount, type GoogleGa4Property, type GoogleGa4Stream, type MetaAdsSelectableAccount, type ManualMetaAssetsValidation, startClientMetaOAuth, startGoogleOAuth, startShopifyOAuth } from "../app/onboardingApi";
 import { resolveOperationalMetaConnectionId, selectUniqueConnection } from "../app/connectionManager";
 import useClientIntegrations from "../hooks/useClientIntegrations";
 import {
@@ -290,11 +250,28 @@ function connectionLabel(connection: MetaConnection): string {
 const pickDefaultOrganicConnectionId = (connections: MetaConnection[], preferredConnectionId: string | null) =>
   resolveOperationalMetaConnectionId(connections, "organic", preferredConnectionId);
 
+const PLATFORM_GROUPS = [
+  { label: "Meta", ids: ["meta"] },
+  { label: "Google", ids: ["ga4", "google_ads"] },
+  { label: "Shopify", ids: ["shopify"] },
+  { label: "FBits / Wake", ids: ["fbits"] },
+  { label: "TikTok", channel: "tiktok" },
+  { label: "Pinterest", channel: "pinterest" },
+  { label: "LinkedIn", channel: "linkedin" },
+  { label: "Clarity", channel: "clarity" },
+] as const;
+
 export default function Onboarding({
   isAuthenticated = false,
   initialError = null,
   onCompleted,
 }: Props) {
+  const [platformIndex, setPlatformIndex] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const channel = params.get("channel")?.split("_")[0];
+    return Math.max(0, PLATFORM_GROUPS.findIndex((entry) => "channel" in entry && entry.channel === channel));
+  });
+  const platform = PLATFORM_GROUPS[platformIndex];
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
@@ -486,6 +463,7 @@ export default function Onboarding({
     const oauthErrorCode = String(params.get("code") || "").trim();
 
     if (!oauthStatus) return;
+    setPlatformIndex(PLATFORM_GROUPS.findIndex((entry) => entry.label === provider));
     let preserveMetaRetry = false;
 
     try {
@@ -1458,7 +1436,7 @@ export default function Onboarding({
             <button className="btn btnGhost" type="button" disabled={loading} onClick={() => void onRefreshStatus()}>
               {loading ? "Atualizando..." : "Atualizar status"}
             </button>
-            {metaSelectionPending && metaGenericConnection ? (
+            {platformIndex === 0 && (metaSelectionPending && metaGenericConnection ? (
               <button className="btn btnGold" type="button" disabled={saving || !canManageConnections} onClick={() => void onResumeMetaSelection(metaGenericConnection)}>
                 {saving ? "Carregando ativos..." : "Selecionar ativos"}
               </button>
@@ -1466,16 +1444,13 @@ export default function Onboarding({
               <button className="btn btnGold" type="button" disabled={oauthLoading || !canManageConnections} onClick={() => void onStartOAuth()}>
                 {oauthLoading ? "Redirecionando..." : "Conectar com Meta"}
               </button>
-            ) : null}
+            ) : null)}
             <button className="btn btnPrimary" type="button" disabled={!dashboardReady} onClick={() => void onContinue()}>
               Abrir dashboard
             </button>
           </div>
         </header>
 
-        {canManageConnections ? <AiSettingsPanel /> : null}
-
-        <ChannelsPanel canManage={canManageConnections} />
         <p className="integrationsLead">
           Cada conexão vale só para {getActiveClientName()}. Desconectar uma conta preserva o histórico já importado.
         </p>
@@ -1501,10 +1476,16 @@ export default function Onboarding({
         </div> : null}
         {info ? <div className="pill pillSoft">{info}</div> : null}
 
+        <div className="integrationPlatformTabs" role="group" aria-label="Plataformas">
+          {PLATFORM_GROUPS.map(({ label }, index) => <button type="button" key={label}
+            className={index === platformIndex ? "btn btnPrimary" : "btn btnGhost"}
+            aria-pressed={index === platformIndex} onClick={() => setPlatformIndex(index)}>{label}</button>)}
+        </div>
+        {"channel" in platform ? <ChannelsPanel key={platform.channel} canManage={canManageConnections} platform={platform.channel} /> :
         <section className="card cardWide integrationsPlatforms">
           <div className="sectionHeader">
             <div>
-              <h2 className="integrationsSectionTitle">Plataformas</h2>
+              <h2 className="integrationsSectionTitle">{platform.label}</h2>
             </div>
             <button
               type="button"
@@ -1523,8 +1504,9 @@ export default function Onboarding({
               Não foi possível atualizar agora. Exibindo o último estado salvo.
             </div>
           ) : null}
-          <div className="onboardingConnections integrationList">
-            {INTEGRATION_REGISTRY.filter((definition) => definition.availability === "available").map((definition) => {
+          {(["connected", "pending", "off"] as const).map((group) => {
+            const cards = INTEGRATION_REGISTRY.filter((definition) => definition.availability === "available"
+              && (platform.ids as readonly string[]).includes(definition.id)).map((definition) => {
               const activeClientId = getActiveClientId();
               const matchingConnections =
                 definition.id === "ga4"
@@ -1619,6 +1601,8 @@ export default function Onboarding({
                   ? "yellow"
                 : connectionTone(productStatus || connection?.status || (metaConnected ? "connected" : ""));
               const displayTone = shopifyNeedsReauth ? "yellow" : canonicalEntry ? canonicalStatusTone(canonicalEntry) : tone;
+              const category = displayTone === "green" ? "connected" : displayStatus === "Não conectado" ? "off" : "pending";
+              if (category !== group) return null;
               const platformBrand = getIntegrationPlatformBrand(definition.id);
               return (
               <div className={`onboardingConnBlock is-${displayTone}`} key={definition.id}>
@@ -1876,20 +1860,20 @@ export default function Onboarding({
                 })()}
               </div>
               );
-            })}
-          </div>
-
-          <QuietBoundary name="meta-permissions"><MetaPermissionsPanel /></QuietBoundary>
-
-          {INTEGRATION_REGISTRY.some((definition) => definition.availability !== "available") ? (
-            <div className="onboardingComingSoon">
-              <span className="smallMuted">Em breve:</span>
-              {INTEGRATION_REGISTRY.filter((definition) => definition.availability !== "available").map((definition) => (
-                <span className="onboardingComingSoonPill" key={definition.id}>{definition.shortName}</span>
-              ))}
-            </div>
-          ) : null}
-        </section>
+            }).filter(Boolean);
+            if (!cards.length) return null;
+            return <section key={group} className="integrationAccountGroup">
+              <h3>{{ connected: "Contas conectadas", pending: "Contas que precisam de atenção", off: "Contas não conectadas" }[group]}</h3>
+              <div className="onboardingConnections integrationList">{cards}</div>
+            </section>;
+          })}
+          {platformIndex === 0 ? <details className="integrationSettings"><summary>Permissões e recursos da Meta</summary>
+            <QuietBoundary name="meta-permissions"><MetaPermissionsPanel /></QuietBoundary>
+          </details> : null}
+        </section>}
+        {canManageConnections ? <details className="card cardWide integrationSettings">
+          <summary>Configuração de inteligência artificial</summary><AiSettingsPanel />
+        </details> : null}
 
         {activeRole === "agency_admin" ? (
           <section className="card cardWide" aria-label="Diagnóstico temporário de integrações">

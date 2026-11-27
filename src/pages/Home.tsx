@@ -1,13 +1,19 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { ArrowRight, CheckCircle2, HeartHandshake, Megaphone, PenLine, Share2, ShoppingCart, Target } from "lucide-react";
 import WorkKanban from "../components/shell/WorkKanban";
+import MyTasksButton from "../components/shell/MyTasksButton";
+import MugoNoticed from "../components/shell/MugoNoticed";
 import { getActiveClientName } from "../app/activeClient";
 import { getPathForRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import "../styles/process-entry.css";
 
-type Props = { canView: (route: AppRoute) => boolean; onOpen: (route: AppRoute) => void };
+type Props = {
+  canView: (route: AppRoute) => boolean; onOpen: (route: AppRoute) => void;
+  /** Abre um alerta da Mugô IA na empresa dele (a equipe vê alertas de todas as empresas). */
+  onOpenIn?: (clientId: string, route: AppRoute) => void;
+};
 
 const ACTIONS: { title: string; description: string; route: AppRoute; icon: typeof Target }[] = [
   { title: "Planejar", description: "Definir objetivos e ações.", route: "process_planning", icon: Target },
@@ -18,7 +24,7 @@ const ACTIONS: { title: string; description: string; route: AppRoute; icon: type
   { title: "Redes sociais", description: "Desempenho de cada rede.", route: "process_social", icon: Share2 },
 ];
 
-export default function Home({ canView, onOpen }: Props) {
+export default function Home({ canView, onOpen, onOpenIn }: Props) {
   const actions = ACTIONS.filter((action) => canView(action.route));
   // Atalhos de aprovação ao lado do Kanban, conforme a permissão de cada pessoa.
   const approvals = [
@@ -35,6 +41,8 @@ export default function Home({ canView, onOpen }: Props) {
   return <Shell title="Início" variant="editorial"><div className="ds-page processHomePage">
     <PageHeader company={getActiveClientName() || "empresa"} title="O que vamos fazer hoje?" back={false} />
     <div className="processHomeWork">
+    <MugoNoticed onOpen={(clientId, route) => (onOpenIn ? onOpenIn(clientId, route) : onOpen(route))} />
+    <MyTasksButton onOpen={() => onOpen("my_tasks")} />
     <WorkKanban place="home" />
     {approvals.length ? <nav className="processApprovals" aria-label="Aprovações">
       <CheckCircle2 size={17} aria-hidden="true" />

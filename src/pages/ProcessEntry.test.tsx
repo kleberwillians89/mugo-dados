@@ -9,6 +9,8 @@ import ProcessEntry, { type ProcessKind } from "./ProcessEntry";
 vi.mock("../components/Shell", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("../components/data/PageHeader", () => ({ default: ({ title }: { title: string }) => <h1>{title}</h1> }));
 vi.mock("../app/activeClient", () => ({ getActiveClientName: () => "Empresa de teste" }));
+vi.mock("../components/shell/MyTasksButton", () => ({ default: () => <a className="myTasksButton">Minhas Tarefas</a> }));
+vi.mock("../components/shell/MugoNoticed", () => ({ default: () => null }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -124,22 +126,23 @@ describe("nova entrada e processos", () => {
     const expected: Record<ProcessKind, AppRoute[]> = {
       planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
       content: ["briefing", "campaigns", "redacao", "creators", "production", "clipping"],
-      campaign: ["media", "meta", "google"],
+      campaign: ["media"],
       relationship: ["email_marketing", "capture", "engagement", "whatsapp", "whatsapp", "whatsapp"],
       analysis: ["origins", "ecommerce", "customers", "social_report", "brand_health", "ai_actions"],
-      social: ["channels", "tiktok", "pinterest", "linkedin"],
+      social: ["meta", "tiktok", "pinterest", "linkedin"],
     };
     for (const kind of Object.keys(expected) as ProcessKind[]) {
       await act(async () => root.render(<ProcessEntry kind={kind} canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
       const hrefs = [...host.querySelectorAll<HTMLAnchorElement>(".processToolCard, .planningToolCard")].map((item) => item.getAttribute("href"));
       expect(hrefs.length).toBeGreaterThanOrEqual(expected[kind].length);
       expect(hrefs.every((href) => Boolean(href) && href !== "/404")).toBe(true);
+      if (kind === "social") expect(hrefs).toContain("/meta");
     }
   });
 
-  it("Lançar campanha: Mídia On, Meta e Google", async () => {
+  it("Lançar campanha: uma entrada para Mídia On", async () => {
     await act(async () => root.render(<ProcessEntry kind="campaign" canView={() => true} canUse={() => true} onOpen={vi.fn()} />));
-    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Mídia On", "Meta", "Google"]);
+    expect([...host.querySelectorAll(".processToolCard strong")].map((c) => c.textContent)).toEqual(["Mídia On"]);
     for (const gone of ["Aprovação Interna", "Aprovação Final", "E-mail Marketing", "Disparos em massa"]) expect(host.textContent).not.toContain(gone);
   });
 

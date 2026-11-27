@@ -31,3 +31,21 @@
 .goalHistory{margin:0;padding-left:18px;display:grid;gap:6px}.goalHistory small{display:block}
 .goalCheck{display:flex!important;align-items:center;gap:8px}
 @media (max-width:640px){.goalScenarios,.goalScenarioPick{grid-template-columns:1fr}}
+.goalAlerts{list-style:none;margin:12px 0;padding:0;display:grid;gap:8px}
+.goalAlerts li{display:grid;gap:2px;padding:10px 14px;border-radius:12px;border:1px solid var(--mugo-soft-gray,#e7eceb);background:#fff;border-left:4px solid var(--mugo-red,#b22234)}
+.goalAlerts li.is-dado{border-left-color:#895600;background:#fffaf0}.goalAlerts li.is-atingida{border-left-color:#26734d}
+.goalAlerts strong{font-size:13px}.goalAlerts span{font-size:13px;color:var(--text-secondary,#5c6670)}
+.goalAlertActions{display:flex;gap:10px}.goalAlertActions button{border:0;background:none;padding:0;color:var(--mugo-deep-blue,#0c4160);text-decoration:underline;cursor:pointer;font:inherit;font-size:13px}
+.goalDiag{display:grid;gap:8px}.goalDiag ul{margin:0;padding-left:18px}
+.goalTag{display:inline-block;margin-right:6px;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:700;background:var(--mugo-soft-gray,#e7eceb);color:var(--mugo-deep-blue,#0c4160)}
+.goalTag.is-hipotese{background:#f8ecd2;color:#8a5a00}.goalTag.is-estimativa{background:#f6dcdf;color:var(--mugo-red,#b22234)}
+.goalRecs{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.goalRecs li{display:grid;gap:4px;padding:12px 14px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:12px}
+.goalRecs small{color:var(--text-secondary,#5c6670)}
+.goalTaskForm{display:grid;gap:8px;padding:10px;border-radius:10px;background:var(--mugo-ivory,#f9f5ef)}
+.goalTaskForm label{display:grid;gap:4px;font-size:12px}
+.goalConstraints{display:grid;gap:4px;font-size:13px}.goalConstraints textarea{font:inherit;padding:8px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:10px}
+.mediaGoals{display:grid;gap:10px;padding:16px 18px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:16px;background:#fff}
+.mediaGoals h2{margin:0;font-size:18px;color:var(--mugo-deep-blue,#0c4160)}.mediaGoals small{color:var(--text-secondary,#5c6670)}
+.mediaGoals ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.mediaGoals li{display:grid;gap:2px;padding:10px 12px;border-radius:12px;background:var(--mugo-ivory,#f9f5ef)}

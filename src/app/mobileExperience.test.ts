@@ -15,8 +15,8 @@ describe("mobile product experience contracts", () => {
     // A navegação móvel usa os mesmos pontos de entrada transversais do desktop.
     expect(nav.match(/label: "Início"/g)?.length).toBe(1);
     expect(nav.match(/label: "Dashboard"/g)?.length).toBe(1);
-    expect(nav).not.toContain('label: "Meu trabalho"');
-    expect(nav).toContain('{ route: "mugo_ia", label: "Mugô IA" }');
+    expect(nav.match(/label: "Meu trabalho"/g)).toBeNull();  // saiu do menu: o Kanban do Início é o acesso às tarefas
+    expect(nav.match(/label: "Mugô IA"/g)?.length).toBe(1);
     expect(nav.match(/label: "Biblioteca"/g)?.length).toBe(1);
     expect(nav).not.toContain('label: "Fornecedores"');
     expect(nav).not.toContain('{ route: "calendar", label: "Calendário" }');

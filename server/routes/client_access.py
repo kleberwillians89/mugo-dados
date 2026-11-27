@@ -20,7 +20,7 @@ from services.client_access import (
     remove_client_access,
     reset_client_access_password,
 )
-from services.tenant import require_client_role, require_user_id, resolve_client_id
+from services.tenant import is_agency_user, require_client_role, require_user_id, resolve_client_id
 
 router = APIRouter(prefix="/api/client-access", tags=["client-access"])
 
@@ -91,6 +91,7 @@ async def access_reset_password(
             user_id=user_id,
             password=payload.get("password"),
             password_confirmation=payload.get("password_confirmation"),
+            actor_is_team=await is_agency_user(authorization, cid),
         )
     except AccessError as exc:
         _fail(exc)

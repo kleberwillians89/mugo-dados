@@ -17,12 +17,13 @@ export default function MainGoal({ goal, owner, onExplore }: { goal: Goal; owner
       <div><dt>{ceiling ? "Folga até o teto" : "Falta"}</dt><dd>{goal.available ? n(goal.remaining) : "—"}</dd></div>
       <div><dt>Dias restantes</dt><dd>{goal.days_left ?? "—"}</dd></div>
       {goal.required_daily != null ? <div><dt>{ceiling ? "Pode usar por dia" : "Necessário por dia"}</dt><dd>{n(goal.required_daily)}</dd></div> : null}
+      {goal.required_today != null ? <div><dt>Necessário hoje (dias da semana)</dt><dd>{n(goal.required_today)}</dd></div> : null}
       {goal.observed_daily != null ? <div><dt>Ritmo observado por dia</dt><dd>{n(goal.observed_daily)}</dd></div> : null}
-      {goal.projected_value != null ? <div><dt>Projeção ao fim (ritmo linear)</dt><dd>{n(goal.projected_value)}</dd></div> : null}
+      {goal.projected_value != null ? <div><dt>Projeção ao fim ({goal.pace_model === "sazonal" ? "ritmo dos dias da semana" : "ritmo linear"})</dt><dd>{n(goal.projected_value)}</dd></div> : null}
     </dl>
     <p className="goalMainReading">{goalReading(goal)}{goal.pace_note ? ` ${goal.pace_note}` : ""}</p>
     <div className="goalMainFoot">
-      <small>{goal.origin || ""}{goal.pace_model === "linear" ? " · ritmo linear (sem sazonalidade)" : ""}</small>
+      <small>{goal.origin || ""}{goal.pace_model === "linear" ? " · ritmo linear (sem sazonalidade)" : goal.pace_model === "sazonal" ? " · ritmo pelos dias da semana da marca (8 semanas anteriores)" : ""}</small>
       <button type="button" className="ds-button" onClick={onExplore}>Explorar indicadores e cenários</button>
     </div>
   </section>;

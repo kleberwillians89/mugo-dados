@@ -39,6 +39,12 @@ vi.mock("../app/connectionState", () => ({
   }),
 }));
 
+// As funções de integração saíram de api.ts para onboardingApi.ts: usa as mesmas simulações do mock de api.
+vi.mock("../app/onboardingApi", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const api = (await import("../app/api")) as Record<string, unknown>;
+  return Object.fromEntries(Object.keys(actual).map((key) => [key, key in api ? api[key] : actual[key]]));
+});
 vi.mock("../app/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../app/api")>();
   const metaConnection = {
@@ -91,6 +97,12 @@ async function renderOnboarding() {
     root.render(<Onboarding isAuthenticated />);
   });
   await act(async () => Promise.resolve());
+}
+
+async function openGoogle() {
+  const tab = Array.from(container.querySelectorAll<HTMLButtonElement>(".integrationPlatformTabs button"))
+    .find((button) => button.textContent === "Google")!;
+  await act(async () => tab.click());
 }
 
 function changeInput(input: HTMLInputElement, value: string) {
@@ -163,6 +175,7 @@ describe("Onboarding integration actions", () => {
   it("never lists Ads accounts when only a disconnected Ads connection exists", async () => {
     mocks.mode = "google_ads";
     await renderOnboarding();
+    await openGoogle();
     expect(mocks.listAds).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Conectar Google Ads");
     expect(container.textContent).not.toContain("ads-old");
@@ -320,6 +333,7 @@ describe("Onboarding integration actions", () => {
   it("lists properties on an existing GA4 connection without starting OAuth", async () => {
     mocks.mode = "ga4";
     await renderOnboarding();
+    await openGoogle();
     await selectAuthorization("ga4-existing");
     const button = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
     expect(button).toBeTruthy();
@@ -335,6 +349,7 @@ describe("Onboarding integration actions", () => {
   it("keeps the GA4 picker open while property loads streams and persists selection", async () => {
     mocks.mode = "ga4";
     await renderOnboarding();
+    await openGoogle();
     await selectAuthorization("ga4-existing");
     const open = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
     await act(async () => open?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
@@ -362,6 +377,7 @@ describe("Onboarding integration actions", () => {
       status: 409, code: "GOOGLE_REAUTH_REQUIRED", requestId: "req-reauth",
     }));
     await renderOnboarding();
+    await openGoogle();
     await selectAuthorization("ga4-existing");
     const select = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
     await act(async () => select?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
@@ -376,6 +392,7 @@ describe("Onboarding integration actions", () => {
       status: 409, code: "GOOGLE_ADMIN_API_DISABLED", requestId: "req-admin",
     }));
     await renderOnboarding();
+    await openGoogle();
     await selectAuthorization("ga4-existing");
     const select = [...container.querySelectorAll("button")].find((item) => item.textContent?.includes("Selecionar propriedade"));
     await act(async () => select?.dispatchEvent(new MouseEvent("click", { bubbles: true })));

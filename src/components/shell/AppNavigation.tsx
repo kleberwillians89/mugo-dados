@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
-  Activity, BrainCircuit, Building2, ChevronDown, Circle, ClipboardList, Cpu, CreditCard, Home, LayoutDashboard,
-  Library, ListChecks, Menu, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Plug, Settings, UserCog, Workflow, X, type LucideIcon,
+  Activity, BrainCircuit, Building2, CheckCheck, ChevronDown, Circle, ClipboardCheck, ClipboardList, Cpu, CreditCard, Home, LayoutDashboard,
+  Library, Menu, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Plug, Settings, UserCog, Workflow, X, type LucideIcon,
 } from "lucide-react";
 import type { ClientMembership } from "../../app/api";
 import { MUGO_LOGO_ASSETS, PRODUCT_WORDMARK } from "../MugoLogo";
@@ -35,12 +35,13 @@ type Props = {
 };
 
 /** `also`: telas que vivem dentro deste item (abas). O item fica ativo nelas e abre a primeira permitida. */
-type NavItem = { route: AppRoute; label: string; also?: AppRoute[] };
+type NavItem = { route: AppRoute; label: string; also?: AppRoute[]; highlight?: "gold" };
 const COLLAPSE_KEY = "mugo.sidebarCollapsed";
 
 // Um ícone por página: com o menu recolhido sobra só o ícone (o nome aparece ao passar o mouse).
 const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
-  home: Home, central: LayoutDashboard, tasks: ListChecks, library: Library,
+  home: Home, central: LayoutDashboard, library: Library,
+  internal_approval: ClipboardCheck, final_approval: CheckCheck,
   integrations: Plug, users: UserCog, companies: Building2, integration_health: Activity, plan: ClipboardList,
   plans_admin: CreditCard, ai_usage: Cpu, automations: Workflow, brand_ai: BrainCircuit, mugo_ia: MessageCircleQuestion,
 };
@@ -50,7 +51,9 @@ const ROUTE_ICONS: Partial<Record<AppRoute, LucideIcon>> = {
 const PRIMARY_ITEMS: NavItem[] = [
   { route: "home", label: "Início" },
   { route: "central", label: "Dashboard" },
-  { route: "mugo_ia", label: "Mugô IA" },
+  { route: "mugo_ia", label: "Mugô IA", highlight: "gold" },
+  { route: "internal_approval", label: "Aprovação Interna" },
+  { route: "final_approval", label: "Aprovação Final" },
   { route: "library", label: "Biblioteca" },
 ];
 
@@ -158,7 +161,8 @@ export default function AppNavigation({
     return (
       <li key={item.route}>
         <a
-          className={`appNavLink${item.route === "mugo_ia" ? " is-mugo-ia" : ""}`}
+          className="appNavLink"
+          data-highlight={item.highlight}
           href={getPathForRoute(target)}
           title={collapsed ? item.label : undefined}
           aria-current={routesOf(item).includes(route) ? "page" : undefined}

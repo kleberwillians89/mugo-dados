@@ -4,10 +4,11 @@ Números: qualquer membro da empresa (são da empresa ativa, revalidada no backe
 Caixa de entrada e mensagens: agência e admin da marca — é conversa com cliente final.
 """
 from __future__ import annotations
+from uuid import UUID, uuid4
 
 import re
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -64,11 +65,12 @@ async def read_whatsapp_messages(client_id: str, conversation_id: str, limit: in
 
 class WhatsAppReply(BaseModel):
     text: str = Field(min_length=1, max_length=4096)
+    request_id: UUID | None = None
 
 
 _REPLY_ERRORS = {
     "CONVERSATION_NOT_FOUND": 404, "EMPTY_MESSAGE": 422, "OUTSIDE_WINDOW": 409, "REPLY_UNSUPPORTED": 409,
-    "CRM_UNREACHABLE": 502, "SEND_FAILED": 502,
+    "CRM_UNREACHABLE": 502, "SEND_FAILED": 502, "SEND_OUTCOME_UNKNOWN": 502, "INVALID_REPLY": 422,
 }
 
 
@@ -80,7 +82,7 @@ async def reply_whatsapp_conversation(client_id: str, conversation_id: str, body
     cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
     author = "equipe Mugô" if await is_agency_user(authorization) else "equipe da marca"
     try:
-        return await brand_reply(cid, conversation_id, body.text, author=author)
+        return await brand_reply(cid, conversation_id, body.text, author=author, request_id=str(body.request_id or uuid4()))
     except StudioError as exc:
         status = _REPLY_ERRORS.get(exc.code, 502)
         detail = str(exc) if str(exc) and str(exc) != exc.code else "Não foi possível enviar agora."
@@ -378,12 +380,34 @@ class BulkCampaignDraftIn(BaseModel):
     name: str = Field(min_length=3, max_length=120)
     template_name: str = Field(min_length=3, max_length=81)
     language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
-    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp|capture)$")
+    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp|capture|planilha|leads_unificados)$")
     header_media_url: Optional[str] = Field(default=None, max_length=1000)
+    # Só para a planilha: os contatos escolhidos à mão (ex.: testar com poucos antes de mandar para todos).
+    selected_contacts: Optional[List[str]] = Field(default=None, max_length=5000)
 
 
 class BulkSendIn(BaseModel):
     scheduled_at: Optional[str] = Field(default=None, max_length=40)
+    exclude_previous_template_recipients: bool = True
+
+
+class BulkTestIn(BaseModel):
+    recipient_name: Optional[str] = Field(default=None, max_length=100)
+    phone: str = Field(min_length=8, max_length=32, pattern=r"^[+0-9() .-]+$")
+    template_name: str = Field(min_length=3, max_length=81, pattern=r"^[a-z0-9_]+$")
+    language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
+    header_media_url: Optional[str] = Field(default=None, max_length=1000, pattern=r"^https://")
+
+
+@router.post("/campaigns/test")
+async def whatsapp_campaign_test(client_id: str, payload: BulkTestIn, authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_campaign_send import BulkSendError, send_test
+    try:
+        recorded = await send_test(cid, **payload.model_dump())
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+    return {"ok": True, "status": "accepted", "recorded": recorded}
 
 
 @router.get("/campaigns/drafts")
@@ -429,7 +453,8 @@ async def whatsapp_campaign_send(client_id: str, draft_id: str, payload: Optiona
         raise HTTPException(status_code=404, detail="Campanha não encontrada.")
     from services.whatsapp_campaign_send import BulkSendError, start
     try:
-        return {"ok": True, **await start(cid, draft_id, (payload.scheduled_at if payload else None))}
+        return {"ok": True, **await start(cid, draft_id, payload.scheduled_at if payload else None,
+                                          payload.exclude_previous_template_recipients if payload else True)}
     except BulkSendError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from None
 

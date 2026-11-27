@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from services.ig_supabase import sb_delete, sb_insert, sb_update
 
 from services.studio_calendar import (
-    StudioError, create_item, delete_approval_item, delete_item, generate_month, list_items, load_profile,
+    ART_URL_MAX_LENGTH, StudioError, create_destinations, create_item, delete_approval_item, delete_item, generate_month, list_items, load_profile,
     parse_month, save_profile, update_item,
 )
 from services.studio_approvals import (
@@ -127,7 +127,18 @@ class GenerateInput(BaseModel):
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
 
 
+class PublicationDestination(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: Channel
+    format: Optional[Format] = None
+    caption_draft: Optional[str] = Field(default=None, max_length=4000)
+    scheduled_at: Optional[datetime] = None
+    art_url: Optional[str] = Field(default=None, max_length=ART_URL_MAX_LENGTH)
+
+
 class ItemCreate(BaseModel):
+    publication_group_id: Optional[UUID] = None
+    destinations: Optional[List[PublicationDestination]] = Field(default=None, max_length=5)
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     scheduled_at: datetime
     channel: Channel = "instagram"
@@ -137,7 +148,7 @@ class ItemCreate(BaseModel):
     hook: Optional[str] = Field(default=None, max_length=400)
     caption_draft: Optional[str] = Field(default=None, max_length=4000)
     rationale: Optional[str] = Field(default=None, max_length=1200)
-    art_url: Optional[str] = Field(default=None, max_length=1000)
+    art_url: Optional[str] = Field(default=None, max_length=ART_URL_MAX_LENGTH)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
@@ -179,7 +190,7 @@ class ItemPatch(BaseModel):
     rationale: Optional[str] = Field(default=None, max_length=1200)
     status: Optional[Status] = None
     review_note: Optional[str] = Field(default=None, max_length=1000)
-    art_url: Optional[str] = Field(default=None, max_length=1000)
+    art_url: Optional[str] = Field(default=None, max_length=ART_URL_MAX_LENGTH)
     collaborators: Optional[List[str]] = Field(default=None, max_length=3)
     product_tags: Optional[List["ProductTagInput"]] = Field(default=None, max_length=30)
     reels_options: Optional["ReelsOptionsInput"] = None
@@ -341,6 +352,11 @@ async def add_item(client_id: str, body: ItemCreate, authorization: str | None =
     await _agency_only(authorization)
     uid = await require_user_id(authorization)
     try:
+        if body.destinations:
+            if not body.publication_group_id:
+                raise HTTPException(status_code=422, detail="Identificador da criação compartilhada obrigatório.")
+            items = await create_destinations(cid, body.model_dump(mode="json"), user_id=uid)
+            return {"ok": True, "item": items[0], "items": items}
         item = await create_item(cid, body.model_dump(mode="json"), user_id=uid)
     except StudioError as exc:
         raise _http(exc) from None
@@ -369,7 +385,7 @@ class ImportRow(BaseModel):
     format: Format
     title: str = Field(min_length=1, max_length=200)
     caption: str = Field(default="", max_length=4000)
-    art_url: str = Field(default="", max_length=1000)
+    art_url: str = Field(default="", max_length=ART_URL_MAX_LENGTH)
 
 
 class ImportCommitInput(BaseModel):
@@ -738,8 +754,11 @@ async def new_art_upload_target(client_id: str, body: ArtUploadInput, authorizat
 ERRORS.update({
     "ART_LINK_INVALID": (422, "Cole um link de arquivo do Google Drive ou um link de visualização do Canva."),
     "ART_LINK_FOLDER": (422, "Esse é o link de uma pasta do Drive. Use o link do arquivo (botão direito no arquivo → Compartilhar → Copiar link)."),
+    "MUGO_IA_ACTION_NOT_FOUND": (404, "Proposta não encontrada."),
+    "MUGO_IA_ACTION_INVALID": (422, "Essa proposta não pode ser criada."),
     "ART_LINK_PRIVATE": (422, "O link não está público. No Drive/Canva, compartilhe como \"qualquer pessoa com o link pode ver\" e tente de novo."),
     "ART_LINK_UNREADABLE": (422, "Não deu para ler a arte desse link. Baixe o arquivo e arraste aqui."),
+    "ART_LINK_BLOCKED": (422, "O Canva não liberou a leitura automática deste design. Baixe no Canva (Compartilhar → Baixar) e arraste o arquivo aqui."),
     "ART_LINK_TOO_LARGE": (413, "Arquivo maior que 200 MB."),
 })
 
@@ -2041,6 +2060,8 @@ async def clear_brand_agent(client_id: str, authorization: str | None = Header(d
 class MugoIAInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=1500)
+    # Tela de criação de onde a pessoa chamou a Mugô IA (Briefing, Redação, Social Media…): ela ajuda naquela etapa.
+    screen: Optional[str] = Field(default=None, max_length=40)
 
 
 def _person_name(authorization: str | None, uid: str) -> str:
@@ -2057,19 +2078,48 @@ def _person_name(authorization: str | None, uid: str) -> str:
 async def read_mugo_ia(client_id: str, authorization: str | None = Header(default=None)):
     """Conversa desta pessoa com a Mugoverso IA desta empresa (privada de cada pessoa)."""
     from services.mugo_ia import history
+    from services.market_research import warm
     cid = await require_client_read(client_id, authorization)
-    return {"messages": await history(cid, await require_user_id(authorization))}
+    warm(cid)  # começa a pesquisa de mercado do dia enquanto a pessoa escreve
+    uid = await require_user_id(authorization)
+    from services.library_knowledge import schedule
+    schedule(cid, user_id=uid)  # e lê os documentos novos da Biblioteca: ninguém precisa abrir o Contexto da Marca antes
+    return {"messages": await history(cid, uid)}
 
 
 @router.post("/mugo-ia")
 async def ask_mugo_ia(client_id: str, body: MugoIAInput, authorization: str | None = Header(default=None)):
     """Pergunta à Mugoverso IA: lê todo o contexto deste cliente (e só dele). O que é só da equipe não vai para o cliente."""
     from services.mugo_ia import ask
+    from services.library_knowledge import schedule
     cid = await require_client_read(client_id, authorization)
     uid = await require_user_id(authorization)
     team = await is_agency_user(authorization)
+    schedule(cid, user_id=uid)  # chamada de dentro de uma tela (Pedir à Mugô IA): também lê o que é novo na Biblioteca
     try:
-        return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid))}
+        return {"ok": True, **await ask(cid, uid, body.question, team=team, person=_person_name(authorization, uid), screen=body.screen)}
+    except StudioError as exc:
+        raise _known(exc) from None
+
+
+class MugoIACreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    wa_botao_texto: Optional[str] = Field(default=None, max_length=25)
+    wa_botao_url: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.post("/mugo-ia/{message_id}/criar")
+async def create_from_mugo_ia(client_id: str, message_id: UUID, item: int = 0, body: Optional[MugoIACreateInput] = None,
+                              authorization: str | None = Header(default=None)):
+    """Botão Criar da Mugô IA: a proposta da resposta vira rascunho na ferramenta (nunca envia nem publica)."""
+    from services.mugo_ia_actions import execute
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    team = await is_agency_user(authorization)
+    try:
+        return {"ok": True, **await execute(cid, str(message_id), user_id=uid, author=_chat_author(authorization, uid) or "",
+                                            team=team, item=max(0, min(item, 10)),
+                                            edits=body.model_dump(exclude_none=True) if body else None)}
     except StudioError as exc:
         raise _known(exc) from None
 
@@ -2369,7 +2419,19 @@ async def add_library_item(client_id: str, body: LibraryItemInput, authorization
                               side="mugo" if team else "cliente")
     except StudioError as exc:
         raise _known(exc) from None
+    from services.library_knowledge import DOC_TYPES, schedule
+    if item.get("kind") == "arquivo" and str(item.get("mime_type") or "").lower() in DOC_TYPES:
+        schedule(cid, user_id=uid)  # a IA lê o documento em segundo plano (vira Conhecimento da marca)
     return {"item": {**item, "can_delete": True}}
+
+
+@router.post("/library/learn")
+async def learn_library(client_id: str, authorization: str | None = Header(default=None)):
+    """A IA lê os documentos da Biblioteca que ainda não viraram Conhecimento da marca (até 4 por rodada)."""
+    from services.library_knowledge import sync
+    cid = await require_client_role(client_id, authorization, allowed_roles=WRITERS)
+    uid = await require_user_id(authorization)
+    return await sync(cid, user_id=uid)
 
 
 class LibraryCloudFileInput(CloudFileInput):

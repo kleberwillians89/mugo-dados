@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
+import { getPathForRoute, openAppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import ContentMatrix from "../components/studio/ContentMatrix";
@@ -18,6 +19,7 @@ type SocialMediaProps = {
   canManageCalendar?: boolean;
   canApproveMatrix?: boolean;
   isAgency?: boolean;
+  canViewSocialPerformance?: boolean;
   initialTab?: SocialMediaTab;
 };
 
@@ -48,6 +50,7 @@ export default function Campaigns({
   canManageCalendar = true,
   canApproveMatrix = false,
   isAgency = false,
+  canViewSocialPerformance = false,
   initialTab,
 }: SocialMediaProps) {
   const clientId = getActiveClientId();
@@ -78,6 +81,12 @@ export default function Campaigns({
 
   return <Shell title="Social Media" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Social Media" />
+    {canViewSocial && canViewSocialPerformance ? <a className="ds-button" href={getPathForRoute("process_social")}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        openAppRoute("process_social");
+      }}>Ver desempenho orgânico e pago</a> : null}
     {canViewSocial ? <BrandContextPanel clientId={clientId} /> : null}
     {canViewSocial ? <section id="social-matriz" className="socialWorkspaceSection" aria-labelledby="social-matriz-title">
       <header className="socialSectionHeader"><span>01</span><div><h2 id="social-matriz-title">Matriz Tática de Conteúdo</h2><p>Planejamento editorial do período escolhido (4 semanas por padrão, até 8).</p></div></header>
