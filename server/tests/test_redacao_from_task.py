@@ -28,16 +28,23 @@ class DocumentTests(unittest.IsolatedAsyncioTestCase):
         create = AsyncMock(return_value={"id": "d1", "title": "Black Ruah · Legenda do Reels", "kind": "legenda"})
         update = AsyncMock(return_value={"id": "d1", "title": "Black Ruah · Legenda do Reels", "kind": "legenda"})
         ai = AsyncMock(return_value={"text": "Primeiro parágrafo.\n\nSegundo <b>."})
-        link = AsyncMock()
+        claim = {"acquired": True, "link_status": "pending"}
+        reserve = AsyncMock(return_value=claim)
+        complete = AsyncMock()
         with patch.object(rft, "task_context", AsyncMock(return_value=CTX)), patch.object(rft, "_safe_linked", AsyncMock(return_value=[])), \
              patch.object(studio_documents, "create_document", create), patch.object(studio_documents, "update_document", update), \
-             patch.object(studio_documents, "ai_write", ai), patch.object(rft, "record_link", link):
+             patch.object(studio_documents, "ai_write", ai), patch.object(rft, "claim_work", reserve), \
+             patch.object(rft, "complete_work", complete):
             out = await rft.document_from_task("ruah", "t1", {}, user_id="u1")
         self.assertEqual(out["created"]["id"], "d1")
         self.assertEqual(create.await_args.args[1], {"title": "Black Ruah · Legenda do Reels", "kind": "legenda"})
         self.assertIn("Resumo: Black com frete grátis", ai.await_args.args[1]["instruction"])
         self.assertEqual(update.await_args.args[2]["content_html"], "<p>Primeiro parágrafo.</p><p>Segundo &lt;b&gt;.</p>")
-        self.assertEqual(link.await_args.kwargs["module"], "redacao")
+        reserve.assert_awaited_once()
+        self.assertEqual(reserve.await_args.args, ("ruah", "t1"))
+        self.assertEqual(reserve.await_args.kwargs["module"], "redacao")
+        self.assertEqual(reserve.await_args.kwargs["deliverable"], "Legenda do Reels")
+        complete.assert_awaited_once_with(claim, "d1")
 
     async def test_existing_document_is_resumed_not_duplicated(self):
         with patch.object(rft, "task_context", AsyncMock(return_value=CTX)), \
