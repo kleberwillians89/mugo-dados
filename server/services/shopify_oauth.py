@@ -316,9 +316,22 @@ def settings() -> Dict[str, str]:
     return result
 
 
+async def settings_for_shop(shop_domain: str) -> Dict[str, str]:
+    """App Shopify desta loja (cadastro por cliente) ou o padrão das variáveis de ambiente.
+
+    Distribuição personalizada: cada loja só instala o app gerado para ela, então cada cliente tem o seu.
+    """
+    from .shopify_app_credentials import for_shop
+    own = await for_shop(shop_domain)
+    if own:
+        redirect = _validated_redirect_uri(_env("SHOPIFY_OAUTH_REDIRECT_URI"))
+        return {"client_id": own["client_id"], "client_secret": own["client_secret"], "redirect_uri": redirect}
+    return settings()
+
+
 async def authorization_url(*, user_id: str, client_id: str, shop_domain: str) -> str:
     shop = normalize_shop_domain(shop_domain)
-    config = settings()
+    config = await settings_for_shop(shop)
     state = await create_oauth_state(
         provider="shopify",
         user_id=user_id,
@@ -335,7 +348,7 @@ async def authorization_url(*, user_id: str, client_id: str, shop_domain: str) -
     return f"https://{shop}/admin/oauth/authorize?{urlencode(params)}"
 
 
-def verify_callback_hmac(params: Dict[str, str]) -> bool:
+def verify_callback_hmac(params: Dict[str, str], secret: str | None = None) -> bool:
     provided = str(params.get("hmac") or "")
     if not provided:
         return False
@@ -343,7 +356,7 @@ def verify_callback_hmac(params: Dict[str, str]) -> bool:
         f"{key}={value}" for key, value in sorted(params.items()) if key not in {"hmac", "signature"}
     )
     expected = hmac.new(
-        settings()["client_secret"].encode("utf-8"), message.encode("utf-8"), hashlib.sha256
+        (secret or settings()["client_secret"]).encode("utf-8"), message.encode("utf-8"), hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected, provided)
 
@@ -353,7 +366,7 @@ async def exchange_code(*, shop_domain: str, code: str) -> Dict[str, Any]:
     # recurso da Admin API versionada (nunca /admin/api/{version}/oauth/...).
     shop = normalize_shop_domain(shop_domain)
     path = "/admin/oauth/access_token"
-    config = settings()
+    config = await settings_for_shop(shop)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(

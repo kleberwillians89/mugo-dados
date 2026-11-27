@@ -76,7 +76,11 @@ async def shopify_webhook(
         raise HTTPException(status_code=400, detail="Header X-Shopify-Shop-Domain é obrigatório.")
 
     raw_body = await request.body()
-    is_valid_hmac, _computed_hmac, hmac_debug = validate_shopify_hmac(raw_body, x_shopify_hmac_sha256)
+    # Loja com app próprio (um app por cliente): assina com o segredo dele. Sem cadastro: o app padrão.
+    from services.shopify_app_credentials import for_shop
+    own_app = await for_shop(shop_domain)
+    is_valid_hmac, _computed_hmac, hmac_debug = validate_shopify_hmac(
+        raw_body, x_shopify_hmac_sha256, own_app["client_secret"] if own_app else None)
     if not is_valid_hmac:
         _log_shopify_event(
             status="rejected_hmac",

@@ -4,7 +4,8 @@ import os
 from typing import Dict
 from urllib.parse import parse_qs, urlencode, urlparse
 
-from fastapi import APIRouter, BackgroundTasks, Header, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Header, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from fastapi.responses import RedirectResponse
 
 from services.generic_connections import disconnect_generic_connection, get_connection
@@ -84,6 +85,42 @@ async def _run_initial_sync_isolated(*, client_id: str, connection_id: str, shop
         _log_stage("initial_sync", client_id=client_id, shop_domain=shop_domain, connection_id=connection_id, status="error", error=exc)
 
 
+class AppCredentials(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    shop_domain: str = Field(min_length=3, max_length=200)
+    app_client_id: str = Field(min_length=8, max_length=120)
+    client_secret: str = Field(min_length=16, max_length=200)
+
+
+@router.get("/app")
+async def own_app(client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                  authorization: str | None = Header(default=None)):
+    """Lojas desta empresa com app Shopify próprio (só o fim do Client ID; o segredo nunca volta)."""
+    from services.shopify_app_credentials import view
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=("agency_admin",))
+    return await view(cid)
+
+
+@router.put("/app")
+async def save_own_app(body: dict = Body(default_factory=dict), client_id: str | None = Query(default=None),
+                       x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                       authorization: str | None = Header(default=None)):
+    """Cadastra o app Shopify desta loja (Dev Dashboard, distribuição personalizada). Só a equipe Mugô."""
+    from services.shopify_app_credentials import CredentialError, save
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=("agency_admin",))
+    user_id = await require_user_id(authorization)
+    # Valida o corpo só DEPOIS da permissão: quem não pode nunca recebe detalhe do formulário.
+    try:
+        body = AppCredentials.model_validate(body)
+    except ValidationError:
+        raise HTTPException(status_code=422, detail="Preencha o domínio da loja, o Client ID e o Client Secret.") from None
+    try:
+        return await save(cid, shop_domain=body.shop_domain, app_client_id=body.app_client_id,
+                          client_secret=body.client_secret, actor_id=user_id)
+    except CredentialError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 @router.get("/start")
 async def start(
     shop: str,
@@ -124,7 +161,10 @@ async def callback(request: Request, background_tasks: BackgroundTasks):
     try:
         params = {key: value for key, value in request.query_params.items()}
         _log_stage(stage, status="received")
-        if not verify_callback_hmac(params):
+        # O callback é assinado com o segredo do app DESTA loja (cada cliente pode ter o seu).
+        from services.shopify_app_credentials import for_shop
+        own_app = await for_shop(str(params.get("shop") or ""))
+        if not verify_callback_hmac(params, own_app["client_secret"] if own_app else None):
             raise RuntimeError("HMAC do callback Shopify inválido.")
         code = str(params.get("code") or "")
         state = str(params.get("state") or "")

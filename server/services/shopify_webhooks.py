@@ -225,9 +225,10 @@ def _shopify_secret_debug(secret: str) -> Dict[str, Any]:
     }
 
 
-def validate_shopify_hmac(raw_body: bytes, provided_hmac: Optional[str]) -> Tuple[bool, str, Dict[str, Any]]:
+def validate_shopify_hmac(raw_body: bytes, provided_hmac: Optional[str], secret: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
+    """Assinatura do webhook. `secret`: o do app da loja (cadastro por cliente); vazio = o app padrão."""
     header_hmac = _safe_str(provided_hmac)
-    secret = _shopify_secret()
+    secret = secret or _shopify_secret()
     digest = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).digest()
     computed_hmac = base64.b64encode(digest).decode("utf-8")
     is_valid = bool(header_hmac) and hmac.compare_digest(computed_hmac, header_hmac)
