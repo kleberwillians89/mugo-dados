@@ -37,6 +37,7 @@ class Fake:
         self.task, self.brief, self.links, self.campaigns = task or task_row(), brief, links or [], campaigns or []
         self.inserts = []
         self.brief_filters = None
+        self.claim = None
 
     async def select(self, table, select=None, filters=None, **_):
         filters = filters or {}
@@ -57,9 +58,24 @@ class Fake:
     async def insert(self, table, row, **_):
         self.inserts.append((table, row))
 
+    async def rpc(self, name, args):
+        if name == "claim_task_work_link":
+            self.claim = args
+            return [{"link_id": "link-1", "link_status": "pending", "record_id": None, "acquired": True}]
+        if name == "complete_task_work_link":
+            row = {"client_id": self.claim["p_client_id"], "task_id": self.claim["p_task_id"],
+                   "brief_id": self.claim["p_brief_id"], "module": self.claim["p_module"],
+                   "deliverable": self.claim["p_deliverable"], "record_id": args["p_record_id"],
+                   "operation_key": self.claim["p_operation_key"]}
+            self.inserts.append(("task_work_links", row))
+            return {**row, "id": "link-1", "link_status": "linked"}
+        if name == "fail_task_work_link":
+            return None
+        raise AssertionError(name)
+
 
 def patched(fake):
-    return [patch.object(tc, "sb_select", fake.select), patch.object(tc, "sb_insert", fake.insert),
+    return [patch.object(tc, "sb_select", fake.select), patch.object(tc, "sb_rpc", fake.rpc),
             patch("services.ig_supabase.sb_select", fake.select)]
 
 

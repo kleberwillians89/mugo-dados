@@ -400,12 +400,16 @@ async def create_person_task(client_id: str, brief_id: str, *, role: str, user_i
             due = max(date.fromisoformat(str(due)), datetime.now(SAO_PAULO).date()).isoformat()
         except ValueError:
             due = None
+    origin_key = f"brief:{brief_id}:role:{role}:assignee:{assignee_user_id or who.casefold()}"
     task = await create_task(client_id, {
         "title": f"{ROLES[role]}: {str(b.get('title') or 'briefing')[:150]}", "notes": task_text(row, role, note),
         "category": ROLES[role], "status": "pending", "priority": "medium", "due_date": due, "assignee_name": who,
         "assignee_user_id": assignee_user_id, "visible_to_client": role in ("cliente", "dono"), "needs_client_approval": False,
-    }, user_id=user_id, client_view=False)
-    tasks = [*(row.get("tasks") or []), {"task_id": task.get("id"), "role": role, "name": who, "user_id": assignee_user_id, "at": _now()}]
-    await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{brief_id}"},
-                    patch={"tasks": tasks, "status": "distribuido", "updated_at": _now()})
-    return {**row, "tasks": tasks, "status": "distribuido"}
+    }, user_id=user_id, client_view=False, origin_key=origin_key)
+    from .ig_supabase import sb_rpc
+    entry = {"role": role, "name": who, "user_id": assignee_user_id, "at": _now()}
+    saved = await sb_rpc("append_studio_brief_task", {
+        "p_client_id": client_id, "p_brief_id": brief_id, "p_task_id": task.get("id"), "p_entry": entry,
+    })
+    saved_row = saved[0] if isinstance(saved, list) and saved else saved if isinstance(saved, dict) else row
+    return {**saved_row, "status": "distribuido"}

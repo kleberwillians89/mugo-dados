@@ -274,7 +274,7 @@ async def _normalize_assignees(client_id: str, row: Dict[str, Any], *, only_user
 
 
 async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, client_view: bool,
-                      only_user: Optional[str] = None) -> Dict[str, Any]:
+                      only_user: Optional[str] = None, origin_key: Optional[str] = None) -> Dict[str, Any]:
     # Delivery preference belongs to the creation request, not the tasks table.
     send_whatsapp = data.get("send_whatsapp") is not False
     row = _clean(data, partial=False)
@@ -285,7 +285,19 @@ async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, cli
     row.setdefault("needs_client_approval", False)  # new tasks require client review only by explicit choice
     if client_view:
         row["visible_to_client"] = True  # o que o cliente cria é dele também
-    created = await sb_insert(TABLE, {"client_id": client_id, "created_by": user_id, **row})
+    payload = {"client_id": client_id, "created_by": user_id, **row}
+    if origin_key:
+        payload["origin_key"] = str(origin_key)[:240]
+    try:
+        created = await sb_insert(TABLE, payload)
+    except Exception:
+        if not origin_key:
+            raise
+        existing = await sb_select(TABLE, select=MULTI_COLUMNS, filters={
+            "client_id": f"eq.{client_id}", "origin_key": f"eq.{str(origin_key)[:240]}"}, limit=1)
+        if not existing:
+            raise
+        return task_view(existing[0], client_view=client_view)
     if not created:
         raise StudioError("TASK_SAVE_FAILED")
     # Persist private notifications after the task is committed. Delivery errors

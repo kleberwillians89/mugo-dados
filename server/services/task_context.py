@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from typing import Any, Dict, List, Optional
 
-from .ig_supabase import sb_insert, sb_select
+from .ig_supabase import sb_rpc, sb_select
 from .studio_calendar import StudioError
 from .studio_tasks import MULTI_COLUMNS, OPEN_STATUSES, TABLE as TASKS, _mine, list_tasks, task_view
 
@@ -132,23 +133,75 @@ async def links_for(client_id: str, task_id: str, module: Optional[str] = None) 
     if module:
         filters["module"] = f"eq.{module}"
     try:
-        return await sb_select(LINKS, select="id,module,deliverable,record_id,created_at", filters=filters,
+        return await sb_select(LINKS, select="id,module,deliverable,record_id,operation_key,link_status,created_at",
+                               filters={**filters, "link_status": "eq.linked"},
                                order="created_at.desc", limit=50)
-    except Exception as exc:  # noqa: BLE001 — sem a migração 000159: sem vínculos, nada quebra
-        print(f"[task_context] links_unavailable client_id={client_id} {type(exc).__name__}")
-        return []
+    except Exception:  # noqa: BLE001 — compatibilidade somente durante rollout da 000166
+        try:
+            return await sb_select(LINKS, select="id,module,deliverable,record_id,created_at", filters=filters,
+                                   order="created_at.desc", limit=50)
+        except Exception as exc:  # noqa: BLE001 — sem a migração 000159: sem vínculos, nada quebra
+            print(f"[task_context] links_unavailable client_id={client_id} {type(exc).__name__}")
+            return []
+
+
+def work_operation_key(module: str, deliverable: str = "", *, version: Optional[str] = None) -> str:
+    raw = _text(deliverable, 160).casefold() or "default"
+    normalized = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")[:100] or "default"
+    return f"{module}:{normalized}" + (f":{_text(version, 40)}" if version else "")
+
+
+async def claim_work(client_id: str, task_id: str, *, module: str, operation_key: str,
+                     deliverable: str = "", brief_id: Optional[str] = None,
+                     user_id: Optional[str] = None) -> Dict[str, Any]:
+    if module not in MODULES:
+        raise StudioError("MODULE_INVALID", "Módulo inválido.")
+    token = str(uuid.uuid4())
+    rows = await sb_rpc("claim_task_work_link", {
+        "p_client_id": client_id, "p_task_id": task_id, "p_brief_id": brief_id,
+        "p_module": module, "p_deliverable": _text(deliverable, 160),
+        "p_operation_key": _text(operation_key, 160), "p_claim_token": token,
+        "p_created_by": user_id,
+    })
+    row = rows[0] if isinstance(rows, list) and rows else rows if isinstance(rows, dict) else None
+    if not row:
+        raise StudioError("WORK_LINK_FAILED", "Não foi possível reservar este trabalho.")
+    return {**row, "claim_token": token}
+
+
+async def complete_work(claim: Dict[str, Any], record_id: str) -> Dict[str, Any]:
+    rows = await sb_rpc("complete_task_work_link", {
+        "p_link_id": claim["link_id"], "p_claim_token": claim["claim_token"],
+        "p_record_id": str(record_id)[:80],
+    })
+    row = rows[0] if isinstance(rows, list) and rows else rows if isinstance(rows, dict) else None
+    if not row:
+        raise StudioError("WORK_LINK_FAILED", "O conteúdo foi criado, mas o vínculo não foi confirmado.")
+    return row
+
+
+async def fail_work(claim: Dict[str, Any]) -> None:
+    try:
+        await sb_rpc("fail_task_work_link", {
+            "p_link_id": claim["link_id"], "p_claim_token": claim["claim_token"],
+        })
+    except Exception as exc:  # noqa: BLE001 - falha original continua sendo a resposta
+        print(f"[task_context] claim_release_failed {type(exc).__name__}")
 
 
 async def record_link(client_id: str, task_id: str, *, module: str, record_id: str, deliverable: str = "",
-                      brief_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
-    if module not in MODULES:
-        raise StudioError("MODULE_INVALID", "Módulo inválido.")
-    try:
-        await sb_insert(LINKS, {"client_id": client_id, "task_id": task_id, "brief_id": brief_id, "module": module,
-                                "deliverable": _text(deliverable, 160), "record_id": str(record_id)[:80], "created_by": user_id},
-                        returning="minimal")
-    except Exception as exc:  # noqa: BLE001 — o trabalho foi criado; só o vínculo ficou para trás
-        print(f"[task_context] link_failed client_id={client_id} module={module} {type(exc).__name__}")
+                      brief_id: Optional[str] = None, user_id: Optional[str] = None,
+                      operation_key: Optional[str] = None) -> Dict[str, Any]:
+    key = operation_key or work_operation_key(module, deliverable, version=str(record_id))
+    claim = await claim_work(client_id, task_id, module=module, operation_key=key, deliverable=deliverable,
+                             brief_id=brief_id, user_id=user_id)
+    if claim.get("link_status") == "linked":
+        if str(claim.get("record_id")) != str(record_id):
+            raise StudioError("WORK_ALREADY_LINKED", "Esta operação já está vinculada a outro conteúdo.")
+        return claim
+    if not claim.get("acquired"):
+        raise StudioError("WORK_IN_PROGRESS", "Este conteúdo já está sendo criado. Aguarde e atualize a tela.")
+    return await complete_work(claim, record_id)
 
 
 async def task_context(client_id: str, task_id: str, scope: Dict[str, Any], *, module: Optional[str] = None) -> Dict[str, Any]:
