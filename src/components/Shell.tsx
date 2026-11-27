@@ -1,7 +1,7 @@
 // src/components/Shell.tsx
 import React from "react";
 import { getActiveClientId } from "../app/activeClient";
-import GlobalTaskChat from "./studio/GlobalTaskChat";
+import WorkKanban from "./shell/WorkKanban";
 
 type Props = {
   title: string;
@@ -48,8 +48,7 @@ export default function Shell({
       <div className={`app appShell ${themeClass || ""}`.trim()}>
         {right ? <div className="ds-utilityBar">{right}</div> : null}
         {demoNotice}
-        <main className="content ds-content" aria-label={title || undefined}>{children}</main>
-        <GlobalTaskChat />
+        <main className="content ds-content" aria-label={title || undefined}><WorkKanban />{children}</main>
       </div>
     );
   }
@@ -88,8 +87,7 @@ export default function Shell({
       </header>
 
       {demoNotice}
-      <main className="content">{children}</main>
-      <GlobalTaskChat />
+      <main className="content"><WorkKanban />{children}</main>
     </div>
   );
 }

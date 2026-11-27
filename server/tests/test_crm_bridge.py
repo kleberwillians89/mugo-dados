@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from routes import crm as crm_routes
 from services import crm_bridge as cb
 from services.studio_calendar import StudioError
+from services.team_access import route_module
 
 ENV = {"CRM_OPS_API_URL": "https://crm.example/functions/v1/dados-ops-api/", "CRM_OPS_API_KEY": "k-test"}
 CONV = "11111111-1111-1111-1111-111111111111"
@@ -106,6 +107,10 @@ class ClientAudienceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AgencyOnlyRouteTests(unittest.IsolatedAsyncioTestCase):
+    def test_task_cancellation_requires_tasks_edit_not_calendar_edit(self):
+        self.assertEqual(route_module("PATCH", "/api/clients/roove/crm/tasks/11111111-1111-1111-1111-111111111111"),
+                         ("tasks", "tasks.edit"))
+
     async def test_conversations_stay_agency_only(self):
         guard = AsyncMock(return_value="roove-test")
         with patch.object(crm_routes, "require_client_role", guard), \

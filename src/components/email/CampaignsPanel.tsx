@@ -3,12 +3,14 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { formatDateTimeSaoPaulo } from "../../app/dataFormat";
 import { getActiveClientId } from "../../app/activeClient";
 import {
-  cancelCampaign, createCampaign, deleteCampaign, getCampaign, listCampaigns, listRelationshipLists, preflightCampaign, previewAudience, previewEmail, scheduleCampaign,
-  SEGMENT_LABEL, sendTestEmail, STATUS_LABEL, updateCampaign, VARIABLE_HINT,
+  cancelCampaign, createCampaign, deleteCampaign, getCampaign, importEmailConsents, listCampaigns, listRelationshipLists, preflightCampaign, previewAudience, previewEmail, scheduleCampaign,
+  SEGMENT_LABEL, sendTestEmail, submitEmailReview, STATUS_LABEL, updateCampaign, VARIABLE_HINT,
   type Audience, type AudiencePreview, type RelationshipList, type Campaign, type CampaignStats, type CampaignSummary, type HtmlReport, type Segment,
 } from "../../app/emailMarketing";
 import BlockEditor from "./BlockEditor";
 import EmailPreview from "./EmailPreview";
+import KanbanTaskStart from "../work/KanbanTaskStart";
+import { createEmailFromTask, type LinkedCampaign, type TaskContext } from "../../app/taskWork";
 import HtmlInput from "./HtmlInput";
 
 const pct = (value: number | null | undefined) => (value == null ? "—" : `${value.toLocaleString("pt-BR")}%`);
@@ -36,15 +38,21 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   const [audience, setAudience] = useState<AudiencePreview | null>(null);
   const [savedLists, setSavedLists] = useState<RelationshipList[]>([]);
   const [report, setReport] = useState<HtmlReport | null>(null);
+  const [consentFile, setConsentFile] = useState<File | null>(null);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [testTo, setTestTo] = useState("");
   const [when, setWhen] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
+    setUploading(false); setDirty(false);
     setCampaign(null); setAudience(null); setStats(null);
+    setConsentFile(null); setConsentConfirmed(false);
     getCampaign(id).then((out) => {
       if (!alive) return;
       setCampaign(out.campaign); setStats(out.stats); setMode(out.campaign.custom_html ? "html" : "blocos");
@@ -59,8 +67,15 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
     return () => { alive = false; };
   }, [tenant]);
 
-  const editable = canEdit && !!campaign && ["rascunho", "agendada"].includes(campaign.status);
-  const change = (patch: Partial<Campaign>) => setCampaign((current) => (current ? { ...current, ...patch } : current));
+  const editable = canEdit && campaign?.status === "rascunho" && !busy;
+  const change = (patch: Partial<Campaign>) => {
+    setDirty(true);
+    setCampaign((current) => (current ? { ...current, ...patch } : current));
+  };
+  const changeMode = (next: typeof mode) => {
+    if (next !== mode) setDirty(true);
+    setMode(next);
+  };
   const setAud = (patch: Partial<Audience>) => { setAudience(null); if (campaign) change({ audience: { ...campaign.audience, ...patch } }); };
 
   async function run(label: string, action: () => Promise<void>) {
@@ -68,21 +83,48 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
     try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível concluir."); } finally { setBusy(""); }
   }
   const payload = () => campaign && {
-    name: campaign.name, subject: campaign.subject, preheader: campaign.preheader, design: campaign.design, audience: campaign.audience,
+    expected_updated_at: campaign.updated_at, name: campaign.name, subject: campaign.subject, preheader: campaign.preheader, design: campaign.design, audience: campaign.audience,
     custom_html: mode === "html" ? campaign.custom_html || "" : null,
   };
   const save = () => run("save", async () => {
     const out = await updateCampaign(id, payload()!);
-    setCampaign(out.campaign); setMessage("Campanha salva.");
+    setCampaign(out.campaign); setDirty(false); setMessage("Campanha salva.");
   });
 
   if (!campaign) return error ? <p className="emError" role="alert">{error}</p> : <p className="emMuted">Abrindo campanha…</p>;
+  const review = campaign.review;
+  const lastReview = review?.versions.at(-1);
+  const reviewLabel = review && (dirty ? "Alterações ainda não salvas" : {
+    draft: "Aguardando submissão", pending: "Em aprovação interna", approved: "Aprovado", changes_requested: "Ajustes solicitados",
+  }[review.status]);
   return (
     <div className="emEditor">
       <div className="emEditorTop">
-        <button type="button" className="ds-button" onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /> Campanhas</button>
+        <button type="button" className="ds-button" disabled={uploading} onClick={onBack}><ArrowLeft size={15} aria-hidden="true" /> Campanhas</button>
         <span className={`emPill is-${campaign.status}`}>{STATUS_LABEL[campaign.status]}</span>
       </div>
+      {canEdit && ["rascunho", "agendada"].includes(campaign.status) ? <section className="emCard emQuickTest" aria-label="Teste do e-mail">
+        <strong>Testar o e-mail</strong>
+        <div className="emInlineRow">
+          <input type="email" aria-label="E-mail para teste" placeholder="seu@email.com" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+          <button type="button" className="ds-button" disabled={uploading || !!busy || !testTo}
+            onClick={() => void run("test", async () => {
+              const out = await sendTestEmail(id, testTo, payload()!);
+              setMessage(out.status === "simulado" ? "Teste registrado (modo simulado: nada saiu)." : `Teste enviado para ${testTo}.`);
+            })}>{busy === "test" ? "Enviando…" : "Enviar teste"}</button>
+        </div>
+        <small className="emMuted">Envia uma cópia somente para o endereço informado; não aprova nem dispara a campanha.</small>
+      </section> : null}
+      {error ? <p className="emError" role="alert">{error}</p> : null}
+      {message ? <p className="emOk" role="status">{message}</p> : null}
+      {reviewLabel ? <p className="emNotice">{reviewLabel}{lastReview?.decision === "changes_requested" && lastReview.comment ? ` · ${lastReview.comment}` : ""}</p> : null}
+      {review?.versions.length ? <details className="emCard"><summary>Histórico de aprovação</summary>
+        <ol>{review.versions.map((entry) => <li key={entry.version}>
+          Versão {entry.version} · Solicitada por {(entry.requested_by_name || entry.requested_by)} em {formatDateTimeSaoPaulo(entry.requested_at)}
+          {entry.decided_at ? ` · ${entry.decision === "approved" ? "Aprovada" : "Ajustes solicitados"} por ${(entry.decided_by_name || entry.decided_by)} em ${formatDateTimeSaoPaulo(entry.decided_at)}` : ""}
+          {entry.comment ? <p>{entry.comment}</p> : null}
+        </li>)}</ol>
+      </details> : null}
       <div className="emEditorGrid">
         <div className="emEditorForm">
           <section className="emCard">
@@ -99,12 +141,12 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             <header className="emCardHead">
               <h3>Conteúdo</h3>
               <div className="ds-segmented" role="group" aria-label="Modo de edição">
-                <button type="button" aria-pressed={mode === "blocos"} onClick={() => setMode("blocos")} disabled={!editable}>Blocos</button>
-                <button type="button" aria-pressed={mode === "html"} onClick={() => setMode("html")} disabled={!editable}>HTML próprio</button>
+                <button type="button" aria-pressed={mode === "blocos"} onClick={() => changeMode("blocos")} disabled={!editable}>Blocos</button>
+                <button type="button" aria-pressed={mode === "html"} onClick={() => changeMode("html")} disabled={!editable || uploading}>HTML próprio</button>
               </div>
             </header>
             {mode === "blocos" ? (
-              <BlockEditor design={campaign.design} disabled={!editable} onChange={(design) => change({ design })} />
+              <BlockEditor key={`${tenant}:${id}`} allowImageUpload onUploadPending={setUploading} design={campaign.design} disabled={!editable || !!busy} onChange={(design) => change({ design })} />
             ) : (
               <HtmlInput value={campaign.custom_html || ""} disabled={!editable} report={report} hint={`Variáveis: ${VARIABLE_HINT}`}
                 onChange={(custom_html) => change({ custom_html })} />
@@ -130,18 +172,39 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                   {savedLists.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
                 </select>
               ) : null}
+              {campaign.audience.segment === "leads_unificados" ? (
+                <p className="emHint">Reúne Excel/CSV, captação e conversas do WhatsApp, com um envio por e-mail.</p>
+              ) : null}
               <p className="emHint">Segurança de marketing: somente contatos com aceite comprovado
                 na plataforma conectada. Importar uma lista não cria consentimento.</p>
+              {editable && ["planilha", "leads_unificados"].includes(campaign.audience.segment) ? (
+                <div>
+                  <label>Planilha de aceites de e-mail <input type="file" accept=".xlsx,.csv"
+                    onChange={(event) => { setConsentFile(event.target.files?.[0] ?? null); setConsentConfirmed(false); }} /></label>
+                  <label><input type="checkbox" checked={consentConfirmed}
+                    onChange={(event) => setConsentConfirmed(event.target.checked)} />
+                    A coluna de aceite corresponde a receber marketing por e-mail desta marca.</label>
+                  <button type="button" className="ds-button" disabled={uploading || !!busy || !consentFile || !consentConfirmed}
+                    onClick={() => void run("import", async () => {
+                      const result = await importEmailConsents(consentFile!);
+                      setAudience(await previewAudience(campaign.audience));
+                      setMessage(`${int(result.with_consent)} aceites registrados na planilha. Confira o público elegível abaixo.`);
+                    })}>Importar aceites</button>
+                </div>
+              ) : null}
               {canEdit ? (
-                <button type="button" className="ds-button" disabled={!!busy}
+                <button type="button" className="ds-button" disabled={uploading || !!busy}
                   onClick={() => void run("audience", async () => setAudience(await previewAudience(campaign.audience)))}>
                   {busy === "audience" ? "Contando…" : "Contar público"}</button>
               ) : null}
             </div>
             {audience ? (
-              <p className="emAudienceCount"><strong>{int(audience.count)}</strong> pessoas recebem · base com e-mail {int(audience.base)}
-                {audience.consent_known ? ` · ${int(audience.with_consent)} aceitaram marketing` : " · a loja não informa consentimento"}
-                {audience.blocked ? ` · ${int(audience.blocked)} descadastrados/bounce ficam de fora` : ""}</p>
+              <p className="emAudienceCount"><strong>{int(audience.count)}</strong> {audience.count === 1 ? "pessoa recebe" : "pessoas recebem"}
+                {audience.source_count != null ? ` · ${int(audience.source_count)} e-mails identificados na origem` : (
+                  <> · base com e-mail {int(audience.base)}
+                    {audience.consent_known ? ` · ${int(audience.with_consent)} aceitaram marketing` : " · a loja não informa consentimento"}
+                    {audience.blocked ? ` · ${int(audience.blocked)} descadastrados/bounce ficam de fora` : ""}</>
+                )}</p>
             ) : null}
             {!audience?.consent_known && audience ? (
               <p className="emNotice">A fonte não informa consentimento de marketing.
@@ -149,25 +212,30 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
             ) : null}
           </section>
 
-          {error ? <p className="emError" role="alert">{error}</p> : null}
-          {message ? <p className="emOk">{message}</p> : null}
 
-          {editable ? (
+          {canEdit && ["rascunho", "agendada"].includes(campaign.status) ? (
             <section className="emCard emSendBox">
-              <div className="emInlineRow">
-                <input type="email" aria-label="E-mail para teste" placeholder="seu@email.com" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
-                <button type="button" className="ds-button" disabled={!!busy || !testTo}
-                  onClick={() => void run("test", async () => {
-                    await updateCampaign(id, payload()!);
-                    const out = await sendTestEmail(id, testTo);
-                    setMessage(out.status === "simulado" ? "Teste registrado (modo simulado: nada saiu)." : `Teste enviado para ${testTo}.`);
-                  })}>{busy === "test" ? "Enviando…" : "Enviar teste"}</button>
-              </div>
-              <div className="emInlineRow">
+              {campaign.status === "rascunho" ? <button type="button" className="ds-button" disabled={uploading || !!busy}
+                onClick={() => void save()}>{busy === "save" ? "Salvando…" : "Salvar"}</button> : null}
+
+              {review && campaign.status === "rascunho" && (!campaign.can_dispatch || dirty) ? (
+                <button type="button" className="ds-button is-primary" disabled={uploading || !!busy || (review.status === "pending" && !dirty)}
+                  onClick={() => void run("approval", async () => {
+                    const { campaign: saved } = await updateCampaign(id, payload()!);
+                    setCampaign(saved); setDirty(false);
+                    await submitEmailReview(id, saved.updated_at);
+                    setCampaign((await getCampaign(id)).campaign);
+                    setMessage("Campanha enviada para Aprovação Interna.");
+                  })}>{busy === "approval" ? "Enviando…" : "Enviar para Aprovação Interna"}</button>
+              ) : null}
+              {review?.status === "pending" && !dirty ? <button type="button" className="ds-button" disabled={!!busy}
+                onClick={() => void run("refresh", async () => setCampaign((await getCampaign(id)).campaign))}>Atualizar status</button> : null}
+              {campaign.can_dispatch && !dirty ? <div className="emInlineRow">
                 <input type="datetime-local" aria-label="Agendar para" value={when} onChange={(e) => setWhen(e.target.value)} />
-                <button type="button" className="ds-button is-primary" disabled={!!busy}
+                <button type="button" className="ds-button is-primary" disabled={uploading || !!busy}
                   onClick={() => void run("send", async () => {
-                    await updateCampaign(id, payload()!);
+                    const { campaign: saved } = await updateCampaign(id, payload()!);
+                    setCampaign(saved);
                     const check = await preflightCampaign(id);
                     setAudience(check.audience);
                     if (!check.ready) throw new Error(check.blockers.join(" "));
@@ -178,16 +246,16 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
                       `Campanha: ${check.name}\nAssunto: ${check.subject}${warning}`
                     );
                     if (!confirmed) return;
-                    const out = await scheduleCampaign(id, at);
+                    if (check.updated_at !== saved.updated_at) throw new Error("A campanha mudou. Atualize a página e confira a versão.");
+                    const out = await scheduleCampaign(id, at, check.updated_at);
                     setCampaign(out.campaign);
                     setMessage(at ? "Campanha agendada." : "Campanha na fila: o envio começa em até 5 minutos.");
                   })}>{busy === "send" ? "Confirmando…" : when ? "Agendar envio" : "Enviar agora"}</button>
-                <button type="button" className="ds-button" disabled={!!busy} onClick={() => void save()}>{busy === "save" ? "Salvando…" : "Salvar"}</button>
-              </div>
+              </div> : null}
             </section>
           ) : null}
           {canEdit && ["agendada", "enviando"].includes(campaign.status) ? (
-            <button type="button" className="ds-button is-danger" disabled={!!busy}
+            <button type="button" className="ds-button is-danger" disabled={uploading || !!busy}
               onClick={() => void run("cancel", async () => setCampaign((await cancelCampaign(id)).campaign))}>Cancelar envio</button>
           ) : null}
           <StatsRow stats={stats || campaign.stats} />
@@ -200,16 +268,59 @@ export function CampaignEditor({ id, canEdit, onBack }: { id: string; canEdit: b
   );
 }
 
+/** Nova campanha a partir de uma tarefa: retomar o que já existe, gerar com a IA ou escrever. Sempre rascunho. */
+function EmailFromTaskActions({ ctx, deliverable, onOpen }: { ctx: TaskContext; deliverable: string; onOpen: (id: string) => void }) {
+  const [busy, setBusy] = useState<"" | "ia" | "branco">("");
+  const [error, setError] = useState("");
+  const [existing, setExisting] = useState<LinkedCampaign[]>(() => (ctx.existing || []).filter((c) => !deliverable || c.deliverable === deliverable));
+  useEffect(() => { setExisting((ctx.existing || []).filter((c) => !deliverable || c.deliverable === deliverable)); }, [ctx, deliverable]);
+  async function create(mode: "ia" | "branco", newVersion = false) {
+    setBusy(mode); setError("");
+    try {
+      const out = await createEmailFromTask(ctx.task.id, { deliverable, mode, new_version: newVersion });
+      if (out.created) onOpen(out.created.id);
+      else setExisting(out.existing);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível criar agora.");
+    } finally { setBusy(""); }
+  }
+  return <div className="kwActions" style={{ display: "grid", gap: 10 }}>
+    {existing.length ? <div className="kwExisting" role="status">
+      <p><b>Esta tarefa já tem {existing.length > 1 ? `${existing.length} campanhas de e-mail` : "uma campanha de e-mail"}{deliverable ? ` para “${deliverable}”` : ""}.</b></p>
+      <div className="kwActions">
+        {existing.map((c) => <button key={c.id} type="button" className="ds-button is-primary" onClick={() => onOpen(c.id)}>
+          Abrir “{c.name}” ({STATUS_LABEL[c.status as keyof typeof STATUS_LABEL] || c.status})</button>)}
+        <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void create("ia", true)}>
+          {busy === "ia" ? "Criando…" : "Criar outra versão com a IA"}</button>
+      </div>
+    </div> : <div className="kwActions">
+      <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !deliverable} onClick={() => void create("ia")}>
+        {busy === "ia" ? "Escrevendo o e-mail com o briefing…" : "Criar conteúdo com este briefing"}</button>
+      <button type="button" className="ds-button" disabled={Boolean(busy) || !deliverable} onClick={() => void create("branco")}>
+        {busy === "branco" ? "Abrindo…" : "Escrever eu mesmo"}</button>
+    </div>}
+    {!deliverable ? <small className="kwMuted">Escolha o que vai criar.</small> : null}
+    <small className="kwMuted">Sai como rascunho no editor: você revisa antes de qualquer envio. A tarefa não muda de etapa.</small>
+    {error ? <p className="kwError" role="alert">{error}</p> : null}
+  </div>;
+}
+
 export default function CampaignsPanel({ canEdit }: { canEdit: boolean }) {
   const [list, setList] = useState<CampaignSummary[] | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  // ?campanha=<id>: abre direto a campanha (ex.: o "Abrir" de um rascunho criado pela Mugô IA).
+  const [open, setOpen] = useState<string | null>(() => (typeof window === "undefined" ? null
+    : new URLSearchParams(window.location.search).get("campanha")));
   const [error, setError] = useState("");
+  const [starting, setStarting] = useState<null | "escolher" | "tarefa">(null);
 
   const load = useCallback(() => listCampaigns().then((out) => setList(out.campaigns))
     .catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível ler as campanhas.")), []);
   useEffect(() => { if (!open) void load(); }, [open, load]);
 
   if (open) return <CampaignEditor id={open} canEdit={canEdit} onBack={() => setOpen(null)} />;
+  const blank = async () => {
+    try { setOpen((await createCampaign({})).campaign.id); setStarting(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar."); }
+  };
   return (
     <section className="emCard">
       <header className="emCardHead">
@@ -218,11 +329,18 @@ export default function CampaignsPanel({ canEdit }: { canEdit: boolean }) {
           <p className="emMuted">Monte o e-mail por blocos (ou cole seu HTML), escolha o público e envie pelo Resend.</p>
         </div>
         {canEdit ? (
-          <button type="button" className="ds-button is-primary" onClick={async () => {
-            try { setOpen((await createCampaign({})).campaign.id); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar."); }
-          }}><Plus size={15} aria-hidden="true" /> Nova campanha</button>
+          <button type="button" className="ds-button is-primary" onClick={() => setStarting("escolher")}><Plus size={15} aria-hidden="true" /> Nova campanha</button>
         ) : null}
       </header>
+      {starting === "escolher" ? <div className="kwStart" role="group" aria-label="Nova campanha">
+        <strong>Usar briefing de uma tarefa?</strong>
+        <div className="kwActions">
+          <button type="button" className="ds-button is-primary" onClick={() => setStarting("tarefa")}>Selecionar tarefa do Kanban</button>
+          <button type="button" className="ds-button" onClick={() => void blank()}>Criar sem tarefa</button>
+          <button type="button" className="ds-link is-quiet" onClick={() => setStarting(null)}>Cancelar</button>
+        </div>
+      </div> : starting === "tarefa" ? <KanbanTaskStart module="email_marketing" onCancel={() => setStarting(null)}
+        actions={(ctx, deliverable) => <EmailFromTaskActions ctx={ctx} deliverable={deliverable} onOpen={(id) => { setStarting(null); setOpen(id); }} />} /> : null}
       {error ? <p className="emError" role="alert">{error}</p> : null}
       {list && list.length === 0 ? <p className="emEmpty">Nenhuma campanha ainda.</p> : null}
       {list && list.length ? (

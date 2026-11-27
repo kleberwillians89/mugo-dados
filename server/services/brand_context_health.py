@@ -30,7 +30,8 @@ def _age_days(iso: Optional[str], now: datetime) -> Optional[int]:
 
 
 def evaluate(*, profile: Dict[str, Any], profile_saved: bool, business: Dict[str, Any], knowledge: str, knowledge_max: int,
-             documents: List[Dict[str, Any]], competitors: int, new_signals: int, now: Optional[datetime] = None) -> Dict[str, Any]:
+             documents: List[Dict[str, Any]], competitors: int, new_signals: int, now: Optional[datetime] = None,
+             library_pending: int = 0) -> Dict[str, Any]:
     """Regras puras (testáveis). Devolve itens e um índice 0–100 de completude."""
     now = now or datetime.now(timezone.utc)
     items: List[Dict[str, Any]] = []
@@ -73,6 +74,10 @@ def evaluate(*, profile: Dict[str, Any], profile_saved: bool, business: Dict[str
     if failed:
         items.append(_item("falhas", "atencao", f"{len(failed)} documento(s) guardado(s) que a IA ainda não leu",
                            "Use “Tentar de novo” na lista de documentos.", docs_tab, 1))
+
+    if library_pending:
+        items.append(_item("biblioteca", "atencao", f"{library_pending} documento(s) da Biblioteca que a IA ainda não leu",
+                           "Ela lê sozinha ao abrir esta tela e a cada envio. PDF escaneado é lido pelas páginas.", docs_tab, 2))
 
     if not knowledge.strip():
         items.append(_item("memoria", "falta", "A memória da marca está vazia", "Ela vai em todos os prompts. Envie um documento ou ensine um texto.", docs_tab, 2))
@@ -132,7 +137,12 @@ async def health(client_id: str) -> Dict[str, Any]:
         learning = await learning_status(client_id)
     except Exception:  # noqa: BLE001
         learning = {"new_signals": 0, "last_learning_at": None}
+    try:
+        from .library_knowledge import pending
+        library_pending = len(await pending(client_id))
+    except Exception:  # noqa: BLE001
+        library_pending = 0
     result = evaluate(profile=profile["profile"], profile_saved=bool(profile.get("saved")), business=business, knowledge=knowledge,
                       knowledge_max=MAX_KNOWLEDGE, documents=documents, competitors=await _competitor_count(client_id),
-                      new_signals=int(learning.get("new_signals") or 0))
+                      new_signals=int(learning.get("new_signals") or 0), library_pending=library_pending)
     return {**result, "learning": learning}

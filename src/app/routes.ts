@@ -1,4 +1,11 @@
 export type AppRoute =
+  | "home"
+  | "process_planning"
+  | "process_content"
+  | "process_campaign"
+  | "process_analysis"
+  | "process_relationship"
+  | "process_social"
   | "meta"
   | "google"
   | "ecommerce"
@@ -6,8 +13,11 @@ export type AppRoute =
   | "goals"
   | "calendar"
   | "approval"
+  | "internal_approval"
+  | "final_approval"
   | "media"
   | "tasks"
+  | "my_tasks"
   | "briefing"
   | "library"
   | "planning"
@@ -37,6 +47,7 @@ export type AppRoute =
   | "ai_usage"
   | "integration_health"
   | "email_marketing"
+  | "capture"
   | "customer_value"
   | "ai_actions"
   | "plan"
@@ -60,9 +71,18 @@ export function getPublicAppRouteFromPath(pathname: string): PublicAppRoute | nu
 
 export function getAppRouteFromPath(pathname: string): AppRoute {
   const normalized = String(pathname || "/").trim().toLowerCase();
+  if (normalized === "/" || normalized === "") return "home";
+  if (normalized === "/inicio" || normalized.startsWith("/inicio/")) return "home";
+  if (normalized === "/planejar" || normalized.startsWith("/planejar/")) return "process_planning";
+  if (normalized === "/criar-conteudo" || normalized.startsWith("/criar-conteudo/")) return "process_content";
+  if (normalized === "/lancar-campanha" || normalized.startsWith("/lancar-campanha/")) return "process_campaign";
+  if (normalized === "/analisar-resultados" || normalized.startsWith("/analisar-resultados/")) return "process_analysis";
+  if (normalized === "/relacionamento" || normalized.startsWith("/relacionamento/")) return "process_relationship";
+  if (normalized === "/redes-sociais" || normalized.startsWith("/redes-sociais/")) return "process_social";
   if (normalized.startsWith("/empresas")) return "companies";
   if (normalized === "/consumo-ia" || normalized.startsWith("/consumo-ia/")) return "ai_usage";
   if (normalized === "/saude-integracoes" || normalized.startsWith("/saude-integracoes/")) return "integration_health";
+  if (normalized === "/captacao" || normalized.startsWith("/captacao/")) return "capture";
   if (normalized === "/email-marketing" || normalized.startsWith("/email-marketing/")) return "email_marketing";
   if (normalized === "/acoes-ia" || normalized.startsWith("/acoes-ia/")) return "ai_actions";
   if (normalized === "/plano" || normalized.startsWith("/plano/")) return "plan";
@@ -72,8 +92,11 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/calendario" || normalized.startsWith("/calendario/")) return "calendar";
   // Aprovação mora no Calendário (visão Fluxo); o endereço antigo abre o Calendário já no Fluxo.
   if (normalized === "/aprovacao" || normalized.startsWith("/aprovacao/")) return "calendar";
+  if (normalized === "/aprovacao-interna" || normalized.startsWith("/aprovacao-interna/")) return "internal_approval";
+  if (normalized === "/aprovacao-final" || normalized.startsWith("/aprovacao-final/")) return "final_approval";
   if (normalized === "/midia" || normalized.startsWith("/midia/")) return "media";
   if (normalized === "/tarefas" || normalized.startsWith("/tarefas/")) return "tasks";
+  if (normalized === "/minhas-tarefas" || normalized.startsWith("/minhas-tarefas/")) return "my_tasks";
   if (normalized === "/briefing" || normalized.startsWith("/briefing/")) return "briefing";
   if (normalized === "/biblioteca" || normalized.startsWith("/biblioteca/")) return "library";
   if (normalized === "/planejamento" || normalized.startsWith("/planejamento/")) return "planning";
@@ -104,8 +127,6 @@ export function getAppRouteFromPath(pathname: string): AppRoute {
   if (normalized === "/atendimento" || normalized.startsWith("/atendimento/")) return "calendar";
   if (normalized.startsWith("/meta")) return "meta";
   if (
-    normalized === "/" ||
-    normalized === "" ||
     normalized.startsWith("/dashboard") ||
     normalized.startsWith("/overview") ||
     normalized.startsWith("/visao-geral")
@@ -128,9 +149,17 @@ export function getCurrentAppRoute(): AppRoute {
 }
 
 export function getPathForRoute(route: AppRoute): string {
+  if (route === "home") return "/inicio";
+  if (route === "process_planning") return "/planejar";
+  if (route === "process_content") return "/criar-conteudo";
+  if (route === "process_campaign") return "/lancar-campanha";
+  if (route === "process_analysis") return "/analisar-resultados";
+  if (route === "process_relationship") return "/relacionamento";
+  if (route === "process_social") return "/redes-sociais";
   if (route === "companies") return "/empresas";
   if (route === "ai_usage") return "/consumo-ia";
   if (route === "integration_health") return "/saude-integracoes";
+  if (route === "capture") return "/captacao";
   if (route === "email_marketing") return "/email-marketing";
   if (route === "ai_actions") return "/acoes-ia";
   if (route === "plan") return "/plano";
@@ -146,8 +175,11 @@ export function getPathForRoute(route: AppRoute): string {
   if (route === "goals") return "/metas";
   if (route === "calendar") return "/calendario";
   if (route === "approval") return "/calendario";
+  if (route === "internal_approval") return "/aprovacao-interna";
+  if (route === "final_approval") return "/aprovacao-final";
   if (route === "media") return "/midia";
   if (route === "tasks") return "/tarefas";
+  if (route === "my_tasks") return "/minhas-tarefas";
   if (route === "briefing") return "/briefing";
   if (route === "library") return "/biblioteca";
   if (route === "planning") return "/planejamento";
@@ -175,10 +207,33 @@ export function getPathForRoute(route: AppRoute): string {
   return "/meta";
 }
 
+/** Quantas telas do Mugoverso existem antes desta no histórico (0 = chegou de fora, link direto ou primeira tela). */
+export function appHistoryDepth(): number {
+  const state = window.history.state as { mugoDepth?: unknown } | null;
+  return typeof state?.mugoDepth === "number" && state.mugoDepth > 0 ? state.mugoDepth : 0;
+}
+
 export function navigateToAppRoute(route: AppRoute, options?: { replace?: boolean }) {
   const path = getPathForRoute(route);
-  const method = options?.replace ? "replaceState" : "pushState";
-  window.history[method]({}, document.title, path);
+  if (options?.replace) window.history.replaceState({ mugoDepth: appHistoryDepth() }, document.title, path);
+  else window.history.pushState({ mugoDepth: appHistoryDepth() + 1 }, document.title, path);
+}
+
+/** Abre uma tela do Mugoverso de dentro de um componente (o App escuta o popstate). ``query`` vai na URL (ex.: campanha=id). */
+export function openAppRoute(route: AppRoute, query?: string) {
+  const path = `${getPathForRoute(route)}${query ? `?${query}` : ""}`;
+  window.history.pushState({ mugoDepth: appHistoryDepth() + 1 }, document.title, path);
+  window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+}
+
+/**
+ * Botão "Voltar" das páginas internas: volta à tela anterior do Mugoverso (o navegador restaura a URL, com filtros
+ * e período que estiverem nela). Sem histórico interno (link direto, nova aba), vai para um destino seguro: o Início.
+ */
+export function goBackInApp(fallback: AppRoute = "home") {
+  if (appHistoryDepth() > 0) { window.history.back(); return; }
+  navigateToAppRoute(fallback);
+  window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
 }
 
 /**

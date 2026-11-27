@@ -18,6 +18,8 @@ from services import studio_matrix as mx
 from services import team_access as ta
 from services import team_admin as tadmin
 from services.studio_calendar import StudioError
+from routes import content_ops as content_routes
+from fastapi import HTTPException
 
 PROFILE = {"pillars": [{"name": "Bastidores", "weight": 40, "description": ""}, {"name": "Produto", "weight": 60, "description": ""}],
            "keywords_avoid": ["barato"], "content_language": "pt-BR", "posts_per_week": 1,
@@ -189,11 +191,13 @@ class PartialGenerateTests(unittest.IsolatedAsyncioTestCase):
         return insert.await_args.args[1], many.await_args.args[1]
 
     async def test_short_answer_retries_once_and_keeps_the_better_one(self):
-        llm = AsyncMock(side_effect=[{"oportunidades": [op(semana=1)]}, {"oportunidades": [op(semana=1), op(semana=2)]}])
+        llm = AsyncMock(side_effect=[{"oportunidades": [op(semana=1)]},
+                                     {"oportunidades": [op(semana=1), op(semana=2, titulo="Outra pauta")]}])
         saved, rows = await self.run_generate(llm)
         self.assertEqual(llm.await_count, 2)
         self.assertEqual(len(rows), 2)
-        self.assertTrue(any("Complete à mão" in n for n in saved["notes"]))
+        self.assertTrue(any("Faltam" in n for n in saved["notes"]))
+        self.assertIn("Gere somente", llm.await_args_list[1].kwargs["prompt"])
 
     async def test_partial_matrix_is_saved_instead_of_refused(self):
         llm = AsyncMock(return_value={"oportunidades": [op(semana=1), op(semana=3)]})
@@ -202,8 +206,109 @@ class PartialGenerateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("de", saved["notes"][0])
 
 
+class BriefingAndCompletionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_period_change_preserves_pautas_and_refuses_to_hide_a_used_week(self):
+        current = {"id": "m1", "opportunities": [{"id": "o1", "week": 3, "status": "sugerida", "calendar_item_id": None}]}
+        update = AsyncMock(return_value=[{"id": "m1"}])
+        with patch.object(mx, "get_matrix", AsyncMock(side_effect=[current, {**current, "weeks": 4, "week_start": "2026-12-07"}])), \
+             patch.object(mx, "sb_update", update):
+            out = await mx.set_period("tenant-a", "m1", weeks=4, start="2026-12-09", today=date(2026, 11, 9))
+        self.assertEqual((out["weeks"], out["week_start"]), (4, "2026-12-07"))
+        self.assertEqual(update.await_args.kwargs["filters"]["client_id"], "eq.tenant-a")
+        with patch.object(mx, "get_matrix", AsyncMock(return_value=current)):
+            with self.assertRaises(StudioError) as raised:
+                await mx.set_period("tenant-a", "m1", weeks=2, start="2026-12-07", today=date(2026, 11, 9))
+        self.assertEqual(raised.exception.code, "MATRIX_PERIOD_HAS_CONTENT")
+
+    async def test_existing_brief_is_tenant_scoped_used_in_prompt_and_persisted(self):
+        brief = {"id": "b1", "status": "pronto", "request": "Natal", "brief": {
+            "title": "Natal da marca", "summary": "Campanha de Natal e promoção após dia 25", "objective": "Vender",
+            "audience": "Clientes VIP", "deadline": "2026-12-31", "avoid": ["Não falar de férias"]}}
+        llm = AsyncMock(return_value={"resumo": "Natal", "oportunidades": [op(semana=i, titulo=f"Pauta {i}") for i in range(1, 5)]})
+        insert = AsyncMock(return_value={"id": "m1"})
+        with patch.object(mx, "load_profile", AsyncMock(return_value={"profile": PROFILE})), \
+             patch.object(mx, "build_content_intelligence", AsyncMock(return_value={})), patch.object(mx, "throttle"), \
+             patch("services.studio_briefs.get_brief", AsyncMock(return_value=brief)) as get_brief, \
+             patch.object(mx, "llm_json", llm), patch.object(mx, "sb_insert", insert), \
+             patch.object(mx, "sb_insert_many", AsyncMock()), patch.object(mx, "get_matrix", AsyncMock(return_value={"id": "m1"})):
+            await mx.generate("tenant-a", {"brief_id": "b1"}, user_id="u1", today=date(2026, 11, 9))
+        get_brief.assert_awaited_once_with("tenant-a", "b1", team=True)
+        saved = insert.await_args.args[1]
+        self.assertEqual((saved["brief_id"], saved["brief_snapshot"]["title"]), ("b1", "Natal da marca"))
+        self.assertIn("Não falar de férias", llm.await_args.kwargs["prompt"])
+        self.assertIn("PRIORIDADE MÁXIMA", llm.await_args.kwargs["prompt"])
+
+    async def test_completion_inserts_only_missing_and_preserves_existing(self):
+        existing = [{"id": "o1", "matrix_id": "m1", "platform": "instagram", "pillar": "Produto", "week": 1,
+                     "weekday": 2, "format": "reels", "title": "Pauta existente", "status": "sugerida", "position": 0},
+                    {"id": "o2", "matrix_id": "m1", "platform": "tiktok", "pillar": "Produto", "week": 2,
+                     "weekday": 2, "format": "video", "title": "Editada à mão", "status": "sugerida", "position": 1, "edited": True}]
+        initial = {"id": "m1", "week_start": "2026-11-16", "weeks": 4, "platforms": ["instagram", "tiktok"],
+                   "pillars": PROFILE["pillars"], "focus": "Natal", "target_count": 4, "missing_count": 2,
+                   "opportunities": existing}
+        final = {**initial, "missing_count": 0, "opportunities": existing + [{"id": "o3"}, {"id": "o4"}]}
+        llm = AsyncMock(return_value={"oportunidades": [op(titulo="Pauta existente", semana=1),
+                                                          op(titulo="Nova 3", semana=3), op(titulo="Nova 4", semana=4)]})
+        many, changed = AsyncMock(), AsyncMock()
+        with patch.object(mx, "get_matrix", AsyncMock(side_effect=[initial, final])), \
+             patch.object(mx, "load_profile", AsyncMock(return_value={"profile": PROFILE})), \
+             patch.object(mx, "build_content_intelligence", AsyncMock(return_value={})), patch.object(mx, "throttle"), \
+             patch.object(mx, "llm_json", llm), patch.object(mx, "sb_insert_many", many), patch.object(mx, "_mark_changed", changed):
+            result = await mx.complete("tenant-a", "m1")
+        rows = many.await_args.args[1]
+        self.assertEqual([row["title"] for row in rows], ["Nova 3", "Nova 4"])
+        self.assertNotIn("Editada à mão", [row["title"] for row in rows])
+        changed.assert_awaited_once_with("tenant-a", "m1")
+        self.assertEqual(result["missing_count"], 0)
+
+
+class MatrixApprovalTests(unittest.IsolatedAsyncioTestCase):
+    MATRIX = {"id": "m1", "approval_status": "rascunho", "approval_version": 0, "week_start": "2026-11-16",
+              "weeks": 4, "platforms": ["instagram"], "pillars": [{"name": "Produto"}], "focus": None,
+              "brief_id": None, "summary": "Resumo", "opportunities": [{"id": "o1", "title": "Pauta", "status": "sugerida"}]}
+
+    async def test_submit_saves_whole_version_snapshot_and_history(self):
+        update = AsyncMock(return_value=[{"id": "m1"}])
+        insert = AsyncMock(return_value={"id": "e1"})
+        reviewed = {**self.MATRIX, "approval_status": "em_revisao", "approval_version": 1, "approval_events": []}
+        with patch.object(mx, "get_matrix", AsyncMock(side_effect=[self.MATRIX, reviewed])), \
+             patch.object(mx, "sb_update", update), patch.object(mx, "sb_insert", insert):
+            out = await mx.submit_approval("tenant-a", "m1", actor_id="u1", actor_name="Ana")
+        event = insert.await_args.args[1]
+        self.assertEqual((event["client_id"], event["version"], event["action"]), ("tenant-a", 1, "enviada"))
+        self.assertEqual(event["snapshot"]["opportunities"][0]["id"], "o1")
+        self.assertEqual(out["approval_status"], "em_revisao")
+
+    async def test_decision_preserves_events_and_is_tenant_scoped(self):
+        current = {**self.MATRIX, "approval_status": "em_revisao", "approval_version": 2}
+        update, insert = AsyncMock(return_value=[{"id": "m1"}]), AsyncMock(return_value={"id": "e2"})
+        with patch.object(mx, "get_matrix", AsyncMock(side_effect=[current, {**current, "approval_status": "ajuste_solicitado"}])), \
+             patch.object(mx, "sb_update", update), patch.object(mx, "sb_insert", insert):
+            await mx.decide_approval("tenant-b", "m1", decision="solicitar_ajuste", comment="Rever pauta",
+                                     actor_id="u2", actor_name="Bia")
+        self.assertEqual(update.await_args.kwargs["filters"]["client_id"], "eq.tenant-b")
+        self.assertEqual(insert.await_args.args[1]["action"], "ajuste_solicitado")
+        self.assertEqual(insert.await_args.args[1]["version"], 2)
+
+
+class MatrixApprovalPermissionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_internal_approver_is_allowed(self):
+        with patch.object(content_routes, "is_agency_user", AsyncMock(return_value=False)), \
+             patch.object(content_routes, "require_user_id", AsyncMock(return_value="u1")), \
+             patch.object(ta, "member_access", AsyncMock(return_value={"codes": {"tasks.approve"}})):
+            await content_routes._matrix_approver("tenant-a", "Bearer x")
+
+    async def test_social_editor_without_approval_permission_is_denied(self):
+        with patch.object(content_routes, "is_agency_user", AsyncMock(return_value=False)), \
+             patch.object(content_routes, "require_user_id", AsyncMock(return_value="u1")), \
+             patch.object(ta, "member_access", AsyncMock(return_value={"codes": {"social_media.edit"}})):
+            with self.assertRaises(HTTPException) as raised:
+                await content_routes._matrix_approver("tenant-a", "Bearer x")
+        self.assertEqual(raised.exception.status_code, 403)
+
+
 class CreateContentTests(unittest.IsolatedAsyncioTestCase):
-    CURRENT = {"id": "o1", "client_id": "ruah", "status": "sugerida", "platform": "instagram", "format": "carrossel",
+    CURRENT = {"id": "o1", "matrix_id": "m1", "client_id": "ruah", "status": "sugerida", "platform": "instagram", "format": "carrossel",
                "pillar": "Produto", "title": "Como escolher o perfume certo", "hook": None}
 
     async def test_ai_writes_caption_script_and_image_idea(self):
@@ -213,12 +318,14 @@ class CreateContentTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(mx, "_opportunity", AsyncMock(return_value=self.CURRENT)), patch.object(mx, "throttle"), \
              patch.object(mx, "load_profile", AsyncMock(return_value={"profile": PROFILE})), \
              patch.object(mx, "build_content_intelligence", AsyncMock(return_value={})), patch.object(mx, "llm_json", llm), \
-             patch.object(mx, "sb_update", update):
+             patch.object(mx, "sb_update", update), patch.object(mx, "_mark_changed", AsyncMock()), \
+             patch.object(mx, "_linked_focus", AsyncMock(return_value="Natal sem férias")):
             await mx.create_content("ruah", "o1", instruction="tom leve")
         saved = update.await_args.kwargs["patch"]
         self.assertEqual((saved["script"], saved["visual_idea"], saved["caption_draft"]), ("Slide 1: capa", "Frasco em fundo neutro", "Legenda com CTA"))
         self.assertIn("slide", llm.await_args.kwargs["prompt"].lower())  # roteiro no formato do carrossel
         self.assertIn("tom leve", llm.await_args.kwargs["prompt"])
+        self.assertIn("Natal sem férias", llm.await_args.kwargs["prompt"])
         self.assertEqual(update.await_args.kwargs["filters"]["status"], "neq.exportada")
 
     async def test_exported_cannot_be_recreated(self):
@@ -235,9 +342,10 @@ class CreateContentTests(unittest.IsolatedAsyncioTestCase):
 
 class RetitleExportedTests(unittest.IsolatedAsyncioTestCase):
     async def test_title_of_exported_changes_here_and_in_calendar(self):
-        current = {"id": "o1", "client_id": "ruah", "status": "exportada", "calendar_item_id": "i1", "title": "Velho"}
+        current = {"id": "o1", "matrix_id": "m1", "client_id": "ruah", "status": "exportada", "calendar_item_id": "i1", "title": "Velho"}
         update = AsyncMock(return_value=[{**current, "title": "Novo"}])
-        with patch.object(mx, "_opportunity", AsyncMock(return_value=current)), patch.object(mx, "sb_update", update):
+        with patch.object(mx, "_opportunity", AsyncMock(return_value=current)), patch.object(mx, "sb_update", update), \
+             patch.object(mx, "_mark_changed", AsyncMock()):
             out = await mx.update_opportunity("ruah", "o1", {"title": "Novo"})
         self.assertEqual(out["title"], "Novo")
         tables = [c.args[0] for c in update.await_args_list]
@@ -251,11 +359,12 @@ class RetitleExportedTests(unittest.IsolatedAsyncioTestCase):
 
 
 class EditTests(unittest.IsolatedAsyncioTestCase):
-    CURRENT = {"id": "o1", "client_id": "ruah", "status": "sugerida", "platform": "instagram", "format": "reels"}
+    CURRENT = {"id": "o1", "matrix_id": "m1", "client_id": "ruah", "status": "sugerida", "platform": "instagram", "format": "reels"}
 
     async def test_edit_marks_edited_and_switching_platform_fixes_format(self):
         update = AsyncMock(return_value=[{"id": "o1"}])
-        with patch.object(mx, "_opportunity", AsyncMock(return_value=self.CURRENT)), patch.object(mx, "sb_update", update):
+        with patch.object(mx, "_opportunity", AsyncMock(return_value=self.CURRENT)), patch.object(mx, "sb_update", update), \
+             patch.object(mx, "_mark_changed", AsyncMock()):
             await mx.update_opportunity("ruah", "o1", {"platform": "tiktok", "title": "Novo", "status": "selecionada"})
         filters, patch_ = update.await_args.kwargs["filters"], update.await_args.kwargs["patch"]
         self.assertEqual(filters["client_id"], "eq.ruah")
@@ -280,10 +389,12 @@ class EditTests(unittest.IsolatedAsyncioTestCase):
         insert = AsyncMock(return_value={"id": "o2"})
         delete = AsyncMock(return_value=[{"id": "o2"}])
         payload = {"platform": "instagram", "pillar": "Produto", "week": 2, "weekday": 3, "format": "imagem", "title": "Nova"}
-        with patch.object(mx, "get_matrix", AsyncMock(return_value=matrix)), patch.object(mx, "sb_insert", insert):
+        with patch.object(mx, "get_matrix", AsyncMock(return_value=matrix)), patch.object(mx, "sb_insert", insert), \
+             patch.object(mx, "_mark_changed", AsyncMock()):
             await mx.create_opportunity("ruah", "m1", payload)
         self.assertEqual((insert.await_args.args[1]["client_id"], insert.await_args.args[1]["position"]), ("ruah", 3))
-        with patch.object(mx, "_opportunity", AsyncMock(return_value={"id": "o2", "matrix_id": "m1", "status": "sugerida"})), patch.object(mx, "sb_delete", delete):
+        with patch.object(mx, "_opportunity", AsyncMock(return_value={"id": "o2", "matrix_id": "m1", "status": "sugerida"})), patch.object(mx, "sb_delete", delete), \
+             patch.object(mx, "_mark_changed", AsyncMock()):
             await mx.delete_opportunity("ruah", "m1", "o2")
         self.assertEqual(delete.await_args.kwargs["filters"]["client_id"], "eq.ruah")
         with patch.object(mx, "_opportunity", AsyncMock(return_value={"id": "o3", "matrix_id": "m1", "status": "exportada", "calendar_item_id": "i1"})), patch.object(mx, "sb_delete", delete):

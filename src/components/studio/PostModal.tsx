@@ -2,12 +2,13 @@ import { CalendarDays, ShoppingBag, TrendingUp, TriangleAlert, Zap } from "lucid
 import { importArt, uploadArt } from "../../app/artUpload";
 import PostReferences from "./PostReferences";
 import PostReview from "./PostReview";
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent } from "react";
+import { AUTO_PUBLISH_CHANNELS, STUDIO_CHANNELS, STUDIO_FORMATS, STUDIO_STATUS, cleanDirection, localParts, type CalendarItem, type StudioChannel, type StudioFormat, type StudioStatus } from "../../app/studio";
 import { PLATFORM_FORMATS } from "../../app/contentOps";
 import type { PostDraft } from "../../app/studioCalendar";
 import AiAssist from "./AiAssist";
 import BriefingPanel from "./BriefingPanel";
+import CreativeDirection from "./CreativeDirection";
 import PostComments from "./PostComments";
 import ArtLink from "./ArtLink";
 import ArtFiles from "./ArtFiles";
@@ -15,11 +16,10 @@ import ItemHistory from "./ItemHistory";
 import Collaborators from "./Collaborators";
 import ProductTags from "./ProductTags";
 import ReelsOptions from "./ReelsOptions";
+import ReelsMusicPicker from "./ReelsMusicPicker";
 import { frameSrc } from "./reelsOptions.helpers";
 import AiSuggestionCard from "./AiSuggestionCard";
-import { artList, artSlides, isDriveFolder } from "../../app/artLinks";
-import { listLibrary, previewKind, type LibraryItem } from "../../app/library";
-import { getActiveClientId } from "../../app/activeClient";
+import { ART_URL_MAX_LENGTH, artList, artSlides, isDriveFolder } from "../../app/artLinks";
 import ArtCarousel from "./ArtCarousel";
 
 const PUBLISHER_URL = "https://business.facebook.com/latest/composer";
@@ -53,7 +53,7 @@ type Props = {
 };
 
 /** Prévia no formato de um post do Instagram + painel de edição e aprovação. */
-export default function PostModal({ item, initial, handle, pillars, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish, publisherUrl, onItemChange }: Props) {
+export default function PostModal({ item, initial, handle, canManage, busy, error, onClose, onSave, onStatus, onDelete, clientMode = false, onSendForApproval, onConfirmSchedule, onRetryPublish, publisherUrl, onItemChange }: Props) {
   const [draft, setDraft] = useState<PostDraft>(initial);
   const [dragArt, setDragArt] = useState(false);
   const [ratio, setRatio] = useState<number | null>(null);
@@ -67,21 +67,16 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const [artFailed, setArtFailed] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
-  const [librarySelection, setLibrarySelection] = useState<string[]>([]);
-  const [libraryReplace, setLibraryReplace] = useState(false);
-  const [libraryTenant, setLibraryTenant] = useState<string | null>(null);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
   // Reels: prévia como aparece na aba Reels ou na grade do perfil, com as áreas que o app cobre.
   const [reelsView, setReelsView] = useState<"reels" | "grade">("reels");
   const [showSafe, setShowSafe] = useState(false);
+  const stickerPointer = useRef<number | null>(null);
   const slides = artSlides(draft.art_url);
   const folderLink = artList(draft.art_url).some(isDriveFolder);
   const art = slides.length && slides[0] !== artFailed ? slides : null;
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const directionPending = JSON.stringify(cleanDirection(draft.creative_direction)) !== JSON.stringify(cleanDirection(item?.creative_direction));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
@@ -98,8 +93,44 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
   const reelsOpts = draft.reels_options || {};
   const coverImage = reelsOpts.cover_mode === "image" && reelsOpts.cover_url ? reelsOpts.cover_url : null;
   const channelLabel = STUDIO_CHANNELS[channel];
-  // Só o Instagram publica sozinho; nas outras plataformas o agendamento lembra a equipe de publicar à mão.
-  const autoPublish = AUTO_PUBLISH_CHANNELS.includes((item?.channel || "instagram") as StudioChannel);
+  // Stories com sticker nativo exigem publicação manual no Instagram, sem fallback automático silencioso.
+  const interactiveStory = channel === "instagram" && draft.format === "stories" && Boolean(reelsOpts.story_sticker);
+  const storyLines = (reelsOpts.story_instruction || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  const storyQuestion = storyLines[0] || (reelsOpts.story_sticker === "poll" ? "Sua pergunta aqui" : "Interação do Story");
+  const storyOptions = storyLines.slice(1, 5);
+  const stickerPosition = reelsOpts.story_sticker_position || { x: 50, y: 50 };
+  const stickerScale = Math.max(60, Math.min(140, reelsOpts.story_sticker_scale ?? 100));
+  const stickerScaleFactor = stickerScale / 100;
+  const setStickerScale = (scale: number) => setDraft((current) => ({
+    ...current,
+    reels_options: { ...(current.reels_options || {}), story_sticker_scale: Math.max(60, Math.min(140, Math.round(scale))) },
+  }));
+  const placeSticker = (x: number, y: number) => {
+    setDraft((current) => ({
+      ...current,
+      reels_options: {
+        ...(current.reels_options || {}),
+        story_sticker_position: { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 },
+      },
+    }));
+  };
+  const moveSticker = (e: PointerEvent<HTMLDivElement>) => {
+    if (stickerPointer.current !== e.pointerId) return;
+    const card = e.currentTarget;
+    const frame = card.parentElement;
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const scale = Math.max(0.6, Math.min(1.4, Number(card.dataset.scale || 1)));
+    const halfWidth = card.offsetWidth * scale / 2;
+    const halfHeight = card.offsetHeight * scale / 2;
+    const x = Math.min(rect.width - halfWidth, Math.max(halfWidth, e.clientX - rect.left));
+    const y = Math.min(rect.height - halfHeight, Math.max(halfHeight, e.clientY - rect.top));
+    placeSticker((x / rect.width) * 100, (y / rect.height) * 100);
+  };
+  const autoPublish = AUTO_PUBLISH_CHANNELS.includes(channel) && !interactiveStory;
+  const destinations = draft.destinations || [];
+  const incompatible = destinations.filter((target) => !PLATFORM_FORMATS[target.channel].includes(target.format || draft.format));
   const formatsFor = PLATFORM_FORMATS[channel] || (Object.keys(STUDIO_FORMATS) as StudioFormat[]);
   const when = draft.date ? localParts(`${draft.date}T${draft.time || "12:00"}:00-03:00`) : null;
   const caption = draft.caption_draft || "";
@@ -136,66 +167,17 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
     finally { setUploading(null); }
   }
 
-  async function openLibrary() {
-    if (busy || Boolean(uploading)) return;
-    if (libraryOpen) { setLibraryOpen(false); return; }
-    const tenant = getActiveClientId();
-    setLibraryTenant(tenant);
-    setLibraryOpen(true); setLibraryLoading(true); setLibraryError(null);
-    try {
-      const result = await listLibrary();
-      if (getActiveClientId() !== tenant) {
-        setLibraryOpen(false); return;
-      }
-      setLibraryItems(result.items.filter((entry) =>
-        entry.kind === "arquivo" && previewKind(entry) === "image"));
-      setLibrarySelection([]);
-      setLibraryReplace(false);
-    } catch (cause) {
-      if (getActiveClientId() === tenant) setLibraryError(cause instanceof Error
-        ? cause.message : "Não foi possível carregar a Biblioteca.");
-    } finally { setLibraryLoading(false); }
-  }
-
-  function applyLibrarySelection() {
-    if (!libraryTenant || getActiveClientId() !== libraryTenant) {
-      setLibraryError("A empresa selecionada mudou. Feche a Biblioteca e abra novamente.");
-      return;
-    }
-    const selected = librarySelection.map((id) => libraryItems.find((entry) => entry.id === id))
-      .filter((entry): entry is LibraryItem => entry !== undefined && entry.kind === "arquivo" && previewKind(entry) === "image");
-    if (selected.length !== librarySelection.length || selected.length === 0) {
-      setLibraryError("Selecione imagens válidas desta Biblioteca.");
-      return;
-    }
-    const current = libraryReplace ? [] : artList(draft.art_url);
-    const combined = [...new Set([...current, ...selected.map((entry) => entry.url)])];
-    if (combined.length > 12) {
-      setLibraryError("Limite de 12 imagens por publicação. Selecione menos imagens ou marque Substituir.");
-      return;
-    }
-    const art_url = combined.join("\n");
-    if (art_url.length > 1000) {
-      setLibraryError("Os links excedem o limite do Calendário. Selecione menos imagens.");
-      return;
-    }
-    setDraft((value) => ({
-      ...value, art_url,
-      ...(combined.length > 1 && value.format === "imagem" ? { format: "carrossel" as StudioFormat } : {}),
-    }));
-    setArtFailed(null);
-    setLibraryOpen(false);
-    setLibraryError(null);
-    setUploadError(null);
-  }
-
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (await onSave(draft) && !item) onClose();
+    if (incompatible.length) return;
+    // Sem campo "Pauta": o nome interno vem da 1ª linha da legenda (ou formato + data).
+    const firstLine = (draft.caption_draft || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
+    const title = draft.title?.trim() || (firstLine ? firstLine.slice(0, 80) : `${STUDIO_FORMATS[draft.format]} de ${draft.date.split("-").reverse().slice(0, 2).join("/")}`);
+    if (await onSave({ ...draft, title }) && !item) onClose();
   }
 
   async function copyCaption() {
-    try { await navigator.clipboard.writeText([draft.hook, draft.caption_draft].filter(Boolean).join("\n\n") || draft.title); setCopied(true); window.setTimeout(() => setCopied(false), 2500); }
+    try { await navigator.clipboard.writeText(draft.caption_draft || draft.title); setCopied(true); window.setTimeout(() => setCopied(false), 2500); }
     catch { /* o texto continua visível para copiar à mão */ }
   }
 
@@ -210,11 +192,11 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
 
       <section className="igPreview" aria-label="Prévia do post">
         <header className="igHeader"><span className="igAvatar">{handle.slice(1, 3).toUpperCase()}</span>
-          <div><strong>{handle.slice(1)}{draft.collaborators?.length && draft.format !== "stories" ? <> e {draft.collaborators.length === 1 ? draft.collaborators[0] : `${draft.collaborators.length} outros`}</> : null}</strong>{draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
+          <div><strong>{handle.slice(1)}{draft.collaborators?.length && draft.format !== "stories" ? <> e {draft.collaborators.length === 1 ? draft.collaborators[0] : `${draft.collaborators.length} outros`}</> : null}</strong>{reelsOpts.music && channel === "instagram" ? <small>♫ {[reelsOpts.music.title, reelsOpts.music.artist].filter(Boolean).join(" · ") || "Música escolhida"}</small> : draft.format === "reels" ? <small>Áudio original</small> : null}</div><span className="igDots">•••</span></header>
         {isReels && reelsView === "grade" ? <div className="reelsGrid" aria-label="Prévia na grade do perfil">
           <div className="is-new">{coverImage ? <img src={coverImage} alt="" />
             : reelsVideo ? <video src={frameSrc(reelsVideo, reelsOpts.thumb_offset_ms ?? 0)} preload="metadata" muted playsInline aria-hidden="true" />
-            : <span>{draft.hook || draft.title || "Capa"}</span>}</div>
+            : <span>Capa</span>}</div>
           {Array.from({ length: 5 }, (_, i) => <div key={i} />)}
           <small>{reelsOpts.share_to_feed === false ? "“Mostrar também no Feed” está desligado: este Reels não entra na grade."
             : "Na grade do perfil o Instagram mostra o centro da capa."}</small>
@@ -223,10 +205,56 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           <span className="igFormat">{STUDIO_FORMATS[draft.format]}</span>
           {art ? <ArtCarousel images={art} onBroken={() => setArtFailed(art[0])} onRatio={setRatio} />
             : folderLink ? <p className="igCover igCoverWarn">Link de <b>pasta</b> do Drive não mostra a arte.<small>Use o link de cada arquivo ou envie o arquivo aqui do lado.</small></p>
-            : <p className="igCover">{draft.hook || draft.title || "Gancho do post"}</p>}
+            : <p className="igCover">{isReels ? "Envie o vídeo do Reels" : "Envie a arte do post"}</p>}
           {draft.format === "carrossel" && !art ? <span className="igCarouselDots"><i className="on" /><i /><i /><i /></span> : null}
           {draft.product_tags?.length && draft.format !== "stories" ? <span className="igShopBadge" title="Produtos da loja marcados"><ShoppingBag className="uiGlyph" size={13} aria-hidden="true" /> {draft.product_tags.length}</span> : null}
           {isReels && showSafe ? <div className="reelsSafe" aria-hidden="true"><span>área da grade</span></div> : null}
+          {interactiveStory ? <div className="storyStickerPreview" aria-label="Posição da prévia do sticker">
+            <div className="storyStickerCard" role="button" tabIndex={canManage && !clientMode && !busy ? 0 : -1}
+              aria-label="Mover sticker da prévia; arraste ou use as setas do teclado"
+              data-scale={stickerScaleFactor}
+              style={{ left: `${stickerPosition.x}%`, top: `${stickerPosition.y}%`, "--story-sticker-scale": stickerScaleFactor, ...(stickerScale > 100 ? { width: `min(${95 / stickerScaleFactor}%, 270px)` } : {}) } as CSSProperties}
+              onPointerDown={(e) => {
+                if (!canManage || clientMode || busy) return;
+                stickerPointer.current = e.pointerId;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                e.preventDefault();
+              }}
+              onPointerMove={moveSticker}
+              onPointerUp={(e) => {
+                if (stickerPointer.current !== e.pointerId) return;
+                moveSticker(e);
+                stickerPointer.current = null;
+                if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+              }}
+              onPointerCancel={() => { stickerPointer.current = null; }}
+              onKeyDown={(e) => {
+                if (!canManage || clientMode || busy) return;
+                const delta = e.shiftKey ? 5 : 1;
+                const dx = e.key === "ArrowRight" ? delta : e.key === "ArrowLeft" ? -delta : 0;
+                const dy = e.key === "ArrowDown" ? delta : e.key === "ArrowUp" ? -delta : 0;
+                if (!dx && !dy) return;
+                e.preventDefault();
+                placeSticker(Math.max(0, Math.min(100, stickerPosition.x + dx)),
+                  Math.max(0, Math.min(100, stickerPosition.y + dy)));
+              }}>
+              {reelsOpts.story_sticker === "poll" ? <>
+                <strong>{storyQuestion}</strong>
+                {(storyOptions.length ? storyOptions.slice(0, 2) : ["Sim", "Não"]).map((option, index) => <span className="storyStickerOption" key={index}>{option}</span>)}
+              </> : reelsOpts.story_sticker === "question" ? <>
+                <strong>{storyQuestion}</strong><span className="storyStickerOption">Digite sua resposta...</span>
+              </> : reelsOpts.story_sticker === "quiz" ? <>
+                <strong>{storyQuestion}</strong>
+                {(storyOptions.length ? storyOptions : ["Opção 1", "Opção 2", "Opção 3"]).map((option, index) => <span className="storyStickerOption" key={index}>{option}</span>)}
+              </> : reelsOpts.story_sticker === "emoji_slider" ? <>
+                <strong>{storyQuestion}</strong><span className="storyStickerOption">😍 ━━━━━●━━</span>
+              </> : reelsOpts.story_sticker === "link" ? <>
+                <strong>Visite o link</strong><span className="storyStickerOption">{storyQuestion}</span>
+              </> : reelsOpts.story_sticker === "countdown" ? <>
+                <strong>{storyQuestion}</strong><span className="storyStickerOption">00 : 00 : 00</span>
+              </> : <><strong>♫ Música no Instagram</strong><span className="storyStickerOption">{storyQuestion}</span></>}
+            </div>
+          </div> : null}
         </div>}
         <div className="igActions" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.4 5c2 0 3.4 1.1 4.1 2.4h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z" /></svg>
@@ -255,74 +283,58 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           {item?.origin === "matriz" ? <span className="studioChip">Da Matriz de conteúdo</span> : null}
           {channel !== "instagram" ? <span className={`studioChip is-platform is-${channel}`}>{channelLabel}</span> : null}
         </div>
-        <label>Pauta<input required maxLength={200} value={draft.title} disabled={!canManage} onChange={(e) => set({ title: e.target.value })} /></label>
-        <div className="studioRow">
-          <label>Data<input type="date" required value={draft.date} disabled={!canManage} onChange={(e) => set({ date: e.target.value })} /></label>
-          <label>Horário<input type="time" required value={draft.time} disabled={!canManage} onChange={(e) => set({ time: e.target.value })} /></label>
-          <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
+        {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} pending={directionPending}
+          piece={draft.piece} onPiece={(piece) => set({ piece })} direction={draft.creative_direction || {}} onDirection={(creative_direction) => set({ creative_direction })} /> : null}
+        {canManage && !clientMode && !item ? <CreativeDirection value={draft.creative_direction || {}} onChange={(creative_direction) => set({ creative_direction })}
+          itemId={null} disabled={busy} /> : null}
+        <label>Formato<select value={draft.format} disabled={!canManage || clientMode} onChange={(e) => set({ format: e.target.value as StudioFormat })}>
             {[...new Set([draft.format, ...formatsFor])].map((k) => <option key={k} value={k}>{STUDIO_FORMATS[k]}</option>)}</select></label>
-        </div>
-        {canManage && !clientMode ? <label>Plataforma<select value={channel} onChange={(e) => {
-          const next = e.target.value as StudioChannel; const allowed = PLATFORM_FORMATS[next];
-          set({ channel: next, format: allowed.includes(draft.format) ? draft.format : allowed[0] });
-        }}>{Object.entries(STUDIO_CHANNELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label> : null}
-        {channel !== "instagram" && canManage && !clientMode ? <small className="postArtHint">{channelLabel} não publica sozinho pelo Mugoverso: depois da aprovação, agende para a equipe ser lembrada na hora e publique à mão.</small> : null}
-        <label>Pilar<input list="studio-pillars" maxLength={120} value={draft.pillar} disabled={!canManage || clientMode} onChange={(e) => set({ pillar: e.target.value })} />
-          <datalist id="studio-pillars">{pillars.map((p) => <option key={p} value={p} />)}</datalist></label>
-        <label>Gancho (primeira frase/cena)<input maxLength={400} value={draft.hook} disabled={!canManage} onChange={(e) => set({ hook: e.target.value })} /></label>
-        <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
-        {item && !clientMode && canManage ? <BriefingPanel key={item.id} item={item} hook={draft.hook} disabled={busy} /> : null}
-        {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
-          disabled={busy} isStory={draft.format === "stories"} /> : null}
-        {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
-          format={draft.format} slides={slides} disabled={busy} /> : null}
+        {channel === "instagram" && draft.format === "stories" ? <div className="postArt" role="group" aria-label="Interação do Story">
+          <strong>Interação do Story</strong>
+          <label>Como este Story será publicado?
+            <select value={reelsOpts.story_sticker || ""} disabled={!canManage || clientMode || busy}
+              onChange={(e) => set({ reels_options: { ...reelsOpts, story_sticker: (e.target.value || undefined) as typeof reelsOpts.story_sticker, story_instruction: e.target.value ? reelsOpts.story_instruction : undefined } })}>
+              <option value="">Story simples — publicação automática</option>
+              <option value="poll">Enquete</option>
+              <option value="question">Caixa de perguntas</option>
+              <option value="quiz">Quiz</option>
+              <option value="emoji_slider">Controle deslizante de emoji</option>
+              <option value="link">Link clicável</option>
+              <option value="countdown">Contagem regressiva</option>
+              <option value="music">Música do Instagram</option>
+            </select>
+          </label>
+          {interactiveStory ? <>
+            <label>{["poll", "quiz"].includes(reelsOpts.story_sticker || "") ? "Pergunta e alternativas (uma por linha)" : "Texto ou instruções para o sticker"}
+              <textarea rows={3} maxLength={500} disabled={!canManage || clientMode || busy}
+                placeholder={reelsOpts.story_sticker === "poll" ? "Qual você prefere?\\nOpção A\\nOpção B" : reelsOpts.story_sticker === "quiz" ? "Qual é a resposta?\\nAlternativa 1\\nAlternativa 2\\nAlternativa 3" : "Texto, link ou orientação para o sticker"}
+                value={reelsOpts.story_instruction || ""}
+                onChange={(e) => set({ reels_options: { ...reelsOpts, story_instruction: e.target.value } })} />
+            </label>
+            <div className="storyStickerControls">
+              <small>Arraste a caixa sobre a arte para posicionar. Também é possível usar as setas do teclado.</small>
+              <button type="button" className="studioLink" disabled={!canManage || clientMode || busy}
+                onClick={() => placeSticker(50, 50)}>Centralizar caixa</button>
+            </div>
+            <div className="storyStickerSize" role="group" aria-label="Tamanho da caixa do Story">
+              <label htmlFor="story-sticker-size">Tamanho da caixa <b>{stickerScale}%</b></label>
+              <div className="storyStickerSizeRow">
+                <button type="button" className="ds-button" aria-label="Diminuir caixa" disabled={!canManage || clientMode || busy || stickerScale <= 60}
+                  onClick={() => setStickerScale(stickerScale - 10)}>−</button>
+                <input id="story-sticker-size" type="range" min={60} max={140} step={5} value={stickerScale}
+                  disabled={!canManage || clientMode || busy} onChange={(e) => setStickerScale(Number(e.target.value))}
+                  aria-valuetext={`${stickerScale}%`} />
+                <button type="button" className="ds-button" aria-label="Aumentar caixa" disabled={!canManage || clientMode || busy || stickerScale >= 140}
+                  onClick={() => setStickerScale(stickerScale + 10)}>+</button>
+                <button type="button" className="studioLink" disabled={!canManage || clientMode || busy || stickerScale === 100}
+                  onClick={() => setStickerScale(100)}>Tamanho original</button>
+              </div>
+            </div>
+            <p className="postArtWarn" role="status">Este Story precisa ser finalizado no aplicativo do Instagram. O Mugô Verso guarda a arte, o horário e as instruções, mas <b>não publicará automaticamente sem o sticker</b>. Na data agendada ficará pendente de publicação manual.</p>
+          </> : <small className="postArtHint">A imagem ou vídeo será publicado automaticamente, sem stickers interativos.</small>}
+        </div> : null}
         {canManage && !clientMode ? <div className="postArt">
           <span className="postArtTitle">{isReels ? "Vídeo do Reels" : "Arte do post"} {artList(draft.art_url).length ? <em>{artList(draft.art_url).length} arquivo{artList(draft.art_url).length > 1 ? "s" : ""}</em> : null}</span>
-          <div className="postLibraryBar">
-            <button type="button" className="ds-button is-primary"
-              disabled={busy || Boolean(uploading)} aria-expanded={libraryOpen}
-              onClick={() => void openLibrary()}>
-              {libraryOpen ? "Fechar Biblioteca" : "Escolher da Biblioteca"}
-            </button>
-            <small>Use fotos já enviadas para esta marca. As alterações só valem depois de salvar a publicação.</small>
-          </div>
-          {libraryOpen ? <section className="postLibraryPicker" aria-label="Selecionar imagens da Biblioteca">
-            <div className="postLibraryPickerHead">
-              <strong>Imagens da Biblioteca</strong>
-              <button type="button" className="ds-button" onClick={() => void openLibrary()} disabled={libraryLoading}>
-                Fechar
-              </button>
-            </div>
-            {libraryLoading ? <p className="postArtHint" role="status">Carregando imagens…</p> : null}
-            {libraryError ? <p className="studioError" role="alert">{libraryError}</p> : null}
-            {!libraryLoading && !libraryItems.length && !libraryError
-              ? <p className="postArtHint">Nenhuma imagem disponível. Envie arquivos primeiro pela Biblioteca da marca.</p> : null}
-            {!libraryLoading && libraryItems.length ? <>
-              <div className="postLibraryGallery" role="group" aria-label="Fotos disponíveis">
-                {libraryItems.map((entry) => <label className={librarySelection.includes(entry.id) ? "is-selected" : ""} key={entry.id}>
-                  <input type="checkbox" checked={librarySelection.includes(entry.id)}
-                    disabled={busy || (!librarySelection.includes(entry.id) && librarySelection.length >= 12)}
-                    onChange={(event) => {
-                      setLibraryError(null);
-                      setLibrarySelection((current) => event.target.checked
-                        ? [...current, entry.id] : current.filter((id) => id !== entry.id));
-                    }} />
-                  <img src={entry.url} alt={entry.title} loading="lazy" />
-                  <span title={entry.title}>{entry.title}</span>
-                </label>)}
-              </div>
-              <label className="postLibraryReplace">
-                <input type="checkbox" checked={libraryReplace}
-                  onChange={(event) => { setLibraryReplace(event.target.checked); setLibraryError(null); }} />
-                Substituir as artes atuais (desmarcado: adicionar ao final)
-              </label>
-              <div className="postLibraryFooter">
-                <span>{librarySelection.length} selecionada(s) · máximo 12 imagens</span>
-                <button type="button" className="ds-button is-primary" disabled={!librarySelection.length || busy}
-                  onClick={applyLibrarySelection}>Usar nesta publicação</button>
-              </div>
-            </> : null}
-          </section> : null}
           <label className={`postArtDrop${dragArt ? " is-drag" : ""}${uploading ? " is-busy" : ""}`}
             onDragOver={(e) => { e.preventDefault(); setDragArt(true); }} onDragLeave={() => setDragArt(false)}
             onDrop={(e) => { e.preventDefault(); setDragArt(false); void sendArt(Array.from(e.dataTransfer.files || [])); }}>
@@ -345,13 +357,57 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
           {item && (draft.art_url || "") !== (initial.art_url || "") ? <small className="postArtHint is-pending">A arte mudou. Clique em <b>Salvar alterações</b>, aqui embaixo, para valer.</small> : null}
           <details className="postArtLink" open={Boolean(draft.art_url) && !artList(draft.art_url).every((u) => u.includes("/storage/v1/object/public/"))}>
             <summary>editar os links à mão</summary>
-            <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={1000} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"
+            <textarea rows={Math.min(6, Math.max(2, (draft.art_url || "").split("\n").length + 1))} maxLength={ART_URL_MAX_LENGTH} placeholder="https://drive.google.com/file/d/… (um link por linha, na ordem dos slides)"
               value={draft.art_url || ""} onChange={(e) => set({ art_url: e.target.value })} aria-label="Link da arte" />
           </details>
           {folderLink ? <p className="postArtWarn">Esse é o link de uma <b>pasta</b> do Drive: não aparece na prévia, o cliente não vê a arte e não publica sozinho. No Drive, clique com o botão direito no <b>arquivo</b> → Compartilhar → Copiar link (deixe como "qualquer pessoa com o link"). Ou baixe e envie o arquivo aqui em cima.</p> : null}
           {!item && artList(draft.art_url).length ? <small className="postArtHint">A arte já subiu. Ela fica salva na pauta quando você clicar em <b>Criar pauta</b>.</small> : null}
         </div> : null}
-        {canManage && !clientMode && isReels ? <ReelsOptions value={reelsOpts} onChange={(reels_options) => set({ reels_options })}
+        {canManage && !clientMode && isReels ? <ReelsOptions part="capa" value={reelsOpts} onChange={(reels_options) => set({ reels_options })}
+          videoUrl={reelsVideo} itemId={item?.id || null} disabled={busy} /> : null}
+        <div className="studioRow">
+          <label>Data<input type="date" required value={draft.date} disabled={!canManage} onChange={(e) => set({ date: e.target.value })} /></label>
+          <label>Horário<input type="time" required value={draft.time} disabled={!canManage} onChange={(e) => set({ time: e.target.value })} /></label>
+        </div>
+        {canManage && !clientMode ? <label>Plataforma<select value={channel} onChange={(e) => {
+          const next = e.target.value as StudioChannel; const allowed = PLATFORM_FORMATS[next];
+          set({ channel: next, destinations: destinations.filter((entry) => entry.channel !== next),
+            format: allowed.includes(draft.format) ? draft.format : allowed[0] });
+        }}>{Object.entries(STUDIO_CHANNELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label> : null}
+        {canManage && !clientMode && !item ? <fieldset>
+          <legend>Outras plataformas</legend>
+          {(Object.entries(STUDIO_CHANNELS) as [StudioChannel, string][]).filter(([key]) => key !== channel).map(([key, label]) => {
+            const target = destinations.find((entry) => entry.channel === key);
+            const update = (patch: Partial<NonNullable<PostDraft["destinations"]>[number]>) =>
+              set({ destinations: destinations.map((entry) => entry.channel === key ? { ...entry, ...patch } : entry) });
+            return <div key={key}>
+              <label><input type="checkbox" checked={Boolean(target)} disabled={busy} onChange={(event) => set({
+                publication_group_id: draft.publication_group_id || crypto.randomUUID(),
+                destinations: event.target.checked ? [...destinations, { channel: key }] : destinations.filter((entry) => entry.channel !== key),
+              })} /> {label} {key !== "instagram" ? "· Publicação manual" : ""}</label>
+              {target ? <details><summary>Adaptar para {label}</summary>
+                <label>Formato<select value={target.format || ""} onChange={(event) => update({ format: (event.target.value || undefined) as StudioFormat | undefined })}>
+                  <option value="">Usar formato principal</option>
+                  {PLATFORM_FORMATS[key].map((format) => <option key={format} value={format}>{STUDIO_FORMATS[format]}</option>)}
+                </select></label>
+                <label>Legenda<textarea value={target.caption_draft ?? draft.caption_draft} onChange={(event) => update({ caption_draft: event.target.value })} /></label>
+                <label>URL da mídia<input value={target.art_url ?? draft.art_url ?? ""} onChange={(event) => update({ art_url: event.target.value })} /></label>
+                <label>Data e horário<input type="datetime-local" value={target.scheduled_at || `${draft.date}T${draft.time}`}
+                  onChange={(event) => update({ scheduled_at: event.target.value || undefined })} /></label>
+              </details> : null}
+            </div>;
+          })}
+          {incompatible.length ? <p role="alert">Escolha um formato compatível em {incompatible.map(({ channel: key }) => STUDIO_CHANNELS[key]).join(", ")}.</p> : null}
+        </fieldset> : null}
+        {channel !== "instagram" && canManage && !clientMode ? <small className="postArtHint">{channelLabel} não publica sozinho pelo Mugoverso: depois da aprovação, agende para a equipe ser lembrada na hora e publique à mão.</small> : null}
+        {canManage && !clientMode && channel === "instagram" ? <ReelsMusicPicker value={reelsOpts.music} format={draft.format} disabled={busy}
+          onChange={(music) => set({ reels_options: { ...reelsOpts, music } })} /> : null}
+        <label>Legenda<textarea rows={7} maxLength={4000} value={draft.caption_draft} disabled={!canManage} onChange={(e) => set({ caption_draft: e.target.value })} /></label>
+        {canManage && !clientMode && channel === "instagram" ? <Collaborators value={draft.collaborators || []} onChange={(collaborators) => set({ collaborators })}
+          disabled={busy} isStory={draft.format === "stories"} /> : null}
+        {canManage && !clientMode && channel === "instagram" ? <ProductTags value={draft.product_tags || []} onChange={(product_tags) => set({ product_tags })}
+          format={draft.format} slides={slides} disabled={busy} /> : null}
+        {canManage && !clientMode && isReels ? <ReelsOptions part="extras" value={reelsOpts} onChange={(reels_options) => set({ reels_options })}
           videoUrl={reelsVideo} itemId={item?.id || null} disabled={busy} /> : null}
         <ArtLink url={artList(draft.art_url)[0] || null} preview={!art} count={artList(draft.art_url).length} />
 
@@ -399,7 +455,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
         </div> : null}
         {canManage && !clientMode && item && !dirty && item.status === "aprovado" && !item.schedule_confirmed_at ? (autoPublish ? <p className="postPublishWarn">
           Aprovado, mas <b>ainda não vai para o Instagram</b>. Clique em <b>{new Date(item.scheduled_at).getTime() > Date.now() ? "Agendar" : "Publicar agora"}</b> para sair sozinho.</p>
-          : <p className="postPublishWarn">Aprovado. <b>{channelLabel} não publica sozinho</b>: agende para a equipe ser lembrada na hora, ou marque <b>Já publiquei à mão</b>.</p>) : null}
+          : <p className="postPublishWarn">Aprovado. <b>{interactiveStory ? "Este Story exige sticker manual" : channelLabel + " não publica sozinho"}</b>: agende para orientar a equipe na hora, ou marque <b>Já publiquei à mão</b>.</p>) : null}
         {canManage && !clientMode && item && item.status === "publicado" && !item.publish_status ? <p className="postPublishWarn is-muted">
           Marcado como publicado à mão: o Mugoverso não enviou este post ao {channelLabel}.</p> : null}
         {canManage && !clientMode ? <div className="postActions">
@@ -411,7 +467,7 @@ export default function PostModal({ item, initial, handle, pillars, canManage, b
             {onConfirmSchedule && autoPublish && item.status === "aprovado" && !item.schedule_confirmed_at ? <button type="button" className={`ds-button${new Date(item.scheduled_at).getTime() > Date.now() ? "" : " is-primary"}`} disabled={busy}
               onClick={() => { if (window.confirm("Publicar agora no Instagram? O post sai em até 5 minutos.")) void onConfirmSchedule(true); }}>Publicar agora</button> : null}
             {item.status === "aprovado" && item.schedule_confirmed_at && !item.publish_status ? <span className="studioOk">✓ Agendado para {new Date(item.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: {autoPublish ? "publica sozinho no Instagram" : `na hora fica marcado para publicar à mão no ${channelLabel}`}</span> : null}
-            {item.publish_status === "publicado" && item.published_permalink ? <a className="studioOk" href={item.published_permalink} target="_blank" rel="noreferrer noopener">✓ Publicado no Instagram ↗</a> : null}
+            {item.publish_status === "publicado" ? <a className="studioOk" href={item.published_permalink || undefined} target="_blank" rel="noreferrer noopener">✓ Publicado no Instagram{item.published_at ? ` em ${new Date(item.published_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}{item.published_permalink ? " ↗" : ""}</a> : null}
             {item.publish_status === "simulado" ? <span className="libHint">Publicação simulada (IG_PUBLISH_ENABLED desligado).</span> : null}
             {item.publish_status === "falhou" || item.publish_status === "manual" ? <span className="studioError">{item.publish_status === "manual" ? "Publicação manual: " : "Falhou: "}{item.publish_error}</span> : null}
             {onRetryPublish && autoPublish && (item.publish_status === "falhou" || item.publish_status === "manual") ? <button type="button" className="ds-button" disabled={busy} onClick={() => void onRetryPublish()}>Tentar de novo</button> : null}

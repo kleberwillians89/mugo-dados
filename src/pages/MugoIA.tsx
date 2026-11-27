@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUp, BookmarkPlus, Check, CornerDownRight, Plus, Sparkles } from "lucide-react";
 import { getActiveClientName } from "../app/activeClient";
 import { addKnowledgeFacts, askMugoIA, clearMugoIA, getMugoIA, type MugoIAMessage } from "../app/studio";
 import Shell from "../components/Shell";
+import MugoIAActions from "../components/mugoIA/MugoIAActions";
 import "../styles/studio.css";
 import "../styles/mugoverso-ia.css";
 
 const TEAM_SUGGESTIONS = [
+  "Cria um e-mail marketing para a próxima data comercial, com base no que os concorrentes estão fazendo",
+  "Monta uma campanha de vendas na Meta com R$ 50 por dia por 14 dias",
+  "Faz o briefing da próxima campanha da marca",
   "Como está a saúde da marca e o que o público anda falando?",
   "O que os concorrentes fizeram nas últimas semanas?",
   "Quais produtos mais vendem e como usar isso no conteúdo?",
@@ -21,7 +25,7 @@ const CLIENT_SUGGESTIONS = [
   "Quais são os próximos posts do calendário?",
   "Resumo do mês: vendas, mídia e metas",
 ];
-const READS = ["Métricas", "Material enviado", "Saúde da marca", "Voz do público", "Concorrentes", "Clipping", "Produtos", "Calendário", "Mídia", "Metas"];
+const READS = ["Métricas", "Material enviado", "Saúde da marca", "Voz do público", "Concorrentes", "Clipping", "Produtos", "Calendário", "Mídia", "Metas", "Pesquisa de mercado na web"];
 
 /** Rótulos das lacunas que vêm do backend (fonte sem dado ou fora do ar). */
 const GAP_LABEL: Record<string, string> = {
@@ -31,41 +35,8 @@ const GAP_LABEL: Record<string, string> = {
   proximos_posts: "calendário", alertas: "alertas", briefings: "briefings", tarefas: "tarefas", pacote: "dados da marca",
 };
 const gapLabel = (gap: string) => GAP_LABEL[gap] || gap.replace(/_/g, " ");
-const ACTION_RE = /^(o que eu faria agora|próximo passo|recomendação)\s*:?/i;
-
-/** Texto da IA → parágrafos, listas e o bloco "O que eu faria agora" em destaque. Sem HTML vindo da IA. */
-export function AnswerBody({ text }: { text: string }) {
-  const blocks: ReactNode[] = [];
-  let list: string[] = [];
-  let action: string[] | null = null;
-  const flushList = () => {
-    if (list.length) blocks.push(<ul key={`l${blocks.length}`}>{list.map((item, i) => <li key={i}>{item}</li>)}</ul>);
-    list = [];
-  };
-  // "… O que eu faria agora: …" no meio do parágrafo também vira o bloco em destaque.
-  const normalized = text.replace(/\s+(o que eu faria agora\s*:)/i, "\n$1");
-  for (const raw of normalized.split("\n")) {
-    const line = raw.trim();
-    if (!line) { flushList(); continue; }
-    if (ACTION_RE.test(line)) {
-      flushList();
-      action = [];
-      const rest = line.replace(ACTION_RE, "").trim();
-      if (rest) action.push(rest.replace(/^[-•]\s*/, ""));
-      continue;
-    }
-    if (action) { action.push(line.replace(/^[-•]\s*/, "")); continue; }
-    if (/^[-•]\s+/.test(line)) { list.push(line.replace(/^[-•]\s+/, "")); continue; }
-    flushList();
-    blocks.push(<p key={`p${blocks.length}`}>{line}</p>);
-  }
-  flushList();
-  return <div className="miaAnswer">
-    {blocks}
-    {action && (action as string[]).length ? <div className="miaAction"><b>O que eu faria agora</b>
-      {(action as string[]).length > 1 ? <ul>{(action as string[]).map((a, i) => <li key={i}>{a}</li>)}</ul> : <p>{(action as string[])[0]}</p>}</div> : null}
-  </div>;
-}
+export { AnswerBody } from "../components/mugoIA/AnswerBody";
+import { AnswerBody } from "../components/mugoIA/AnswerBody";
 
 /**
  * Mugoverso IA: a pessoa pergunta qualquer coisa sobre o mundo do cliente e a IA responde lendo TODO o contexto dele
@@ -102,11 +73,11 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
     try {
       const res = await askMugoIA(q);
       setMessages((m) => [...(m || []), { id: res.id, role: "assistant", content: res.answer,
-        meta: { on_topic: res.on_topic, sources: res.sources, new_facts: res.new_facts, follow_ups: res.follow_ups, coverage: res.coverage, web_sources: res.web_sources, web_status: res.web_status } }]);
+        meta: { on_topic: res.on_topic, sources: res.sources, new_facts: res.new_facts, follow_ups: res.follow_ups, coverage: res.coverage, web_sources: res.web_sources, web_status: res.web_status, acao: res.acao, acoes: res.acoes } }]);
     } catch (cause) {
       setMessages((m) => (m || []).slice(0, -1));
       setText(q);
-      setError(cause instanceof Error && cause.message ? cause.message : "O Tira-dúvidas não respondeu agora. Tente de novo.");
+      setError(cause instanceof Error && cause.message ? cause.message : "A Mugô IA não respondeu agora. Tente de novo.");
     } finally { setBusy(false); input.current?.focus(); }
   }
 
@@ -125,11 +96,11 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
   const lastAnswer = [...(messages || [])].reverse().find((m) => m.role === "assistant");
   const empty = messages !== null && !messages.length;
 
-  return <Shell title="Tira-dúvidas" variant="editorial" themeClass="miaShell"><div className="mia">
+  return <Shell title="Mugô IA" variant="editorial" themeClass="miaShell"><div className="mia">
     <header className="miaTop">
       <div className="miaBrand">
         <span className="miaMark" aria-hidden="true"><Sparkles size={16} /></span>
-        <div><h1>Tira-dúvidas</h1><small>{company} · lê tudo da marca antes de responder</small></div>
+        <div><h1>Mugô IA</h1><small>{company} · lê tudo da marca, pesquisa o mercado e cria e-mail, campanha e briefing</small></div>
       </div>
       {messages?.length ? (confirmClear
         ? <div className="miaConfirm"><span>Apagar esta conversa?</span>
@@ -146,7 +117,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
           <span className="miaMark is-big" aria-hidden="true"><Sparkles size={26} /></span>
           <h2>O que você quer saber sobre a {company}?</h2>
           <p>Antes de cada resposta eu leio tudo o que a Mugô tem da marca.</p>
-          <ul className="miaReads" aria-label="O que o Tira-dúvidas lê">{READS.map((r) => <li key={r}>{r}</li>)}</ul>
+          <ul className="miaReads" aria-label="O que a Mugô IA lê">{READS.map((r) => <li key={r}>{r}</li>)}</ul>
           <div className="miaStarters">
             {suggestions.map((s) => <button key={s} type="button" disabled={busy} onClick={() => void send(s)}>{s}</button>)}
           </div>
@@ -160,8 +131,10 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
           return <article key={key} className={`miaBot${m.meta?.on_topic === false ? " is-offtopic" : ""}`}>
             <span className="miaMark" aria-hidden="true"><Sparkles size={14} /></span>
             <div className="miaBotBody">
-              <small className="miaName">Tira-dúvidas</small>
+              <small className="miaName">Mugô IA</small>
               <AnswerBody text={m.content} />
+              <MugoIAActions messageId={m.id} meta={m.meta} canCreate={canManage}
+                onMeta={(meta) => setMessages((list) => (list || []).map((x) => (x === m ? { ...x, meta } : x)))} />
               {m.meta?.sources?.length || (isLast && m.meta?.coverage?.gaps?.length) ? <div className="miaMeta">
                 {m.meta?.sources?.length ? <div className="miaChips"><span className="miaChipsLabel">Com base em</span>
                   {m.meta.sources.map((s) => <span key={s} className="miaChip">{s}</span>)}</div> : null}
@@ -192,7 +165,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
 
         {busy ? <article className="miaBot is-thinking" role="status">
           <span className="miaMark" aria-hidden="true"><Sparkles size={14} /></span>
-          <div className="miaBotBody"><small className="miaName">Tira-dúvidas</small>
+          <div className="miaBotBody"><small className="miaName">Mugô IA</small>
             <p className="miaThinking"><span className="miaDots"><i /><i /><i /></span> Lendo tudo da {company} e pensando…</p></div>
         </article> : null}
         <div ref={end} />
@@ -204,7 +177,7 @@ export default function MugoIA({ canManage, isAgency }: { canManage: boolean; is
         {error ? <p role="alert" className="miaError">{error}</p> : null}
         <form className="miaComposer" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <textarea ref={input} rows={1} value={text} maxLength={1500} placeholder={`Pergunte qualquer coisa sobre a ${company}…`}
-            aria-label="Pergunta para o Tira-dúvidas" onChange={(e) => setText(e.target.value)}
+            aria-label="Pergunta para a Mugô IA" onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} />
           <button type="submit" className="miaSend" aria-label="Perguntar" disabled={busy || !text.trim()}><ArrowUp size={18} aria-hidden="true" /></button>
         </form>

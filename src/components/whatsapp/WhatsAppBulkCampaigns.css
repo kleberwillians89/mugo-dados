@@ -17,7 +17,7 @@
 .waBulkPrimary{background:#00516d;border:0;border-radius:10px;color:white;padding:13px 20px;font-weight:700;cursor:pointer}
 .waBulkPrimary:disabled{opacity:.45;cursor:not-allowed}
 .waBulkSuccess{color:#246346;margin:0;font-size:13px}.waBulkError{color:#a62929;margin:0;font-size:13px}
-.waBulkHistoryHead{display:flex;align-items:center;justify-content:space-between;gap:12px}.waBulkHistoryHead button{background:none;border:1px solid #cbd4da;border-radius:9px;padding:8px 12px;cursor:pointer}
+.waBulkHistoryHead{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .waBulkHistory{display:flex;flex-direction:column;gap:0}.waBulkHistory article{display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid #e3e9eb;font-size:13px;justify-content:space-between}.waBulkHistory article div{display:flex;flex-direction:column;gap:4px;min-width:0}.waBulkHistory article strong{overflow-wrap:anywhere}.waBulkHistory article small{color:#68757d}.waBulkHistory article span{color:#64737d;background:#f1f3f5;border-radius:9px;padding:6px 10px}
 .waBulkEmpty{color:#6b777f;font-size:13px;margin:0;padding:24px 0}
 @media(max-width:960px){.waBulkStats{grid-template-columns:repeat(2,minmax(0,1fr))}.waBulkColumns{grid-template-columns:1fr}}
@@ -29,3 +29,72 @@
 .waBulkImportActions button:first-child{background:#00516d;color:#fff}
 .waBulkImportActions button:disabled{opacity:.55;cursor:not-allowed}
 @media(max-width:540px){.waBulkImportActions button{width:100%}}
+
+/* Envio liberado */
+.waBulkChip.is-on{background:#e6f4ea;color:#1e6b3a}
+.waBulkStatus{font-size:12px;font-weight:700;padding:3px 8px;border-radius:99px;background:#eef2f1;white-space:nowrap}
+.waBulkStatus.is-sending{background:#fff4d6;color:#7a5600}
+.waBulkStatus.is-sent{background:#e6f4ea;color:#1e6b3a}
+.waBulkStatus.is-partial,.waBulkStatus.is-failed{background:#fdecea;color:#9b2c22}
+.waBulkHistory article{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.waBulkHistory article>div{display:grid;gap:2px;min-width:0;flex:1 1 220px}
+.waBulkConfirm{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:16px;background:rgba(15,25,30,.45)}
+.waBulkConfirm>div{background:var(--surface,#fff);border-radius:14px;padding:20px;max-width:460px;width:100%;display:grid;gap:10px}
+.waBulkConfirm h3{margin:0}
+.waBulkConfirm p{margin:0;font-size:14px;line-height:1.45}
+.waBulkWarn{padding:10px;border-radius:8px;background:#fff4d6;color:#5d4718}
+.waBulkConfirmActions{display:flex;justify-content:flex-end;gap:8px}
+.waBulkStatus.is-queued{background:#e8f0fb;color:#1f4f8a}
+.waBulkWhen{display:grid;gap:6px;font-size:14px}
+.waBulkWhen label{display:flex;align-items:center;gap:6px}
+.waBulkWhen input[type="datetime-local"]{max-width:240px}
+.waBulkReport{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 10px;border-radius:8px;background:#f3f7f5;font-size:13px}
+.waBulkReport small{flex-basis:100%;color:var(--text-secondary,#62717c)}
+.waBulkHeaderPreview{max-width:160px;border-radius:8px;margin-top:6px}
+
+/* Importar leads de planilha (Excel/CSV) */
+.waBulkSheet{display:grid;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border-subtle,#e3e6e9)}
+.waBulkSheetFile{display:grid;gap:6px}
+.waBulkSheetFile span{font-weight:600}
+.waBulkSheetFile small{color:var(--text-muted,#6b7075)}
+.waBulkCheck{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.waBulkSheet button{justify-self:start;border:1px solid #00516d;color:#fff;background:#00516d;border-radius:10px;padding:11px 16px;font-size:13px;font-weight:650;cursor:pointer}
+.waBulkSheet button:disabled{opacity:.55;cursor:not-allowed}
+@media(max-width:540px){.waBulkSheet button{width:100%}}
+.waBulkPick{border:1px solid var(--border-subtle,#e3e6e9);border-radius:12px;padding:10px 14px;display:grid;gap:8px;margin:0}
+.waBulkPick legend{font-weight:650;padding:0 4px}
+.waBulkPickList{display:grid;gap:8px}
+.waBulkPickList input[type="search"]{min-height:38px;border-radius:10px;border:1px solid var(--border-subtle,#d9dde1);padding:0 10px;font:inherit}
+.waBulkPickList ul{list-style:none;margin:0;padding:0;max-height:260px;overflow:auto;display:grid;gap:4px}
+.waBulkPickList li small,.waBulkPickList>small{color:var(--text-muted,#6b7075)}
+
+.waBulkTest {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px 16px;
+  border: 1px solid #e2e6e8;
+  border-radius: 12px;
+  background: #f8fafb;
+}
+.waBulkTest legend { padding: 0 5px; font-size: 14px; font-weight: 700; }
+.waBulkTest .waBulkPrimary { justify-self: start; }
+.waBulkSecondary {
+  appearance: none;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #cbd4da;
+  border-radius: 9px;
+  background: #fff;
+  color: #243a45;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.waBulkSecondary:hover:not(:disabled) { background: #f0f5f7; border-color: #9fb3bf; }
+.waBulkPrimary:hover:not(:disabled) { background: #003f55; }
+.waBulkSecondary:disabled { opacity: .55; cursor: not-allowed; }
+.waBulkPrimary:focus-visible, .waBulkSecondary:focus-visible { outline: 2px solid #00546e; outline-offset: 2px; }
+@media (max-width: 540px) { .waBulkTest .waBulkPrimary { justify-self: stretch; } }

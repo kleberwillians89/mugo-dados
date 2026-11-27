@@ -15,6 +15,7 @@ import json
 import os
 import re
 import time
+from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -135,9 +136,8 @@ async def brand_messages(client_id: str, conversation_id: str, limit: int = 100)
         raise
 
 
-async def brand_reply(client_id: str, conversation_id: str, text: str, *, author: str) -> Dict[str, Any]:
-    """Equipe responde pelo MUGOVERSO: CRM da marca (ponte, POST reply) ou número ligado direto (Cloud API).
-    Número que vive no CRM Mugô continua respondendo pelo CRM Mugô."""
+async def brand_reply(client_id: str, conversation_id: str, text: str, *, author: str, request_id: str | None = None) -> Dict[str, Any]:
+    """Responde usando a conexão da empresa que é dona da conversa."""
     if not _UUID.match(str(conversation_id)):
         raise StudioError("CONVERSATION_NOT_FOUND")
     body = str(text or "").strip()[:4096]
@@ -170,7 +170,8 @@ async def brand_reply(client_id: str, conversation_id: str, text: str, *, author
         except whatsapp_native.WhatsAppNativeError as exc:
             mapped = {"NOT_FOUND": "CONVERSATION_NOT_FOUND", "OUTSIDE_WINDOW": "OUTSIDE_WINDOW", "EMPTY": "EMPTY_MESSAGE"}.get(exc.code, "SEND_FAILED")
             raise StudioError(mapped, str(exc)) from None
-    raise StudioError("REPLY_UNSUPPORTED", "Este WhatsApp vive no CRM Mugô: responda por lá.")
+    from .crm_whatsapp_templates import reply
+    return await reply(client_id, conversation_id, body, request_id or str(uuid4()))
 
 
 async def brand_sales(client_id: str, start: str, end: str) -> List[Dict[str, Any]]:

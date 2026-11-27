@@ -1058,12 +1058,12 @@ async def narrative(client_id: str, strategy: Dict[str, Any]) -> Dict[str, Any]:
         "campaign_notes": arr(obj({"campaign": {"type": "string", "enum": names or ["-"]}, "note": STR})),
         "creative_guidance": arr(STR), "risks": arr(STR), "next_7_days": arr(STR),
     })
-    data = await llm_json(client_id=client_id, 
+    data = await llm_json(brand="estrategia", client_id=client_id,
         instructions=("Você é o head de mídia paga da agência. Escreve a estratégia do mês para o cliente com base EXCLUSIVA nos números "
                       "calculados. Cite números concretos (verba, ROAS, CPA, variações). Não invente métricas, campanhas, públicos ou "
                       "resultados. Português do Brasil, frases curtas, tom de consultoria."),
         prompt=(f"NÚMEROS CALCULADOS:\n{json.dumps(facts, ensure_ascii=False, default=str)}\n\n"
-                f"CONTEXTO DA MARCA:\n{to_prompt(intel, sections=['negocio', 'marca', 'metas_do_mes', 'campanhas_ativas', 'vendas_por_origem', 'calendario_do_mes', 'ultima_analise', 'posts'], limit=6000)}\n\n"
+                f"CONTEXTO DA MARCA:\n{to_prompt(intel, sections=['negocio', 'marca', 'metas_do_mes', 'campanhas_ativas', 'vendas_por_origem', 'calendario_do_mes', 'ultima_analise', 'posts', 'criativos_pagos'], limit=7000)}\n\n"
                 "Escreva: headline (1 frase com o principal número), thesis (3-4 frases: onde investir, por quê e o resultado esperado), "
                 "channel_roles (papel de cada canal no funil: prospecção, remarketing, captura de demanda…), campaign_notes (até 6, só "
                 "campanhas da lista, dizendo o que fazer), creative_guidance (até 4, ligados ao que performou), risks (até 3), "

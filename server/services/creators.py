@@ -5,12 +5,15 @@ reaproveitado entre empresas. Shortlists são sempre filtradas por client_id.
 """
 import asyncio
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+import httpx
+
 from . import creators_providers as providers
 from .business_context import load_business_context
-from .ig_supabase import sb_delete, sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_upsert
+from .ig_supabase import sb_delete, sb_get_one, sb_get_one_by, sb_insert, sb_select, sb_update, sb_upload_public, sb_upsert
 from .integration_errors import IntegrationError
 from .meta_tokens import ensure_valid_meta_token, get_active_connection_for_client
 
@@ -126,11 +129,39 @@ async def get_by_handle(network: str, handle: str) -> Optional[Dict[str, Any]]:
     return await sb_get_one_by("creators", filters={"network": f"eq.{network}", "handle": f"eq.{handle}"})
 
 
+AVATAR_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _stored(url: Optional[str]) -> bool:
+    return bool(url) and "/storage/v1/object/public/" in str(url)
+
+
+async def persist_avatar(network: str, handle: str, url: Optional[str]) -> Optional[str]:
+    """A foto do Instagram/TikTok vem com link assinado que expira em poucos dias: guarda uma cópia no storage do
+    MUGOVERSO e devolve o link permanente. Se não der (timeout, não é imagem, sem storage), fica o link original."""
+    if not url or _stored(url) or not str(url).startswith("https://"):
+        return url
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            response = await client.get(str(url))
+        kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
+        if response.status_code >= 400 or not kind.startswith("image/") or len(response.content) > AVATAR_MAX_BYTES:
+            return url
+        ext = {"image/png": "png", "image/webp": "webp"}.get(kind, "jpg")
+        return await sb_upload_public(f"creators/{network}/{handle}.{ext}", response.content, kind)
+    except Exception as exc:  # noqa: BLE001 — a foto não pode impedir de salvar o criador
+        print(f"[creators] avatar_not_stored network={network} {type(exc).__name__}")
+        return url
+
+
 async def save_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     """Grava perfil + snapshot. Um resultado parcial nunca apaga dado completo já salvo."""
     metrics = providers.compute_engagement(profile)
     row = {**{k: profile.get(k) for k in CREATOR_FIELDS}, **metrics, "collected_at": _now().isoformat()}
     existing = await get_by_handle(row["network"], row["handle"])
+    if not row.get("avatar_url") and existing and existing.get("avatar_url"):
+        row["avatar_url"] = existing["avatar_url"]  # busca por hashtag não traz foto: não apaga a que já existe
+    row["avatar_url"] = await persist_avatar(row["network"], row["handle"], row.get("avatar_url"))
     if existing and row["followers"] is None and existing.get("followers") is not None:
         return existing
     await sb_upsert("creators", [row], on_conflict="network,handle")
@@ -308,6 +339,24 @@ async def list_creators(*, network: Optional[str], q: Optional[str], min_followe
     return await sb_select("creators", filters=filters, order="followers.desc.nullslast", limit=limit, offset=offset)
 
 
+async def repair_avatars(client_id: str, rows: List[Dict[str, Any]], limit: int = 8) -> List[Dict[str, Any]]:
+    """Foto que não está no storage do MUGOVERSO (vazia ou link do Instagram que já expirou): busca de novo na Meta
+    (grátis) e guarda a cópia permanente. Poucas por vez, para a lista não demorar."""
+    todo = [r for r in rows if r.get("network") == "instagram" and r.get("handle") and not _stored(r.get("avatar_url"))][:limit]
+
+    async def fix(row: Dict[str, Any]) -> None:
+        try:
+            profile = await asyncio.wait_for(_meta_profile(client_id, row["handle"]), timeout=8)
+            stored = await persist_avatar("instagram", row["handle"], profile.get("avatar_url"))
+            if stored and _stored(stored):
+                row["avatar_url"] = stored
+                await sb_update("creators", filters={"id": f"eq.{row['id']}"}, patch={"avatar_url": stored}, returning="minimal")
+        except Exception as exc:  # noqa: BLE001 - sem foto, o criador aparece com a inicial
+            print(f"[creators] avatar_repair_failed {type(exc).__name__}")
+    await asyncio.gather(*(fix(r) for r in todo))
+    return rows
+
+
 async def get_creator(creator_id: str, only_ids: Visible = None) -> Optional[Dict[str, Any]]:
     if not _visible(creator_id, only_ids):
         return None
@@ -367,38 +416,211 @@ SUGGEST_SCHEMA = {
 }
 SUGGEST_INSTRUCTIONS = (
     "Você é estrategista de marketing de influência no Brasil. Indique perfis REAIS do Instagram "
-    "que existam hoje e combinem com a marca. Só @ que você tem alta confiança de que existem; "
-    "prefira contas profissionais (Business/Criador) e criadores brasileiros. Misture portes "
-    "(micro, médio, grande) conforme o tipo de campanha. Nunca indique a própria marca nem concorrentes diretos. "
+    "que existam hoje e combinem com a marca descrita no CÉREBRO DA MARCA. Só @ que você tem alta confiança de que existem; "
+    "prefira contas profissionais (Business/Criador), criadores brasileiros e perfis ativos com audiência de verdade "
+    "(nada de contas recém-criadas ou de nicho vazio). Misture portes (micro, médio, grande) conforme o tipo de campanha. "
+    "Use o HISTÓRICO: busque perfis parecidos com quem FECHOU, evite o perfil de quem NÃO FECHOU e nunca repita quem já "
+    "está na base. Nunca indique a própria marca nem concorrentes diretos. "
     "Em reason, uma frase objetiva sobre a afinidade com a marca, sem números de seguidores ou engajamento: "
     "as métricas serão conferidas depois na Meta."
 )
+FIT_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["profiles"],
+    "properties": {"profiles": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["handle", "fit", "reason"],
+        "properties": {"handle": {"type": "string"}, "fit": {"type": "integer"}, "reason": {"type": "string"}},
+    }}},
+}
+FIT_INSTRUCTIONS = (
+    "Você avalia criadores REAIS para uma marca. Para cada perfil, leia a bio e as legendas recentes e dê fit de 0 a 10: "
+    "o quanto o conteúdo dele conversa com a marca (assunto, estética, público, tom). Perfil que não fala do assunto, "
+    "que é loja/revenda, concorrente ou conta institucional fica abaixo de 5. Em reason, uma frase citando o que você viu "
+    "no conteúdo dele (não invente nada que não esteja na bio ou nas legendas)."
+)
+MIN_FOLLOWERS = {"ugc": 1000, "influencer": 5000}
+STALE_DAYS = 90
+MIN_FIT = 5
+MAX_CANDIDATES = 24  # teto de conferências na Meta por clique
+
+
+def suggestion_gate(creator: Dict[str, Any], posts: List[Dict[str, Any]], campaign_type: str,
+                    today: Optional[datetime] = None) -> Optional[str]:
+    """Motivo para descartar um perfil conferido (None = passa). Puro, para teste."""
+    floor = MIN_FOLLOWERS["ugc" if campaign_type == "ugc" else "influencer"]
+    followers = creator.get("followers")
+    if followers is None or followers < floor:
+        return "poucos seguidores"
+    stamps = sorted((str(p.get("timestamp") or "") for p in posts or [] if p.get("timestamp")), reverse=True)
+    if stamps:
+        try:
+            last = datetime.fromisoformat(stamps[0].replace("Z", "+00:00").replace("+0000", "+00:00"))
+            now = today or datetime.now(timezone.utc)
+            if (now - last).days > STALE_DAYS:
+                return "sem posts recentes"
+        except ValueError:
+            pass
+    if (creator.get("engagement_rate") or 0) <= 0 and creator.get("engagement_rate") is not None:
+        return "sem engajamento"
+    return None
+
+
+def _brief_number(value: Any) -> str:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "?"
+    return f"{n / 1_000_000:.1f} mi".replace(".", ",") if n >= 1_000_000 else f"{n / 1000:.0f} mil" if n >= 1000 else str(int(n))
+
+
+async def creator_history(client_id: str) -> Dict[str, List[str]]:
+    """O que já aconteceu com criadores desta marca, para a IA aprender: quem fechou, quem não, quem já está na base."""
+    from .creator_media_kits import list_kits
+    out: Dict[str, List[str]] = {"fecharam": [], "nao_fecharam": [], "em_conversa": [], "na_base": []}
+    try:
+        ids = await linked_ids(client_id)
+        rows = await sb_select("creators", select="id,handle,followers", filters={"id": f"in.({','.join(list(ids)[:400])})"},
+                               limit=400) if ids else []
+        by_id = {str(r["id"]): r for r in rows}
+        kits = await list_kits(client_id)
+    except Exception as exc:  # noqa: BLE001 — sem histórico a sugestão segue
+        print(f"[creators][history_unavailable] client_id={client_id} error_type={type(exc).__name__}")
+        return out
+    seen = set()
+    for kit in kits:
+        creator = by_id.get(str(kit.get("creator_id")))
+        if not creator:
+            continue
+        seen.add(creator["handle"])
+        label = f"@{creator['handle']} ({_brief_number(creator.get('followers'))} seguidores)"
+        status = kit.get("status")
+        if status == "fechado":
+            deal = next(iter(kit.get("deals") or []), {}) or {}
+            what = str(deal.get("what") or "").strip()
+            out["fecharam"].append(label + (f": {what[:60]}" if what else ""))
+        elif status == "nao_fechou":
+            note = str(kit.get("status_note") or "").strip()
+            out["nao_fecharam"].append(label + (f": {note[:80]}" if note else ""))
+        elif status in ("contatado", "negociando"):
+            out["em_conversa"].append(label)
+    out["na_base"] = sorted(r["handle"] for r in rows if r.get("handle"))
+    return {k: v[:40] for k, v in out.items()}
+
+
+def _history_lines(history: Dict[str, List[str]]) -> List[str]:
+    lines = []
+    for key, title in (("fecharam", "FECHARAM com a marca (busque perfis parecidos)"),
+                       ("nao_fecharam", "NÃO FECHARAM (evite esse perfil)"),
+                       ("em_conversa", "Em conversa agora"),
+                       ("na_base", "Já estão na base (não repita)")):
+        if history.get(key):
+            lines.append(f"{title}: " + ", ".join(history[key] if key != "na_base" else (f"@{h}" for h in history[key])))
+    return ["HISTÓRICO DE CRIADORES DESTA MARCA:", *lines] if lines else []
+
+
+async def _recent_posts(creator_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    if not creator_ids:
+        return {}
+    try:
+        rows = await sb_select("creator_metrics", select="creator_id,recent_posts,collected_at",
+                               filters={"creator_id": f"in.({','.join(creator_ids)})"}, order="collected_at.desc", limit=len(creator_ids) * 3)
+    except Exception:  # noqa: BLE001
+        return {}
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        out.setdefault(str(r.get("creator_id")), r.get("recent_posts") or [])
+    return out
+
+
+async def _rate_fit(client_id: str, candidates: List[Dict[str, Any]], posts: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
+    """A IA lê bio e legendas reais de quem passou na Meta e dá nota de afinidade. Falhou → todos passam com o motivo antigo."""
+    from .studio_llm import llm_json, profile_model
+    blocks = []
+    for c in candidates:
+        captions = [str(p.get("caption") or "").replace("\n", " ")[:160] for p in posts.get(str(c.get("id")), []) if p.get("caption")][:5]
+        blocks.append(f"@{c['handle']} | {c.get('display_name') or ''} | bio: {str(c.get('biography') or '')[:200]} | "
+                      f"legendas: {' // '.join(captions) or 'sem legenda disponível'}")
+    try:
+        data = await llm_json(client_id=client_id, brand="criadores", instructions=FIT_INSTRUCTIONS, prompt="\n".join(blocks),
+                              schema_name="creator_fit", schema=FIT_SCHEMA, temperature=0.2, timeout=60, model=profile_model(),
+                              guidance=False)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[creators][fit_unavailable] client_id={client_id} error_type={type(exc).__name__}")
+        return {}
+    out = {}
+    for item in data.get("profiles") or []:
+        handle = str(item.get("handle") or "").lstrip("@").lower()
+        if handle:
+            out[handle] = {"fit": int(item.get("fit") or 0), "reason": str(item.get("reason") or "")[:300]}
+    return out
+
+
+def web_handles(text: str, limit: int = 12) -> List[str]:
+    """@ do Instagram citados na pesquisa (texto ou URL instagram.com/x). Puro, para teste."""
+    import re
+    found: List[str] = []
+    for raw in re.findall(r"instagram\.com/([A-Za-z0-9._]{2,30})|(?<![\w@])@([A-Za-z0-9._]{2,30})", text or ""):
+        handle = (raw[0] or raw[1]).strip(".").lower()
+        if handle in ("p", "reel", "reels", "explore", "stories", "accounts", "tv") or not handle:
+            continue
+        try:
+            handle = providers.normalize_handle("instagram", handle)
+        except ValueError:
+            continue
+        if handle not in found:
+            found.append(handle)
+    return found[:limit]
+
+
+async def _web_creators(client_id: str, brand: str, context: Dict[str, Any], brief: Optional[str], campaign_type: str) -> str:
+    from .web_research import research
+    niche = "; ".join(str(context.get(k))[:200] for k in ("segment", "product_description", "audience") if context.get(k))
+    if not niche and not brief:
+        return ""
+    kind = "criadores de UGC" if campaign_type == "ugc" else "influenciadores"
+    question = (f"Quais {kind} brasileiros no Instagram, ativos hoje, falam de: {niche or brief}? "
+                + (f"Campanha: {str(brief)[:300]}. " if brief else "")
+                + f"A marca é {brand}; não liste a própria marca nem lojas. Para cada um, dê o @ exato do Instagram, "
+                "o porte aproximado e por que combina. Prefira listas e matérias recentes.")
+    return await research(client_id, question, feature="creators")
 
 
 async def suggest(client_id: str, campaign_type: str, brief: Optional[str], count: int) -> Dict[str, Any]:
-    """IA indica, Meta confirma: só volta @ que existe e é conta profissional, com métricas reais."""
-    from .studio_llm import llm_json
+    """IA indica com o cérebro da marca e o histórico de criadores; a Meta confirma que existe; filtros de porte e
+    atividade; a IA lê bio e legendas reais e só fica quem tem afinidade de verdade."""
+    from .studio_llm import llm_json, profile_model
 
     context = await load_business_context(client_id)
     client = await sb_get_one("clients", f"id=eq.{client_id}") or {}
+    history = await creator_history(client_id)
     lines = [f"Marca: {client.get('name') or client_id}"]
-    lines += [f"{field}: {value}" for field, value in context["context"].items() if value]
+    lines += _history_lines(history)
     if brief:
         lines.append(f"Briefing da campanha: {brief[:1000]}")
     lines.append(f"Tipo de campanha: {'UGC (conteúdo para a marca usar)' if campaign_type == 'ugc' else 'influência (alcance na audiência do criador)'}")
-    lines.append(f"Indique {count * 2} perfis do Instagram.")
-    data = await llm_json(client_id=client_id, instructions=SUGGEST_INSTRUCTIONS, prompt="\n".join(lines),
-                          schema_name="creator_suggestions", schema=SUGGEST_SCHEMA, temperature=0.3, timeout=60)
+    web = await _web_creators(client_id, client.get("name") or "", context.get("context") or {}, brief, campaign_type)
+    if web:
+        from .web_research import evidence_block
+        lines.append(evidence_block(web, "CRIADORES ENCONTRADOS NA WEB"))
+        lines.append("Priorize os @ que aparecem na pesquisa (existem de verdade); complete com outros só se tiver alta confiança.")
+    lines.append(f"Indique {min(count * 3, MAX_CANDIDATES)} perfis do Instagram.")
+    data = await llm_json(client_id=client_id, brand="criadores", instructions=SUGGEST_INSTRUCTIONS, prompt="\n".join(lines),
+                          schema_name="creator_suggestions", schema=SUGGEST_SCHEMA, temperature=0.4, timeout=90,
+                          model=profile_model())
 
     connection = await get_active_connection_for_client(client_id) or {}
     own = str(connection.get("username") or "").lstrip("@").lower()
+    skip = {own, *history.get("na_base", [])}
     candidates: Dict[str, str] = {}
+    # @ citados na pesquisa entram mesmo que a IA não os repita: são os mais prováveis de existir.
+    for handle in web_handles(web):
+        if handle not in skip:
+            candidates.setdefault(handle, "Encontrado em pesquisa na web sobre o nicho da marca.")
     for item in data.get("suggestions") or []:
         try:
             handle = providers.normalize_handle("instagram", item.get("handle") or "")
         except ValueError:
             continue
-        if handle != own and handle not in candidates:
+        if handle not in skip and handle not in candidates:
             candidates[handle] = str(item.get("reason") or "")[:300]
 
     # Conferência na Meta em paralelo (poucas por vez): sequencial estourava o tempo da requisição.
@@ -413,12 +635,138 @@ async def suggest(client_id: str, campaign_type: str, brief: Optional[str], coun
                     raise
                 return None
 
-    handles = list(candidates)[: count * 2]
+    handles = list(candidates)[: min(count * 3, MAX_CANDIDATES)]
     results = await asyncio.gather(*(verify(h) for h in handles))
-    verified = [{"creator": c, "reason": candidates[h]} for h, c in zip(handles, results) if c][:count]
+    found = [(h, c) for h, c in zip(handles, results) if c]
     discarded = [h for h, c in zip(handles, results) if not c]
+    posts = await _recent_posts([str(c["id"]) for _, c in found if c.get("id")])
+    filtered: Dict[str, List[str]] = {}
+    passed = []
+    for h, c in found:
+        why = suggestion_gate(c, posts.get(str(c.get("id")), []), campaign_type)
+        if why:
+            filtered.setdefault(why, []).append(h)
+        else:
+            passed.append((h, c))
+    fit = await _rate_fit(client_id, [c for _, c in passed], posts) if passed else {}
+    ranked = []
+    for h, c in passed:
+        score = fit.get(h)
+        if score and score["fit"] < MIN_FIT:
+            filtered.setdefault("pouca afinidade com a marca", []).append(h)
+            continue
+        ranked.append(({"creator": c, "reason": (score or {}).get("reason") or candidates[h], "fit": (score or {}).get("fit")},
+                       (score or {}).get("fit") or 0, c.get("followers") or 0))
+    ranked.sort(key=lambda r: (r[1], r[2]), reverse=True)
+    # A conferência vincula o perfil à marca; quem a IA descartou não deve aparecer na lista de criadores dela.
+    dropped = {h for hs in filtered.values() for h in hs}
+    drop_ids = [str(c["id"]) for h, c in found if h in dropped and c.get("id")]
+    if drop_ids:
+        try:
+            await sb_delete("creator_client_links", filters={"client_id": f"eq.{client_id}", "creator_id": f"in.({','.join(drop_ids)})"})
+        except Exception:  # noqa: BLE001
+            pass
     return {
-        "suggestions": verified,
+        "suggestions": [r[0] for r in ranked][:count],
         "discarded": discarded,
+        "filtered": filtered,
         "context_available": context["available"],
     }
+
+
+
+# ---------------------------------------------------------------- achar o @ certo enquanto digita
+
+_PREVIEW_CACHE: Dict[str, tuple] = {}
+PREVIEW_TTL = 3600
+
+
+def handle_variants(handle: str, limit: int = 4) -> List[str]:
+    """@ parecidos com o digitado (o jeito mais comum de errar ou de o perfil oficial ser outro): com/sem ponto e
+    sublinhado, com "oficial", sem números no fim. Só formatos válidos do Instagram."""
+    import re
+    base = handle.lower().strip("._")
+    core = re.sub(r"[._]", "", base)
+    stem = re.sub(r"\d+$", "", base).strip("._")
+    out: List[str] = []
+    for v in (core, base.replace(".", "_"), base.replace("_", "."), f"{base}oficial", f"{base}.oficial", f"{base}_oficial",
+              f"{core}oficial", stem, f"oficial{core}", f"{base}_", f"_{base}"):
+        v = v[:30]
+        if v and v != handle and re.fullmatch(r"[a-z0-9._]{2,30}", v) and v not in out:
+            out.append(v)
+    return out[:limit]
+
+
+async def similar_profiles(client_id: str, handle: str, only_ids: Visible, skip: set) -> List[Dict[str, Any]]:
+    """Perfis que existem com @ parecido: variações conferidas na Meta (grátis) e criadores do banco com o mesmo começo."""
+    found: List[Dict[str, Any]] = []
+    prefix = handle[:5]
+    if len(prefix) >= 3:
+        for c in await list_creators(network="instagram", q=prefix, min_followers=None, limit=5, offset=0, only_ids=only_ids):
+            if c.get("handle") not in skip:
+                skip.add(c["handle"])
+                found.append({k: c.get(k) for k in ("id", "network", "handle", "display_name", "avatar_url", "followers")})
+
+    async def check(variant: str) -> Optional[Dict[str, Any]]:
+        key = f"{client_id}:{variant}"
+        hit = _PREVIEW_CACHE.get(key)
+        if hit and time.monotonic() - hit[0] < PREVIEW_TTL:
+            return hit[1] if hit[1] and not hit[1].get("missing") else None
+        try:
+            profile = await asyncio.wait_for(_meta_profile(client_id, variant), timeout=6)
+            view = {k: profile.get(k) for k in ("network", "handle", "display_name", "avatar_url", "followers", "biography")}
+        except (IntegrationError, asyncio.TimeoutError):
+            view = {"network": "instagram", "handle": variant, "missing": True}
+        _PREVIEW_CACHE[key] = (time.monotonic(), view)
+        return None if view.get("missing") else view
+
+    for view in await asyncio.gather(*(check(v) for v in handle_variants(handle) if v not in skip)):
+        if view and view["handle"] not in skip:
+            skip.add(view["handle"])
+            found.append(view)
+    return sorted(found, key=lambda c: -(c.get("followers") or 0))[:6]
+
+
+async def resolve(client_id: str, network: str, query: str, only_ids: Visible) -> Dict[str, Any]:
+    """Sugestões enquanto a pessoa digita: criadores já salvos (nome ou @, com foto) e, quando o texto já é um @
+    válido do Instagram, a prévia oficial da Meta (grátis). Nada é salvo aqui: salvar é o "Analisar"."""
+    text = str(query or "").strip()
+    if len(text.lstrip("@")) < 2:
+        return {"saved": [], "exact": None}
+    saved = await list_creators(network=network, q=text.lstrip("@"), min_followers=None, limit=6, offset=0, only_ids=only_ids)
+    exact = None
+    try:
+        handle = providers.normalize_handle(network, text)
+    except ValueError:
+        handle = None
+    if handle and network == "instagram" and not any(c.get("handle") == handle for c in saved) and " " not in text:
+        key = f"{client_id}:{handle}"
+        hit = _PREVIEW_CACHE.get(key)
+        if hit and time.monotonic() - hit[0] < PREVIEW_TTL:
+            exact = hit[1]
+        else:
+            try:
+                profile = await _meta_profile(client_id, handle)
+                exact = {k: profile.get(k) for k in ("network", "handle", "display_name", "avatar_url", "followers", "biography")}
+            except IntegrationError as exc:
+                exact = {"network": network, "handle": handle, "missing": True,
+                         "reason": "Não é conta profissional ou não existe." if exc.code == "CREATOR_NOT_FOUND" else "A Meta não respondeu agora."}
+            _PREVIEW_CACHE[key] = (time.monotonic(), exact)
+    similar: List[Dict[str, Any]] = []
+    if handle and len(handle) >= 4 and network == "instagram" and " " not in text:
+        skip = {c.get("handle") for c in saved} | {handle}
+        try:
+            similar = await similar_profiles(client_id, handle, only_ids, skip)
+        except Exception:  # noqa: BLE001 - sugestão extra; a busca principal segue
+            similar = []
+    return {"saved": [{k: c.get(k) for k in ("id", "network", "handle", "display_name", "avatar_url", "followers", "engagement_rate")} for c in saved],
+            "exact": exact, "similar": similar}
+
+
+async def people_search(client_id: str, query: str, limit: int = 8) -> Dict[str, Any]:
+    """Busca por NOME no Instagram (a Meta só consulta pelo @ exato). Usa 1 execução da Apify, dentro do teto."""
+    text = " ".join(str(query or "").split())[:60]
+    if len(text) < 2:
+        raise ValueError("Digite pelo menos 2 letras do nome.")
+    items = await _apify(client_id, "instagram_people", {"search": text, "searchType": "user", "searchLimit": max(1, min(limit, 10))}, max(1, min(limit, 10)))
+    return {"query": text, "people": providers.instagram_people_items(items)[:limit]}

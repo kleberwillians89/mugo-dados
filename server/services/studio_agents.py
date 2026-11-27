@@ -464,7 +464,7 @@ async def edit_piece(client_id: str, op: Dict[str, Any], lote: List[Dict[str, An
                 "se for 8 ou mais, devolva esses campos vazios. "
                 f"{LIBRARY_RULE} {PLANS_RULE} Sem travessão. Não invente oferta, preço, número ou prazo.\n"
               + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
-    data = await llm_json(client_id=client_id, instructions=EDITOR_ROLE, prompt=prompt, schema_name="studio_editor_chefe",
+    data = await llm_json(brand="conteudo", client_id=client_id, instructions=EDITOR_ROLE, prompt=prompt, schema_name="studio_editor_chefe",
                           schema=obj({"nota": INT, "problemas": arr(STR), **{k: STR for k, _, _ in EDITOR_FIELDS}}), temperature=0.4)
     score = _score(data.get("nota"))
     problems = [" ".join(str(p).split())[:200] for p in data.get("problemas") or [] if str(p).strip()][:4]
@@ -530,7 +530,7 @@ async def suggest_adjustment(client_id: str, item_id: str, note: Optional[str] =
                 f"Em 'o_que_mudou', uma frase curta para a equipe. {LIBRARY_RULE} Sem travessão. Não invente oferta, preço ou prazo.\n"
               + (f"\nTRECHOS DOS DOCUMENTOS DA MARCA:\n{passages}\n" if passages else "")
               + f"\nDADOS DA MARCA:\n{to_prompt(intel)}\n\n{language_rule(profile)}")
-    data = await llm_json(client_id=client_id, prompt=prompt, schema_name="studio_adjust_suggestion",
+    data = await llm_json(brand="conteudo", client_id=client_id, prompt=prompt, schema_name="studio_adjust_suggestion",
                           instructions="Você é social media sênior de agência. Ajusta o post exatamente como o cliente pediu, no tom da marca.",
                           schema=obj({k: STR for k in SUGGESTION_SCHEMA_FIELDS}), temperature=0.5)
     suggestion = {"hook": str(data.get("gancho") or "").strip()[:400] or None,

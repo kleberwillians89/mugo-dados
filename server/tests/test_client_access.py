@@ -270,8 +270,8 @@ class ImmediatelyUsableAccessTests(AccessHarness):
         self.assertTrue(result["access"]["password_applied"])
 
 
-class ReusedAccountBecomesUsableTests(AccessHarness):
-    """E-mail que já existe no Auth: sem duplicar, mas utilizável agora."""
+class ReusedAccountKeepsItsCredentialsTests(AccessHarness):
+    """E-mail que já existe no Auth: só é vinculado. Senha e autenticação nunca mudam (spec integrada, item 19)."""
 
     def setUp(self):
         super().setUp()
@@ -283,28 +283,16 @@ class ReusedAccountBecomesUsableTests(AccessHarness):
         self.assertIsNone(error)
         self.assertFalse(any(call["method"] == "POST" for call in self.admin_calls))
 
-    async def test_the_password_the_admin_typed_is_applied_to_the_existing_account(self):
-        _result, error = await self.run_action(self.create())
+    async def test_linking_never_changes_password_or_auth_state(self):
+        result, error = await self.run_action(self.create())
         self.assertIsNone(error)
-        update = next(call for call in self.admin_calls if call["method"] == "PUT")
-        self.assertEqual(update["path"], "/users/user-1")
-        self.assertEqual(update["json"]["password"], PASSWORD)
+        self.assertFalse(any(call["method"] in ("PUT", "PATCH") for call in self.admin_calls))
+        self.assertFalse(result["access"]["password_applied"])
 
-    async def test_the_existing_account_has_the_email_confirmed_administratively(self):
-        await self.run_action(self.create())
-        update = next(call for call in self.admin_calls if call["method"] == "PUT")
-        self.assertTrue(update["json"]["email_confirm"])
-
-    async def test_the_existing_name_is_not_overwritten(self):
-        await self.run_action(self.create(name="Outro Nome"))
-        update = next(call for call in self.admin_calls if call["method"] == "PUT")
-        self.assertNotIn("user_metadata", update["json"])
-
-    async def test_the_password_is_applied_only_after_the_membership_succeeds(self):
-        # Um vínculo que falha não pode deixar a senha de alguém trocada.
-        self.insert_fails = True
-        _result, error = await self.run_action(self.create())
-        self.assertIsNotNone(error)
+    async def test_linking_does_not_require_a_password(self):
+        result, error = await self.run_action(self.create(password="", password_confirmation=""))
+        self.assertIsNone(error)
+        self.assertEqual(self.inserts[0]["row"]["client_id"], COMPANY)
         self.assertFalse(any(call["method"] == "PUT" for call in self.admin_calls))
 
     async def test_the_preexisting_account_is_never_deleted_on_failure(self):
@@ -358,7 +346,8 @@ class TeamAccountsCannotBeTakenOverTests(AccessHarness):
         self.memberships = [membership(client_id=OTHER, role="client_admin")]
         _result, error = await self.run_action(self.create())
         self.assertIsNone(error)
-        self.assertTrue(any(call["method"] == "PUT" for call in self.admin_calls))
+        self.assertEqual(len(self.inserts), 1)
+        self.assertFalse(any(call["method"] == "PUT" for call in self.admin_calls))
 
 
 class ServiceRoleNeverLeavesTheBackendTests(unittest.TestCase):
@@ -446,6 +435,19 @@ class ResetPasswordTests(AccessHarness):
         call = next(c for c in self.admin_calls if c["method"] == "PUT")
         self.assertEqual(call["path"], "/users/user-1")
         self.assertEqual(set(call["json"]), {"password"})
+
+    async def test_tenant_admin_cannot_reset_an_account_shared_with_other_companies(self):
+        self.memberships = [membership(), membership(client_id=OTHER)]
+        _result, error = await self.run_action(self.reset())
+        self.assertEqual(error.code, "ACCESS_SHARED_ACCOUNT")
+        self.assertEqual(error.status_code, 403)
+        self.assertFalse(any(c["method"] == "PUT" for c in self.admin_calls))
+
+    async def test_mugo_team_can_reset_a_shared_client_account(self):
+        self.memberships = [membership(), membership(client_id=OTHER)]
+        _result, error = await self.run_action(self.reset(actor_is_team=True))
+        self.assertIsNone(error)
+        self.assertTrue(any(c["method"] == "PUT" for c in self.admin_calls))
 
     async def test_cannot_reset_someone_from_another_company(self):
         self.memberships = [membership(client_id=OTHER)]

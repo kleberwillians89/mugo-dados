@@ -1,13 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowRight, ArrowUpRight, BookmarkCheck, Building2, Compass, Search, TrendingUp } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
-import { getPathForRoute } from "../app/routes";
+import { getPathForRoute, type AppRoute } from "../app/routes";
+import { PLANNING_TOOL_INFO } from "../app/planningTools";
 import { BUDGET_LABELS, PROJECT_COLUMNS, brl, chatProject, createProject, deleteProject, generateProject, listProjects, projectToBrief,
-  updateProject, type BudgetCategory, type ProductionPlan, type Project, type ProjectInputs, type ProjectKind, type ProjectStatus } from "../app/projects";
+  researchProject, updateProject, type ResearchCategory, type BudgetCategory, type ProductionPlan, type Project, type ProjectInputs, type ProjectKind, type ProjectStatus } from "../app/projects";
+import { takeGoalsSectionRequest, takeNewProjectRequest } from "../app/newProjectRequest";
+import GoalsPanel from "../components/goals/GoalsPanel";
+import EditableStrategy from "../components/projects/EditableStrategy";
+import ProjectVersions from "../components/projects/ProjectVersions";
 import Shell from "../components/Shell";
 import EventRadar from "../components/projects/EventRadar";
 import { EventSuppliers, SupplierBook } from "../components/projects/Suppliers";
 import PageHeader from "../components/data/PageHeader";
 import "../styles/studio.css";
+import "../styles/process-entry.css";
 
 const COPY: Record<ProjectKind, { title: string; lead: string; newLabel: string; copilot: string; generate: string; empty: string }> = {
   planejamento: {
@@ -23,18 +30,26 @@ const message = (cause: unknown, fallback: string) => (cause instanceof Error &&
 const fmtDate = (iso?: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "");
 type Run = <T>(key: string, fn: () => Promise<T>, fallback: string) => Promise<T | null>;
 
+
 /** Planejamento (CSO) e Evento (produção RTV e eventos), trazidos da iAgência no layout do MUGOVERSO. Só a equipe. */
-export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
+export default function ProjectsPage({ kind, goals = null, tools = [], onOpen }: { kind: ProjectKind;
+  /** Planejamento: seção Metas (mesmos registros de /metas). null = a pessoa não vê Metas. */
+  goals?: { canManage: boolean } | null;
+  /** Planejamento: "Explorar ferramentas" (só as que a pessoa pode abrir). */
+  tools?: AppRoute[]; onOpen?: (route: AppRoute) => void }) {
   const clientId = getActiveClientId();
   const copy = COPY[kind];
   const [projects, setProjects] = useState<Project[]>([]);
   const [formats, setFormats] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(() => takeNewProjectRequest(kind));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pageTab, setPageTab] = useState<"producoes" | "fornecedores">("producoes");
+  const goalsRef = useRef<HTMLElement | null>(null);
+  const [focusGoals] = useState(() => kind === "planejamento" && Boolean(goals) && takeGoalsSectionRequest());
+  useEffect(() => { if (focusGoals) goalsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [focusGoals]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,7 +76,7 @@ export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
     if (!r) void load();
   }
 
-  return <Shell title={copy.title} variant="editorial"><div className="ds-page studioPage projPage">
+  return <Shell title={copy.title} variant="editorial"><div className="ds-page studioPage projPage mugoBrand">
     <PageHeader company={getActiveClientName() || "empresa"} title={copy.title}
       controls={<button type="button" className="ds-button is-primary" onClick={() => { setCreating(true); setOpenId(null); }}>{copy.newLabel}</button>} />
     <p className="libIntro">{copy.lead}</p>
@@ -95,19 +110,58 @@ export default function ProjectsPage({ kind }: { kind: ProjectKind }) {
     {current ? <ProjectDetail key={current.id} kind={kind} project={current} formats={formats} busy={busy} run={run} onChange={replace}
       onDeleted={() => { setProjects((l) => l.filter((x) => x.id !== current.id)); setOpenId(null); }} onClose={() => setOpenId(null)} /> : null}
     </>}
+    {kind === "planejamento" && goals ? <section id="metas" ref={goalsRef} className="projGoals" aria-labelledby="planning-goals-title" style={{ margin: "8px 0 24px" }}>
+      <GoalsPanel canManage={goals.canManage} intro={false} header={(newButton) => <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div><h2 id="planning-goals-title" style={{ margin: 0 }}>Metas</h2><p className="libHint" style={{ margin: "4px 0 0" }}>Indicadores medidos da empresa no período (os mesmos da página Metas).</p></div>
+        {newButton}
+      </div>} />
+    </section> : null}
+    {kind === "planejamento" && tools.length ? <section className="planningExplore projTools" aria-labelledby="planning-explore-title">
+      <div className="planningSectionHeading">
+        <div><span>Ferramentas</span><h2 id="planning-explore-title">Explorar ferramentas</h2></div>
+      </div>
+      <div className="planningToolGrid" aria-label="Ferramentas do Planejamento">
+        {PLANNING_TOOL_INFO.filter((tool) => tools.includes(tool.route)).map((tool, index) => <a key={tool.route} className="planningToolCard" data-accent={index % 6}
+          href={getPathForRoute(tool.route)} onClick={(event) => {
+            if (!onOpen || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault(); onOpen(tool.route);
+          }}>
+          <span className="planningToolIcon"><tool.icon size={21} aria-hidden="true" /></span>
+          <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
+          <ArrowRight size={18} aria-hidden="true" className="planningToolArrow" />
+        </a>)}
+      </div>
+    </section> : null}
   </div></Shell>;
 }
 
 function NewProject({ kind, formats, busy, run, onCancel, onCreated }: { kind: ProjectKind; formats: string[]; busy: string | null; run: Run;
   onCancel: () => void; onCreated: (p: Project) => void }) {
-  const [title, setTitle] = useState("");
-  const [format, setFormat] = useState("");
-  const [date, setDate] = useState("");
-  const [inputs, setInputs] = useState<ProjectInputs>({});
+  // Rascunho do formulário guardado neste navegador enquanto não é criado (sair da tela não perde o que foi digitado).
+  const draftKey = `mugo:project-draft:${getActiveClientId() || ""}:${kind}`;
+  const [initial] = useState(() => { try { return JSON.parse(window.localStorage.getItem(draftKey) || "null") as
+    { title?: string; format?: string; date?: string; inputs?: ProjectInputs } | null; } catch { return null; } });
+  const [title, setTitle] = useState(initial?.title || "");
+  const [format, setFormat] = useState(initial?.format || "");
+  const [date, setDate] = useState(initial?.date || "");
+  const [inputs, setInputs] = useState<ProjectInputs>(initial?.inputs || {});
+  const [draftSaved, setDraftSaved] = useState(Boolean(initial));
+  useEffect(() => {
+    const empty = !title.trim() && !format && !date && !Object.values(inputs).some((v) => String(v || "").trim());
+    const timer = window.setTimeout(() => {
+      try {
+        if (empty) window.localStorage.removeItem(draftKey);
+        else window.localStorage.setItem(draftKey, JSON.stringify({ title, format, date, inputs }));
+        setDraftSaved(!empty);
+      } catch { /* sem storage: segue sem rascunho */ }
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [draftKey, title, format, date, inputs]);
   const set = (k: keyof ProjectInputs) => (e: { target: { value: string } }) => setInputs({ ...inputs, [k]: e.target.value });
   async function submit(generate: boolean) {
     const r = await run("create", () => createProject(kind, { title: title.trim(), format: format || undefined, target_date: date || undefined, inputs }), "Não foi possível criar.");
     if (!r) return;
+    try { window.localStorage.removeItem(draftKey); } catch { /* sem storage */ }
     if (!generate) { onCreated(r.project); return; }
     const g = await run("gen", () => generateProject(kind, r.project.id), "Criado, mas a IA não conseguiu gerar o plano agora.");
     onCreated(g ? g.project : r.project);
@@ -132,18 +186,23 @@ function NewProject({ kind, formats, busy, run, onCancel, onCreated }: { kind: P
         {busy === "create" || busy === "gen" ? "Gerando com IA…" : COPY[kind].generate}</button>
       <button type="button" className="ds-button" disabled={busy !== null || !title.trim()} onClick={() => void submit(false)}>Só criar o card</button>
       <button type="button" className="ds-button" onClick={onCancel}>Cancelar</button>
+      {draftSaved ? <small className="projSaveState is-saved" role="status">Rascunho salvo neste navegador</small> : null}
     </div>
   </section>;
 }
 
 function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted, onClose }: { kind: ProjectKind; project: Project; formats: string[];
   busy: string | null; run: Run; onChange: (p: Project) => void; onDeleted: () => void; onClose: () => void }) {
+  const [section, setSection] = useState<"plan" | "research">("plan");
   const [redo, setRedo] = useState("");
   const [briefId, setBriefId] = useState<string | null>(project.brief_id || null);
   const hasPlan = Boolean(project.plan && Object.keys(project.plan).length);
   const i = project.inputs || {};
 
   async function generate(useChat = false) {
+    // Plano aprovado (ou em aprovação) não é substituído em silêncio: a versão atual fica guardada e a IA cria a próxima.
+    if (hasPlan && (project.status === "finalizado" || project.status === "aprovacao_interna")
+      && !window.confirm("Este plano já foi aprovado ou está em aprovação. Refazer com IA cria uma versão nova; a atual fica guardada no histórico. Continuar?")) return;
     const r = await run("gen", () => generateProject(kind, project.id, { use_chat: useChat, instruction: redo.trim() || undefined }), "A IA não conseguiu gerar agora. Tente de novo.");
     if (r) { onChange(r.project); setRedo(""); }
   }
@@ -161,10 +220,19 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
         <select value={project.status} aria-label="Etapa" disabled={busy !== null}
           onChange={async (e) => { const r = await run("status", () => updateProject(kind, project.id, { status: e.target.value as ProjectStatus }), "Não foi possível mover."); if (r) onChange(r.project); }}>
           {PROJECT_COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
+        {hasPlan ? <ProjectVersions kind={kind} project={project} onRestored={onChange} disabled={busy !== null}
+          renderPlan={(plan) => kind === "planejamento" ? <StrategyView project={{ ...project, plan }} />
+            : <ProductionView project={{ ...project, plan }} busy="versão" run={run} onChange={() => undefined} />} /> : null}
         {hasPlan ? <button type="button" className="ds-button" onClick={() => window.print()}>Imprimir</button> : null}
         <button type="button" className="ds-button" onClick={onClose}>Fechar</button>
       </div>
     </header>
+    <div className="studioTabs projResearchNav" role="group" aria-label="Seções do projeto">
+      <button type="button" aria-pressed={section === "plan"} className={section === "plan" ? "is-active" : ""} onClick={() => setSection("plan")}>Plano</button>
+      <button type="button" aria-pressed={section === "research"} className={section === "research" ? "is-active" : ""} onClick={() => setSection("research")}>Pesquisa</button>
+    </div>
+    <div hidden={section !== "research"}><ResearchPanel project={project} busy={busy} run={run} onChange={onChange} /></div>
+    <div hidden={section !== "plan"}>
     {kind === "evento" && !project.format ? <label className="projInline">Formato<select value="" onChange={async (e) => { const r = await run("fmt", () => updateProject(kind, project.id, { format: e.target.value }), "Não foi possível salvar."); if (r) onChange(r.project); }}>
       <option value="">Escolha…</option>{formats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label> : null}
 
@@ -176,7 +244,7 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
       <div className="projPlan">
         {!hasPlan ? <div className="libEmpty"><p>Ainda sem plano.</p>
           <button type="button" className="ds-button is-primary" disabled={busy !== null} onClick={() => void generate()}>{busy === "gen" ? "Gerando…" : COPY[kind].generate}</button></div>
-          : kind === "planejamento" ? <StrategyView project={project} /> : <ProductionView project={project} busy={busy} run={run} onChange={onChange} />}
+          : kind === "planejamento" ? <EditableStrategy project={project} onSaved={onChange} disabled={busy === "gen"} /> : <ProductionView project={project} busy={busy} run={run} onChange={onChange} />}
         {hasPlan ? <div className="postBriefingActions">
           <input className="briefRedo" value={redo} onChange={(e) => setRedo(e.target.value)} placeholder="Refazer pedindo… (opcional)" aria-label="Pedido para refazer" />
           <button type="button" className="ds-button" disabled={busy !== null} onClick={() => void generate()}>{busy === "gen" ? "Refazendo…" : "Refazer com IA"}</button>
@@ -190,11 +258,152 @@ function ProjectDetail({ kind, project, formats, busy, run, onChange, onDeleted,
       </div>
       <Copilot kind={kind} project={project} busy={busy} run={run} onChange={onChange} onApply={() => void generate(true)} />
     </div>
+    </div>
     <button type="button" className="ds-link briefArchive" disabled={busy !== null} onClick={async () => {
       if (!window.confirm(`Apagar "${project.title}"?`)) return;
       const r = await run("del", () => deleteProject(kind, project.id), "Não foi possível apagar."); if (r) onDeleted();
     }}>Apagar</button>
   </article>;
+}
+
+const RESEARCH_LABELS: Record<ResearchCategory, string> = {
+  references: "Cases e referências", suppliers: "Locais e fornecedores", market: "Sinais de mercado",
+};
+const RESEARCH_CATEGORIES = Object.keys(RESEARCH_LABELS) as ResearchCategory[];
+const RESEARCH_ICONS = { references: Compass, suppliers: Building2, market: TrendingUp };
+const RESEARCH_TERMS = { references: "cases e ativações", suppliers: "locais e fornecedores", market: "tendências de mercado" };
+const PRICE_LABELS = { published: "Preço publicado", estimate: "Estimativa", quoted: "Cotação confirmada" } as const;
+const SOURCE_LABELS: Record<string, string> = {
+  ok: "Consulta concluída", empty: "Sem resultados", partial: "Consulta parcial", unavailable: "Consulta indisponível", not_configured: "Busca externa ainda não configurada",
+};
+
+function ResearchPanel({ project, busy, run, onChange }: { project: Project; busy: string | null; run: Run; onChange: (p: Project) => void }) {
+  const research = project.research || project.plan?.research;
+  const [queries, setQueries] = useState(project.research?.queries || {});
+  const [topic, setTopic] = useState("");
+  const [city, setCity] = useState("");
+  const [advanced, setAdvanced] = useState(false);
+  const [category, setCategory] = useState<ResearchCategory | "all">("all");
+  const [days, setDays] = useState(0);
+  const [onlySelected, setOnlySelected] = useState(false);
+  const [price, setPrice] = useState<{ url: string; value: string; kind: keyof typeof PRICE_LABELS; date: string } | null>(null);
+  const selected = project.research?.selected || [];
+  const items = research?.items || [];
+  const since = days ? Date.now() - days * 86_400_000 : 0;
+  const visible = items.filter((item) =>
+    (category === "all" || category === (item.category || "references")) &&
+    (!onlySelected || selected.includes(item.url)) &&
+    (!since || Date.parse(item.researched_at) >= since));
+  const categories = category === "all" ? RESEARCH_CATEGORIES : [category];
+  const searchDraft = Object.fromEntries(categories.map((key) => [key,
+    [topic.trim(), city.trim(), RESEARCH_TERMS[key]].filter(Boolean).join(" ").slice(0, 180)]));
+  return <section className="projResearch" aria-label="Pesquisa de mercado">
+    <header className="projResearchIntro">
+      <Compass size={24} aria-hidden="true" />
+      <div><h3>Pesquisa de mercado</h3><p>Encontre cases, fornecedores e sinais para este projeto.</p></div>
+    </header>
+    <form className="projResearchForm" onSubmit={async (e) => {
+      e.preventDefault();
+      const submitted = advanced ? queries : searchDraft;
+      const result = await run("research", () => researchProject(project.kind, project.id, submitted), "Não foi possível pesquisar.");
+      if (result) { setQueries(submitted); setOnlySelected(false); setDays(0); onChange(result.project); }
+    }}>
+      <div className="projResearchFields">
+        <label className="projInline">Tema ou serviço<input value={topic} maxLength={110}
+          placeholder="Ex.: ativação de beach tennis" onChange={(e) => {
+            setTopic(e.target.value);
+            setAdvanced(false);
+          }} /></label>
+        <label className="projInline">Cidade<input value={city} maxLength={40}
+          placeholder="Ex.: São Paulo" onChange={(e) => { setCity(e.target.value); setAdvanced(false); }} /></label>
+        <button className="ds-button is-primary" disabled={busy !== null ||
+          !(advanced ? Object.values(queries).some((value) => value.trim()) : topic.trim())}>
+          <Search size={16} aria-hidden="true" /> {busy === "research" ? "Pesquisando…" : "Pesquisar"}
+        </button>
+      </div>
+      <div className="projResearchOptions">
+        <small>Envie ao buscador apenas termos públicos.</small>
+        <button type="button" className="ds-link" aria-expanded={advanced} onClick={() => {
+          if (!advanced && topic.trim()) setQueries(searchDraft);
+          setAdvanced(!advanced);
+        }}>{advanced ? "Ocultar consultas" : "Editar consultas"}</button>
+      </div>
+      {advanced ? <div className="projResearchQueries">{RESEARCH_CATEGORIES.map((key) =>
+        <label key={key} className="projInline">{RESEARCH_LABELS[key]}
+          <input value={queries[key] || ""} maxLength={180} onChange={(e) => setQueries({ ...queries, [key]: e.target.value })} />
+        </label>)}</div> : null}
+    </form>
+    <div className="projResearchFilters">
+      <div className="projResearchCategories" role="group" aria-label="Categoria de pesquisa">
+        {(["all", ...RESEARCH_CATEGORIES] as const).map((key) =>
+          <button type="button" className="ds-button" key={key} aria-pressed={category === key} onClick={() => setCategory(key)}>
+            {key === "all" ? "Todos" : RESEARCH_LABELS[key]}
+          </button>)}
+      </div>
+      <label className="projInline">Data da consulta<select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+        <option value={0}>Qualquer data</option><option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option>
+      </select></label>
+      <button type="button" className="ds-button" aria-pressed={onlySelected} onClick={() => setOnlySelected(!onlySelected)}>
+        <BookmarkCheck size={16} aria-hidden="true" /> Selecionados ({selected.length})
+      </button>
+    </div>
+    {research ? <div className="projResearchStatus" role="status">
+      <strong>{SOURCE_LABELS[research.status]} · {visible.length} {visible.length === 1 ? "resultado" : "resultados"}</strong>
+      {RESEARCH_CATEGORIES.filter((key) => research.sources?.[key]).map((key) =>
+        <small key={key}>{RESEARCH_LABELS[key]} · {SOURCE_LABELS[research.sources?.[key] || ""]}</small>)}
+    </div> : null}
+    {!visible.length && busy !== "research" ? <div className="projResearchEmpty">
+      {items.length ? "Nenhum resultado corresponde aos filtros." : research ? "Nenhuma fonte disponível nesta consulta." : "Pesquise um tema para começar a reunir referências."}
+    </div> : null}
+    <div className="projResearchCards">{visible.map((item) => {
+      const key = item.category || "references";
+      const Icon = RESEARCH_ICONS[key];
+      let source = "";
+      try { source = new URL(item.url).hostname; } catch { /* fonte sem domínio */ }
+      const saved = selected.includes(item.url);
+      return <article key={item.url} className="projResearchCard" data-category={key} data-selected={saved}>
+      <header><span className="projResearchIcon"><Icon size={19} aria-hidden="true" /></span><small>{RESEARCH_LABELS[key]}</small></header>
+      <h4>{item.title}</h4>
+      {item.summary ? <p>{item.summary}</p> : null}
+      <div className="projResearchSource">
+        {item.url.startsWith("https://") ? <a href={item.url} target="_blank" rel="noreferrer">{source || "Abrir fonte"} <ArrowUpRight size={14} aria-hidden="true" /></a> : null}
+        {item.researched_at ? <small>Consultado em {fmtDate(item.researched_at)}</small> : null}
+      </div>
+      {project.research ? <label><input type="checkbox" checked={selected.includes(item.url)}
+        disabled={busy !== null || (selected.length >= 10 && !selected.includes(item.url))}
+        onChange={async (e) => {
+          const next = e.target.checked ? [...selected, item.url] : selected.filter((url) => url !== item.url);
+          const result = await run("research-select", () => researchProject(project.kind, project.id, { selected: next }), "Não foi possível salvar a seleção.");
+          if (result) onChange(result.project);
+        }} /> Usar no plano e briefing</label> : null}
+      {item.category === "suppliers" && project.kind === "evento" ? <div>
+        <small> · {project.plan?.budget?.some((line) => line.source_url === item.url) ? "Valor registrado no orçamento" : "A cotar"}</small>{" "}
+        <button type="button" className="ds-button" disabled={busy !== null || !project.plan?.timeline?.length || ((project.plan.budget?.length || 0) >= 30 && !project.plan.budget?.some((line) => line.source_url === item.url))}
+          onClick={() => {
+            const existing = project.plan.budget?.find((line) => line.source_url === item.url);
+            setPrice({ url: item.url, value: existing ? String(existing.value) : "", kind: existing?.price_kind || "published", date: existing?.price_date || "" });
+          }}>{project.plan?.budget?.some((line) => line.source_url === item.url) ? "Editar valor" : "Adicionar ao orçamento"}</button>
+        {price?.url === item.url ? <form onSubmit={async (e) => {
+          e.preventDefault();
+          const value = Number(price.value);
+          if (!Number.isFinite(value) || value <= 0 || !price.date) return;
+          const budget = project.plan.budget || [];
+          const updated = [...budget.filter((line) => line.source_url !== item.url), {
+            item: item.title, category: "outros" as const, value, source_url: item.url, price_kind: price.kind, price_date: price.date,
+          }];
+          const result = await run("research-budget", () => updateProject(project.kind, project.id, { plan: { ...project.plan, budget: updated } }), "Não foi possível salvar o valor.");
+          if (result) { onChange(result.project); setPrice(null); }
+        }}>
+          <label>Valor (R$) <input type="number" value={price.value} min="0.01" step="0.01" required onChange={(e) => setPrice({ ...price, value: e.target.value })} /></label>{" "}
+          <label>Origem <select value={price.kind} onChange={(e) => setPrice({ ...price, kind: e.target.value as keyof typeof PRICE_LABELS })}>
+            {Object.entries(PRICE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select></label>{" "}
+          <label>Data <input type="date" required value={price.date} onChange={(e) => setPrice({ ...price, date: e.target.value })} /></label>{" "}
+          <button className="ds-button" disabled={busy !== null}>Salvar valor</button>
+        </form> : null}
+      </div> : null}
+    </article>; })}</div>
+  </section>;
 }
 
 function StrategyView({ project }: { project: Project }) {
@@ -226,6 +435,7 @@ function ProductionView({ project, busy, run, onChange }: { project: Project; bu
   const p = project.plan;
   const [tab, setTab] = useState<Tab>("cronograma");
   const [budget, setBudget] = useState(p.budget || []);
+  useEffect(() => setBudget(p.budget || []), [p.budget]);
   const dirty = JSON.stringify(budget) !== JSON.stringify(p.budget || []);
   const total = budget.reduce((s, b) => s + (Number(b.value) || 0), 0);
   const byCat = (Object.keys(BUDGET_LABELS) as BudgetCategory[]).map((c) => ({ c, v: budget.filter((b) => b.category === c).reduce((s, b) => s + (Number(b.value) || 0), 0) })).filter((x) => x.v > 0);
@@ -243,10 +453,11 @@ function ProductionView({ project, busy, run, onChange }: { project: Project; bu
         <span className="projBudgetLegend">{byCat.map((x) => <small key={x.c}>{BUDGET_LABELS[x.c]} {brl(x.v)}</small>)}</span></div>
       <table className="projTable"><thead><tr><th>Item</th><th>Categoria</th><th className="is-num">Valor (R$)</th><th /></tr></thead>
         <tbody>{budget.map((b, n) => <tr key={n}>
-          <td><input value={b.item} aria-label="Item" onChange={(e) => setBudget(budget.map((x, k) => (k === n ? { ...x, item: e.target.value } : x)))} /></td>
+          <td><input value={b.item} aria-label="Item" onChange={(e) => setBudget(budget.map((x, k) => (k === n ? { ...x, item: e.target.value } : x)))} />
+            <small>{b.supplier_link_id ? PRICE_LABELS.quoted : PRICE_LABELS[b.price_kind || "estimate"]}{b.price_date ? ` · ${fmtDate(b.price_date)}` : ""} {b.source_url?.startsWith("https://") ? <a href={b.source_url} target="_blank" rel="noreferrer">Fonte</a> : null}</small></td>
           <td><select value={b.category} aria-label="Categoria" onChange={(e) => setBudget(budget.map((x, k) => (k === n ? { ...x, category: e.target.value as BudgetCategory } : x)))}>
             {(Object.keys(BUDGET_LABELS) as BudgetCategory[]).map((c) => <option key={c} value={c}>{BUDGET_LABELS[c]}</option>)}</select></td>
-          <td className="is-num"><input type="number" min={0} step={50} value={b.value} aria-label="Valor" onChange={(e) => setBudget(budget.map((x, k) => (k === n ? { ...x, value: Number(e.target.value) } : x)))} /></td>
+          <td className="is-num"><input type="number" min={0} step="0.01" value={b.value} readOnly={Boolean(b.source_url)} aria-label="Valor" onChange={(e) => setBudget(budget.map((x, k) => (k === n ? { ...x, value: Number(e.target.value) } : x)))} /></td>
           <td><button type="button" className="ds-link" aria-label={`Tirar ${b.item}`} onClick={() => setBudget(budget.filter((_, k) => k !== n))}>Tirar</button></td>
         </tr>)}</tbody></table>
       <div className="postBriefingActions">

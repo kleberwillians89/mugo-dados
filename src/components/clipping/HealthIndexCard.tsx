@@ -9,6 +9,16 @@ import HowToRead from "../data/HowToRead";
 
 const nf = new Intl.NumberFormat("pt-BR");
 
+function previousPeriod(start: string, end: string) {
+  const startDate = new Date(`${start}T00:00:00Z`);
+  const endDate = new Date(`${end}T00:00:00Z`);
+  const elapsed = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1);
+  const previousEnd = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 0));
+  const previousStart = new Date(Date.UTC(previousEnd.getUTCFullYear(), previousEnd.getUTCMonth(), 1));
+  const equivalentEnd = new Date(Math.min(previousEnd.getTime(), previousStart.getTime() + (elapsed - 1) * 86_400_000));
+  return { start: previousStart.toISOString().slice(0, 10), end: equivalentEnd.toISOString().slice(0, 10) };
+}
+
 function Gauge({ value }: { value: number | null }) {
   return <svg width="132" height="76" viewBox="0 0 96 56" aria-hidden="true">
     <path d="M8 50 A40 40 0 0 1 88 50" className="bhGaugeBg" />
@@ -57,21 +67,33 @@ function WeightsEditor({ data, onSaved, onCancel }: { data: HealthIndex; onSaved
 }
 
 /** Índice de saúde MUGOVERSO: nota geral 0–100 + os 5 pilares que ligam conversa, atenção, mídia e vendas. */
-export default function HealthIndexCard({ start, end, compact = false }: { start: string; end: string; compact?: boolean }) {
+const PILLAR_SOURCES = {
+  conversa: "Clipping, comentários e Direct coletados",
+  atencao: "Insights do Instagram conectado",
+  conversao: "Pedidos e receita da loja conectada",
+  presenca: "Clipping e perfis medidos no Benchmarking",
+  reputacao: "Alertas abertos da Saúde da Marca",
+};
+
+export default function HealthIndexCard({ start, end, compact = false, revision = 0 }: { start: string; end: string; compact?: boolean; revision?: number }) {
   const clientId = getActiveClientId();
   const [nonce, setNonce] = useState(0);
-  const key = `${clientId}|${start}|${end}|${nonce}`;
-  const [state, setState] = useState<{ key: string; data: HealthIndex | null; error: string | null }>({ key: "", data: null, error: null });
+  const key = `${clientId}|${start}|${end}|${nonce}|${revision}`;
+  const [state, setState] = useState<{ key: string; data: HealthIndex | null; previousIndex: number | null; error: string | null }>({ key: "", data: null, previousIndex: null, error: null });
   const [editing, setEditing] = useState(false);
 
   const load = useCallback(async (k: string) => {
     try {
       const data = await getHealthIndex({ start, end });
-      if (getActiveClientId() === clientId) setState({ key: k, data, error: null });
+      let previousIndex: number | null = null;
+      if (compact) {
+        try { previousIndex = (await getHealthIndex(previousPeriod(start, end))).index; } catch { /* comparação opcional */ }
+      }
+      if (getActiveClientId() === clientId) setState({ key: k, data, previousIndex, error: null });
     } catch (cause) {
-      setState((prev) => ({ key: k, data: prev.data, error: cause instanceof Error && cause.message ? cause.message : "Não foi possível calcular o índice agora." }));
+      setState((prev) => ({ ...prev, key: k, error: cause instanceof Error && cause.message ? cause.message : "Não foi possível calcular o índice agora." }));
     }
-  }, [clientId, start, end]);
+  }, [clientId, compact, start, end]);
   useEffect(() => { void load(key); }, [load, key]);
 
   const loading = state.key !== key;
@@ -83,6 +105,7 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
     </section>;
   }
   const off = d.pillars.filter((p) => p.score == null && p.weight > 0);
+  const configured = weightShares(d.weights);
 
   if (compact) {
     return <section className={`bhCard hiCard is-compact${loading ? " is-loading" : ""}`} aria-labelledby="hi-title-compact" aria-busy={loading}>
@@ -93,8 +116,13 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
       <div className="hiCompactScore">
         <strong>{d.index ?? "—"}<small>/100</small></strong>
         <span className={`hiLabel is-${healthTone(d.index)}`}>{d.label ?? "Sem dados suficientes"}</span>
+        <small>{d.index != null && state.previousIndex != null ? `${d.index - state.previousIndex >= 0 ? "↗" : "↘"} ${Math.abs(d.index - state.previousIndex).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} pontos vs período anterior` : "Sem histórico suficiente"}</small>
+        <small>Cobertura dos indicadores: {d.coverage ?? 0}%</small>
       </div>
-      <p className="bhMuted">Cobertura dos indicadores: {d.coverage ?? 0}%{off.length ? ` · sem dado: ${off.map((p) => p.name.toLowerCase()).join(", ")}` : ""}</p>
+      <div className="hiCompactPillars">
+        {d.pillars.map((p) => <div key={p.key}><span>{p.name}</span><b>{p.score ?? "—"}</b><i><em className={`is-${healthTone(p.score)}`} style={{ width: `${p.score ?? 0}%` }} /></i><small>{p.score == null ? p.reason : p.change == null ? "Sem comparação" : `${p.change >= 0 ? "↗" : "↘"} ${Math.abs(p.change).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} pontos`}</small></div>)}
+        {off.length ? <p className="bhMuted">Sem dado: {off.map((p) => p.name.toLowerCase()).join(", ")}.</p> : null}
+      </div>
       {state.error ? <p className="studioError" role="alert">{state.error}</p> : null}
     </section>;
   }
@@ -120,7 +148,7 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
         {d.pillars.map((p) => <li key={p.key} className={p.weight === 0 ? "is-off" : ""}>
           <div className="hiPillarTop">
             <span className="hiPillarName" title={p.hint}>{p.name}</span>
-            <span className="hiPillarWeight">{p.weight === 0 ? "desligado" : p.score == null ? "fora da conta" : `peso ${nf.format(p.effective_weight)}%`}</span>
+            <span className="hiPillarWeight">{p.weight === 0 ? "desligado" : p.score == null ? `peso ${nf.format(configured[p.key])}% · fora da conta` : `peso ${nf.format(p.effective_weight)}%`}</span>
             <b className="hiPillarScore">{p.score ?? "—"}</b>
           </div>
           <span className="hiBar"><i className={`is-${healthTone(p.score)}`} style={{ width: `${p.score ?? 0}%` }} /></span>
@@ -130,15 +158,27 @@ export default function HealthIndexCard({ start, end, compact = false }: { start
     </div>
 
     {editing ? <WeightsEditor data={d} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); setNonce((n) => n + 1); }} /> : null}
+    <details className="hiMethod">
+      <summary>Ver cálculo do índice</summary>
+      <div className="hiMethodBody">
+      <p>Período {d.period.start} a {d.period.end}. Comparação com {d.period.previous_start} a {d.period.previous_end}.</p>
+      <p>Índice = soma de (nota × peso configurado) ÷ soma dos pesos dos pilares com nota e peso maior que zero, arredondada.</p>
+      <p>Cobertura = soma dos pesos que entraram ÷ soma de todos os pesos configurados × 100.</p>
+      <ul>{d.pillars.map((pillar) => <li key={pillar.key}>
+        <strong>{pillar.name}</strong> · {pillar.score ?? "Sem nota"} · peso configurado {pillar.weight}% · peso usado {nf.format(pillar.effective_weight)}%
+        {" · "}{PILLAR_SOURCES[pillar.key]}{" · "}{pillar.score == null ? pillar.reason : pillar.detail}
+      </li>)}</ul>
+      </div>
+    </details>
     <HowToRead title="Como ler a nota" intro="Vai de 0 a 100 e junta cinco sinais da marca."
       items={[
-        { term: "Conversa", text: "O que as pessoas falam da marca: elogios contra reclamações." },
+        { term: "Conversa", text: "O que as pessoas falam da marca: elogios contra reclamações. Comentário no próprio perfil pesa metade e amostra pequena puxa para o neutro." },
         { term: "Conversão", text: "Pedidos e faturamento comparados ao período anterior." },
         { term: "Atenção", text: "Quantas pessoas viram e interagiram no Instagram." },
-        { term: "Presença", text: "Quanto se fala da marca perto dos concorrentes, nas notícias e no Instagram." },
-        { term: "Reputação", text: "Se existe algum alerta aberto." },
+        { term: "Presença", text: "Quanto se fala da marca perto dos concorrentes, nas notícias e no Instagram. Ter a fatia justa (ex.: 25% com 3 concorrentes) vale 50; o dobro vale 100." },
+        { term: "Reputação", text: "Se existe algum alerta aberto, desde que haja menções suficientes monitoradas." },
       ]}
-      note={<>Repetir os números do período anterior vale 60 pontos; cada 1% de crescimento soma quase 1 ponto.
+      note={<>Repetir os números do período anterior vale 50, o meio da régua; cada 1% de alta ou de queda move 0,8 ponto. 70 ou mais é saudável: exige crescer de verdade.
         {off.length ? ` Ainda sem dado para calcular: ${off.map((p) => p.name.toLowerCase()).join(", ")}.` : ""}</>} />
   </section>;
 }

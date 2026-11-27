@@ -8,6 +8,8 @@ Ficam na coluna ``reels_options`` da pauta (migração 000131) e só valem para 
 - ``trial``: Reels de teste, mostrado primeiro só para quem não segue. "manual" = a equipe decide no app;
   "auto" = o Instagram leva aos seguidores se performar bem (``SS_PERFORMANCE``).
 - ``first_comment``: comentário da própria marca logo depois de publicar. Se falhar, o post continua publicado.
+- ``music``: música (ou áudio de Reels) da biblioteca do Instagram, escolhida pela Audio API. Vai como
+  ``audio_configuration`` com o volume da música e do som do vídeo. Com música, o nome do áudio original não vai.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from .studio_calendar import StudioError
 
 MAX_OFFSET_MS = 15 * 60 * 1000  # Reels pela API: até 15 minutos
 COVER_MODES = ("frame", "image")
+CONVERTIBLE = (".png", ".webp", ".heic", ".heif")  # capa nesses formatos é convertida para JPG ao publicar
 TRIALS = {"off": None, "manual": "MANUAL", "auto": "SS_PERFORMANCE"}
 _DRIVE_FILE = re.compile(r"^https://drive\.google\.com/(?:file/d/([\w-]{10,})|open\?id=([\w-]{10,})|uc\?(?:.*&)?id=([\w-]{10,}))")
 
@@ -55,6 +58,59 @@ def clean_reels_options(value: Any) -> Dict[str, Any]:
         text = _text(value.get(key), limit)
         if text:
             out[key] = text
+    music = clean_music(value.get("music"))
+    if music:
+        out["music"] = music
+    # Opções de Stories ficam no JSON já existente; não são parâmetros da Graph API.
+    allowed_story_stickers = {"poll", "question", "quiz", "emoji_slider", "link", "countdown", "music"}
+    if value.get("story_sticker") in allowed_story_stickers:
+        out["story_sticker"] = value["story_sticker"]
+        instruction = _text(value.get("story_instruction"), 500)
+        if instruction:
+            out["story_instruction"] = instruction
+        scale = value.get("story_sticker_scale")
+        if isinstance(scale, (int, float)) and not isinstance(scale, bool):
+            import math
+            if math.isfinite(scale):
+                out["story_sticker_scale"] = int(max(60, min(140, round(scale))))
+        position = value.get("story_sticker_position")
+        if isinstance(position, dict):
+            try:
+                import math
+                x, y = float(position["x"]), float(position["y"])
+                if math.isfinite(x) and math.isfinite(y):
+                    out["story_sticker_position"] = {
+                        "x": round(max(0.0, min(100.0, x)), 2),
+                        "y": round(max(0.0, min(100.0, y)), 2),
+                    }
+            except (KeyError, ValueError, TypeError, OverflowError):
+                pass
+    return out
+
+
+def _volume(value: Any) -> int:
+    try:
+        return max(1, min(100, int(float(value))))
+    except (TypeError, ValueError):
+        return 100
+
+
+def clean_music(value: Any) -> Optional[Dict[str, Any]]:
+    """Música escolhida: só o ID numérico da Meta é obrigatório; título, artista e capa servem para a tela."""
+    if not isinstance(value, dict):
+        return None
+    audio_id = str(value.get("audio_id") or "").strip()
+    if not re.fullmatch(r"\d{1,40}", audio_id):
+        return None
+    out: Dict[str, Any] = {"audio_id": audio_id, "audio_volume": _volume(value.get("audio_volume", 100)),
+                           "video_volume": _volume(value.get("video_volume", 100))}
+    for key, limit in (("title", 120), ("artist", 120)):
+        text = _text(value.get(key), limit)
+        if text:
+            out[key] = text
+    cover = _text(value.get("cover"), 1000)
+    if cover and cover.startswith("https://"):
+        out["cover"] = cover
     return out
 
 
@@ -81,8 +137,11 @@ def apply_reels_options(plan: Dict[str, Any], raw: Any) -> Optional[str]:
         link = _cover_link(opts["cover_url"])
         if link:
             fields["cover_url"] = link
+        elif opts["cover_url"].split("?", 1)[0].lower().endswith(CONVERTIBLE):
+            # PNG/WebP/HEIC: vira JPG na hora de publicar (ig_publish.ensure_jpeg), em vez de cair no frame.
+            fields["cover_url"] = opts["cover_url"]
         else:
-            warning = "a capa do Reels precisa ser JPG; o Reels sai com o frame escolhido"
+            warning = "a capa do Reels precisa ser imagem (JPG ou PNG) ou arquivo do Drive; o Reels sai com o frame escolhido"
     if "cover_url" not in fields and opts.get("thumb_offset_ms") is not None:
         fields["thumb_offset"] = str(opts["thumb_offset_ms"])
     if "share_to_feed" in opts:
@@ -90,9 +149,34 @@ def apply_reels_options(plan: Dict[str, Any], raw: Any) -> Optional[str]:
     strategy = TRIALS.get(opts.get("trial") or "off")
     if strategy:
         fields["trial_params"] = json.dumps({"graduation_strategy": strategy})
-    if opts.get("audio_name"):
+    music = opts.get("music")
+    if music:
+        fields["audio_configuration"] = json.dumps({"audio_id": music["audio_id"], "audio_volume": music["audio_volume"],
+                                                    "video_volume": music["video_volume"]})
+    elif opts.get("audio_name"):
         fields["audio_name"] = opts["audio_name"]
     return warning
+
+
+def describe(plan: Dict[str, Any], raw: Any) -> Optional[str]:
+    """O que foi junto no Reels, para o histórico: música e capa (ou o motivo de não ter ido)."""
+    if not plan or plan.get("type") != "reels":
+        return None
+    fields = plan.get("fields") or {}
+    try:
+        opts = clean_reels_options(raw)
+    except StudioError:
+        opts = {}
+    parts = []
+    music = opts.get("music")
+    if "audio_configuration" in fields and music:
+        name = " · ".join(x for x in (music.get("title"), music.get("artist")) if x) or f"áudio {music['audio_id']}"
+        parts.append(f"música “{name}”")
+    if "cover_url" in fields:
+        parts.append("capa por imagem")
+    elif "thumb_offset" in fields:
+        parts.append(f"capa no frame {int(fields['thumb_offset']) / 1000:.1f}s".replace(".", ","))
+    return ("publicou o Reels com " + " e ".join(parts)) if parts else None
 
 
 def first_comment(item: Dict[str, Any]) -> Optional[str]:

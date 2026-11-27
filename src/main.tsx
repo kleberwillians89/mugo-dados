@@ -7,6 +7,7 @@ import AppErrorBoundary from "./components/AppErrorBoundary";
 import "./index.css"; // reset + base
 import "./styles/fonts.css";
 import "./styles/mugo.tokens.css";
+import "./styles/mugo-brand.css";
 import "./styles/design-system.css";
 import "./styles/App.css";
 import { installScrollIndicator } from "./app/scrollIndicator";

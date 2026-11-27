@@ -134,7 +134,31 @@ async def list_tasks(client_id: str, *, status: Optional[str] = None, limit: int
     except Exception as exc:  # noqa: BLE001 — tabela ainda não criada (migração 000089)
         print(f"[studio_tasks] list client_id={client_id} unavailable error_type={type(exc).__name__}")
         return {"available": False, "reason": "migration_pending"}
+    if not status:  # só a lista de abertas: tarefa de post já aprovado sai de Ajustes na hora
+        rows = await reconcile_calendar_tasks(client_id, rows)
     return {"available": True, "tasks": [task_view(r, client_view=client_view) for r in rows]}
+
+
+async def change_notes(client_id: str, task_ids: List[str], *, client_view: bool) -> Dict[str, str]:
+    """O último pedido de ajuste de cada tarefa em Ajustes, para o card mostrar o que mudar sem abrir.
+    O cliente só vê pedido não interno. Nunca levanta."""
+    if not task_ids:
+        return {}
+    filters = {"client_id": f"eq.{client_id}", "task_id": f"in.({','.join(task_ids[:200])})",
+               "kind": "in.(ajuste_interno,ajuste_cliente)", "comment": "not.is.null"}
+    if client_view:
+        filters["internal"] = "is.false"
+    try:
+        rows = await sb_select(EVENTS, select="task_id,comment,created_at", filters=filters, order="created_at.desc", limit=500)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[studio_tasks] change_notes_unavailable client_id={client_id} {type(exc).__name__}")
+        return {}
+    out: Dict[str, str] = {}
+    for r in rows:
+        key = str(r.get("task_id"))
+        if key not in out and str(r.get("comment") or "").strip():
+            out[key] = str(r["comment"]).strip()[:280]
+    return out
 
 
 async def list_client_tasks(client_id: str) -> Dict[str, Any]:
@@ -252,7 +276,7 @@ async def _normalize_assignees(client_id: str, row: Dict[str, Any], *, only_user
 async def create_task(client_id: str, data: Dict[str, Any], *, user_id: str, client_view: bool,
                       only_user: Optional[str] = None) -> Dict[str, Any]:
     # Delivery preference belongs to the creation request, not the tasks table.
-    send_whatsapp = data.get("send_whatsapp") is True
+    send_whatsapp = data.get("send_whatsapp") is not False
     row = _clean(data, partial=False)
     await _normalize_assignees(client_id, row, only_user=only_user)
     if only_user and not row.get("assignee_user_id"):
@@ -436,6 +460,56 @@ async def sync_calendar_item(client_id: str, item: Dict[str, Any], *, comment: O
     except Exception as exc:  # noqa: BLE001 — sem a migração 000097 ou banco fora: o Calendário segue normal
         print(f"[studio_tasks] calendar_sync_failed client_id={client_id} {type(exc).__name__}")
         return None
+
+
+DONE_POST = ("aprovado", "publicado")
+
+
+def stale_calendar_tasks(rows: List[Dict[str, Any]], posts: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
+    """{task_id: novo status} das tarefas abertas cujo post já foi resolvido no Calendário. Puro, para teste.
+
+    O post é a fonte da verdade: aprovado ou publicado → tarefa concluída; post apagado → tarefa cancelada."""
+    out: Dict[str, str] = {}
+    for row in rows:
+        item_id = str(row.get("calendar_item_id") or "")
+        if not item_id or row.get("status") in ("completed", "cancelled"):
+            continue
+        post = posts.get(item_id)
+        if post is None or post.get("deleted_at"):
+            out[str(row["id"])] = "cancelled"
+        elif post.get("status") in DONE_POST:
+            out[str(row["id"])] = "completed"
+    return out
+
+
+async def reconcile_calendar_tasks(client_id: str, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Corrige tarefas de post que ficaram para trás (aprovação que não sincronizou, publicação automática, post
+    apagado): ao listar, conclui ou cancela e devolve a lista sem elas. Nunca levanta; em falha devolve a lista como veio."""
+    linked = sorted({str(r["calendar_item_id"]) for r in rows if r.get("calendar_item_id") and r.get("status") not in ("completed", "cancelled")})
+    if not linked:
+        return rows
+    try:
+        posts: Dict[str, Dict[str, Any]] = {}
+        for start in range(0, len(linked), 100):
+            found = await sb_select("studio_calendar_items", select="id,status,deleted_at", limit=100, filters={
+                "client_id": f"eq.{client_id}", "id": f"in.({','.join(linked[start:start + 100])})"})
+            posts.update({str(p["id"]): p for p in found})
+        changes = stale_calendar_tasks(rows, posts)
+        if not changes:
+            return rows
+        now = datetime.now(timezone.utc).isoformat()
+        for task_id, target in changes.items():
+            patch: Dict[str, Any] = {"status": target, "updated_at": now}
+            if target == "completed":
+                patch.update({"completed_at": now, "approved_at": now})
+            await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{task_id}"}, patch=patch, returning="minimal")
+            note = "Post aprovado no Calendário." if target == "completed" else "Post removido do Calendário."
+            await _event(client_id, task_id, "aprovado_interno" if target == "completed" else "comentario", note, "Calendário", False, now)
+        print(f"[studio_tasks] calendar_reconciled client_id={client_id} tasks={len(changes)}")
+        return [r for r in rows if str(r.get("id")) not in changes]
+    except Exception as exc:  # noqa: BLE001
+        print(f"[studio_tasks] calendar_reconcile_failed client_id={client_id} {type(exc).__name__}")
+        return rows
 
 
 async def _event(client_id: str, task_id: str, kind: str, comment: Optional[str], actor_name: Optional[str], by_client: bool, at: str) -> None:

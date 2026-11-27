@@ -6,8 +6,12 @@ import { getActiveClientId } from "../../app/activeClient";
 import {
   PLATFORM_FORMATS, PLATFORM_LABEL, PLATFORM_ORDER, WEEKDAY_LABEL, archiveMatrix, createMatrix, getMatrix, listMatrices, matrixWeeks,
   addOpportunity, createOpportunityContent, deleteOpportunity, matrixToCalendar, refineOpportunity, updateOpportunity,
+  commentMatrixApproval, completeMatrix, decideMatrixApproval, submitMatrixApproval, updateMatrixBriefing, updateMatrixPeriod,
   type ContentMatrix as Matrix, type MatrixSummary, type Opportunity, type OpportunityCreate, type OpportunityPatch, type Platform,
 } from "../../app/contentOps";
+import { listBriefs, type Brief } from "../../app/briefs";
+import { linkTaskWork, taskDirection } from "../../app/taskWork";
+import KanbanTaskStart from "../work/KanbanTaskStart";
 
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
 const NEW_OPPORTUNITY_ID = "__new_opportunity__";
@@ -52,6 +56,7 @@ const hasContent = (op: Opportunity) => Boolean(op.script || op.visual_idea);
 
 type Props = {
   canManage: boolean;
+  canApprove?: boolean;
   /** Abre o Calendário depois de exportar (opcional). */
   onOpenCalendar?: () => void;
   /** Abre o cadastro canônico das premissas editoriais. */
@@ -63,7 +68,7 @@ type Props = {
  * a partir dos pilares do Perfil de Marca e do contexto da marca. A equipe edita, refina, seleciona e
  * descarta; as selecionadas vão para o Calendário como rascunho e seguem a aprovação de sempre.
  */
-export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandProfile }: Props) {
+export default function ContentMatrix({ canManage, canApprove = false, onOpenCalendar, onOpenBrandProfile }: Props) {
   const clientId = getActiveClientId();
   const [list, setList] = useState<MatrixSummary[]>([]);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
@@ -76,6 +81,16 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
   const [showDiscarded, setShowDiscarded] = useState(false);
   const [editing, setEditing] = useState<Opportunity | null>(null);
   const [weeks, setWeeks] = useState(4);
+  const [start, setStart] = useState("");
+  const [briefs, setBriefs] = useState<Brief[]>([]);
+  const [briefMode, setBriefMode] = useState<"none" | "existing" | "direction">("none");
+  // Tarefa do Kanban escolhida como insumo: a matriz gerada fica ligada a ela.
+  const [pickingTask, setPickingTask] = useState(false);
+  const [fromTask, setFromTask] = useState<{ id: string; title: string; deliverable: string } | null>(null);
+  const [briefId, setBriefId] = useState("");
+  const [direction, setDirection] = useState("");
+  const [approvalComment, setApprovalComment] = useState("");
+  const [commentOpportunityId, setCommentOpportunityId] = useState("");
 
   const run = useCallback(async <T,>(key: string, fn: () => Promise<T>, fallback: string): Promise<T | null> => {
     setBusy(key); setError(null); setNotice(null);
@@ -85,11 +100,18 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [data, profile] = await Promise.all([listMatrices(), getBrandProfile().catch(() => null)]);
+      const [data, profile, briefData] = await Promise.all([listMatrices(), getBrandProfile().catch(() => null), listBriefs().catch(() => null)]);
       if (getActiveClientId() !== clientId) return;
       setList(data.matrices || []);
       setProfile(profile?.profile || null);
-      if (data.matrices?.[0]) setMatrix((await getMatrix(data.matrices[0].id)).matrix);
+      setBriefs((briefData?.briefs || []).filter((item) => item.status !== "arquivado"));
+      // ?matriz=<id>: abre essa matriz (ex.: "Ir para o job" no detalhe da tarefa); senão, a mais recente.
+      const requested = new URLSearchParams(window.location.search).get("matriz");
+      const first = data.matrices?.find((m) => m.id === requested) || data.matrices?.[0];
+      if (first) {
+        const opened = (await getMatrix(first.id)).matrix;
+        setMatrix(opened); syncBriefControls(opened);
+      }
     } catch (cause) { setError(message(cause, "Não foi possível carregar a matriz.")); }
     finally { setLoading(false); }
   }, [clientId]);
@@ -112,17 +134,74 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
   }
   const replace = (op: Opportunity) => setMatrix((m) => (m ? { ...m, opportunities: m.opportunities.map((o) => (o.id === op.id ? op : o)) } : m));
 
+  function syncBriefControls(opened: Matrix) {
+    setWeeks(matrixWeeks(opened)); setStart(opened.week_start || "");
+    if (opened.brief_id) { setBriefMode("existing"); setBriefId(opened.brief_id); setDirection(""); }
+    else if (opened.focus) { setBriefMode("direction"); setDirection(opened.focus); setBriefId(""); }
+    else { setBriefMode("none"); setBriefId(""); setDirection(""); }
+  }
+
   async function generate() {
-    const r = await run("generate", () => createMatrix(weeks === 4 ? {} : { weeks }), "Não foi possível gerar a matriz.");
+    const input = { ...(weeks === 4 ? {} : { weeks }), ...(start ? { start } : {}),
+      ...(briefMode === "existing" && briefId ? { brief_id: briefId } : {}),
+      ...(briefMode === "direction" && direction.trim() ? { focus: direction.trim() } : {}) };
+    const r = await run("generate", () => createMatrix(input), "Não foi possível gerar a matriz.");
     if (r) {
-      setMatrix(r.matrix); setPlatform("todas");
+      setMatrix(r.matrix); syncBriefControls(r.matrix); setPlatform("todas");
       setList((l) => [r.matrix, ...l.filter((x) => x.id !== r.matrix.id)]);
+      if (fromTask) {
+        const task = fromTask;
+        setFromTask(null);
+        try {
+          await linkTaskWork(task.id, { module: "social_media", record_id: r.matrix.id, deliverable: task.deliverable || "Matriz de conteúdo" });
+          setNotice(`Matriz gerada a partir da tarefa "${task.title}" e ligada a ela.`);
+        } catch { setNotice("Matriz gerada. Não foi possível ligar à tarefa agora."); }
+      }
     }
   }
 
   async function open(id: string) {
     const r = await run(`open:${id}`, () => getMatrix(id), "Não foi possível abrir a matriz.");
-    if (r) { setMatrix(r.matrix); setPlatform("todas"); }
+    if (r) { setMatrix(r.matrix); syncBriefControls(r.matrix); setPlatform("todas"); }
+  }
+
+  async function completeMissing() {
+    if (!matrix) return;
+    const r = await run("complete", () => completeMatrix(matrix.id), "Não foi possível gerar as pautas restantes.");
+    if (r) { setMatrix(r.matrix); setNotice(`${Math.max(0, (r.matrix.generated_count || 0) - (matrix.generated_count || 0))} pauta(s) nova(s) adicionada(s); as anteriores foram preservadas.`); }
+  }
+
+  async function saveBriefingLink() {
+    if (!matrix) return;
+    const input = briefMode === "existing" ? { brief_id: briefId || null }
+      : briefMode === "direction" ? { focus: direction.trim() || null }
+        : { brief_id: null, focus: null };
+    const r = await run("briefing", () => updateMatrixBriefing(matrix.id, input), "Não foi possível atualizar o direcionamento.");
+    if (r) { setMatrix(r.matrix); syncBriefControls(r.matrix); setNotice("Direcionamento da matriz atualizado."); }
+  }
+
+  async function savePeriod() {
+    if (!matrix || !start) return;
+    const r = await run("period", () => updateMatrixPeriod(matrix.id, { weeks, start }), "Não foi possível atualizar o período.");
+    if (r) { setMatrix(r.matrix); syncBriefControls(r.matrix); setNotice("Período da matriz atualizado; as pautas foram preservadas."); }
+  }
+
+  async function submitApproval() {
+    if (!matrix) return;
+    const r = await run("approval", () => submitMatrixApproval(matrix.id), "Não foi possível enviar para aprovação interna.");
+    if (r) { setMatrix(r.matrix); setNotice(`Matriz v${r.matrix.approval_version || 1} enviada para aprovação interna.`); }
+  }
+
+  async function addApprovalComment() {
+    if (!matrix || !approvalComment.trim()) return;
+    const r = await run("approval-comment", () => commentMatrixApproval(matrix.id, approvalComment.trim(), commentOpportunityId || undefined), "Não foi possível registrar o comentário.");
+    if (r) { setMatrix(r.matrix); setApprovalComment(""); setCommentOpportunityId(""); }
+  }
+
+  async function decideApproval(decision: "aprovar" | "solicitar_ajuste") {
+    if (!matrix) return;
+    const r = await run(`approval-${decision}`, () => decideMatrixApproval(matrix.id, decision, approvalComment.trim() || undefined), "Não foi possível registrar a decisão.");
+    if (r) { setMatrix(r.matrix); setApprovalComment(""); setNotice(decision === "aprovar" ? "Matriz aprovada internamente." : "Ajustes solicitados sem apagar a versão enviada."); }
   }
 
   async function setStatus(op: Opportunity, status: "sugerida" | "selecionada" | "descartada") {
@@ -189,6 +268,10 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
         </select></label> : null}
         {canManage ? <label className="matrixPick"><span>Período</span><select aria-label="Semanas da nova matriz" value={weeks} disabled={Boolean(busy)}
           onChange={(e) => setWeeks(Number(e.target.value))}>{[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n} semana{n > 1 ? "s" : ""}</option>)}</select></label> : null}
+        {canManage ? <label className="matrixPick"><span>Início</span><input aria-label="Início do período da nova matriz" type="date" value={start} disabled={Boolean(busy)}
+          onChange={(e) => setStart(e.target.value)} /></label> : null}
+        {canManage && matrix ? <button type="button" className="ds-button" disabled={Boolean(busy) || !start} onClick={() => void savePeriod()}>
+          {busy === "period" ? "Salvando período…" : "Salvar período"}</button> : null}
         {canManage ? <button type="button" className={`ds-button${matrix ? "" : " is-primary"}`} disabled={Boolean(busy) || Boolean(missingProfile.length)} onClick={() => void generate()}>
           {busy === "generate" ? "Gerando…" : matrix ? "Gerar nova matriz" : "Gerar matriz"}</button> : null}
         {canManage && matrix ? <button type="button" className="ds-button is-primary" disabled={Boolean(busy) || !pending(visible).length} onClick={() => void exportIds(pending(visible))}
@@ -196,6 +279,31 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
           {busy === "export" ? "Enviando…" : `Enviar ${platform === "todas" ? "tudo" : PLATFORM_LABEL[platform]} ao Calendário (${pending(visible).length})`}</button> : null}
       </div>
     </div>
+    {canManage ? <div className="matrixBriefSetup" aria-label="Direcionamento da matriz">
+      <label className="matrixPick"><span>Insumo da geração</span><select aria-label="Briefing da matriz" value={briefMode} disabled={Boolean(busy)}
+        onChange={(e) => setBriefMode(e.target.value as "none" | "existing" | "direction")}>
+        <option value="none">Sem briefing</option><option value="existing">Briefing existente</option><option value="direction">Novo direcionamento</option>
+      </select></label>
+      {briefMode === "existing" ? <label className="matrixPick is-wide"><span>Briefing cadastrado</span><select value={briefId} disabled={Boolean(busy)} onChange={(e) => setBriefId(e.target.value)}>
+        <option value="">Selecione…</option>{briefs.map((item) => <option key={item.id} value={item.id}>{item.brief?.title || item.request}</option>)}
+      </select></label> : null}
+      {briefMode === "direction" ? <label className="matrixPick is-wide"><span>Orientação específica</span><textarea value={direction} maxLength={1000} disabled={Boolean(busy)}
+        placeholder="Campanha, datas, lançamento, público, prioridades e o que não comunicar" onChange={(e) => setDirection(e.target.value)} /></label> : null}
+      {matrix ? <button type="button" className="ds-button" disabled={Boolean(busy) || (briefMode === "existing" && !briefId) || (briefMode === "direction" && !direction.trim())}
+        onClick={() => void saveBriefingLink()}>{busy === "briefing" ? "Salvando…" : briefMode === "none" ? "Remover vínculo" : "Atualizar vínculo"}</button> : null}
+      <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => setPickingTask((v) => !v)}>Selecionar tarefa do Kanban</button>
+      {fromTask ? <p className="matrixHint">Insumo: tarefa “{fromTask.title}”. A próxima matriz gerada fica ligada a ela. <button type="button" className="ds-link is-quiet" onClick={() => setFromTask(null)}>Tirar</button></p> : null}
+      <p className="matrixHint">O briefing orienta a IA e fica vinculado à nova matriz. Trocar ou remover exige escolher outra opção antes de gerar.</p>
+      {pickingTask ? <KanbanTaskStart module="social_media" onCancel={() => setPickingTask(false)}
+        actions={(ctx, deliverable) => <div className="kwActions">
+          <button type="button" className="ds-button is-primary" onClick={() => {
+            if (ctx.brief_id) { setBriefMode("existing"); setBriefId(ctx.brief_id); }
+            else { setBriefMode("direction"); setDirection(taskDirection(ctx, deliverable)); }
+            setFromTask({ id: ctx.task.id, title: ctx.task.title, deliverable }); setPickingTask(false);
+          }}>Usar o briefing desta tarefa</button>
+          <small className="matrixHint">Depois clique em {matrix ? "Gerar nova matriz" : "Gerar matriz"}. A matriz fica ligada à tarefa.</small>
+        </div>} /> : null}
+    </div> : null}
     {error ? <div className="ds-notice is-negative" role="alert"><p className="ds-noticeTitle">{error}</p></div> : null}
     {notice ? <div className="ds-notice is-positive" role="status"><p className="ds-noticeTitle">{notice}{onOpenCalendar ? <> <button type="button" className="ds-link" onClick={onOpenCalendar}>Abrir o Calendário</button></> : null}</p></div> : null}
     {busy === "generate" ? <div className="ds-notice" role="status"><p className="ds-noticeTitle">Montando a matriz com os pilares e os dados da marca… pode levar até 3 minutos.</p></div> : null}
@@ -205,6 +313,16 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
         {onOpenBrandProfile ? <> <button type="button" className="studioLink" onClick={onOpenBrandProfile}>Abrir Perfil da marca</button></> : null}</p> : null}</div> : null}
 
     {matrix ? <>
+      {(matrix.brief_snapshot || matrix.focus) ? <div className="matrixLinkedBrief">
+        <span>Direcionamento vinculado</span>
+        <b>{matrix.brief_snapshot?.title || "Orientação específica"}</b>
+        <p>{matrix.brief_snapshot?.summary || matrix.focus}</p>
+      </div> : null}
+      {(matrix.missing_count || 0) > 0 ? <div className="ds-notice is-warning" role="status"><p className="ds-noticeTitle">
+        Foram criadas {matrix.generated_count || activeCount} de {matrix.target_count} pautas. Faltam {matrix.missing_count}.</p>
+        {canManage ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void completeMissing()}>
+          {busy === "complete" ? "Gerando restantes…" : `Gerar somente as ${matrix.missing_count} restantes`}</button> : null}
+      </div> : null}
       {matrix.summary || (matrix.notes || []).length ? <div className="matrixBrief">
         {matrix.summary ? <div className="matrixSummary"><span>Direção do mês</span><p>{matrix.summary}</p></div> : null}
         {(matrix.notes || []).length ? <ul className="matrixNotes">{(matrix.notes || []).map((n) => <li key={n}>{n}</li>)}</ul> : null}
@@ -251,6 +369,26 @@ export default function ContentMatrix({ canManage, onOpenCalendar, onOpenBrandPr
           })}
         </table></div>
         {!rows.length ? <div className="studioEmpty is-slim"><p>Nenhuma oportunidade nesta plataforma.</p></div> : null}
+      </section>
+
+      <section id="matrix-approval" className="matrixApproval" aria-label="Aprovação interna da matriz">
+        <header><div><span>Aprovação interna opcional</span><h3>Matriz inteira · versão {matrix.approval_version || 0}</h3></div>
+          <span className={`studioChip is-${matrix.approval_status || "rascunho"}`}>{({ rascunho: "Rascunho", em_revisao: "Em revisão", aprovada: "Aprovada", ajuste_solicitado: "Ajuste solicitado" } as Record<string, string>)[matrix.approval_status || "rascunho"]}</span></header>
+        <p className="matrixHint">Esta decisão cobre o planejamento atual. A aprovação de cada conteúdo continuará no Calendário.</p>
+        {canManage && matrix.approval_status !== "em_revisao" ? <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void submitApproval()}>
+          {busy === "approval" ? "Enviando…" : "Enviar para Aprovação Interna"}</button> : null}
+        {canApprove && matrix.approval_status === "em_revisao" ? <div className="matrixApprovalForm">
+          <label><span>Comentar</span><select aria-label="Pauta do comentário" value={commentOpportunityId} onChange={(e) => setCommentOpportunityId(e.target.value)}>
+            <option value="">Matriz completa</option>{matrix.opportunities.filter((op) => op.status !== "descartada").map((op) => <option key={op.id} value={op.id}>{op.title}</option>)}
+          </select></label>
+          <textarea aria-label="Comentário da aprovação" value={approvalComment} maxLength={2000} onChange={(e) => setApprovalComment(e.target.value)} placeholder="Observação ou ajuste necessário" />
+          <div><button type="button" className="ds-button" disabled={Boolean(busy) || !approvalComment.trim()} onClick={() => void addApprovalComment()}>Adicionar comentário</button>
+            <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void decideApproval("solicitar_ajuste")}>Solicitar ajuste</button>
+            <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void decideApproval("aprovar")}>Aprovar matriz</button></div>
+        </div> : null}
+        {(matrix.approval_events || []).length ? <details><summary>Histórico ({matrix.approval_events?.length})</summary><ul className="matrixNotes">
+          {matrix.approval_events?.map((event) => <li key={event.id}><b>v{event.version} · {event.action.replace("_", " ")}</b>{event.opportunity_id ? ` · ${matrix.opportunities.find((op) => op.id === event.opportunity_id)?.title || "Pauta"}` : ""}{event.comment ? ` — ${event.comment}` : ""}</li>)}
+        </ul></details> : null}
       </section>
 
       {canManage ? <div className="matrixBar" aria-live="polite">

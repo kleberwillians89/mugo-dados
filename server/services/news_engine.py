@@ -81,18 +81,57 @@ def parse_feed(xml: str, *, limit: int = 30) -> List[Dict[str, Any]]:
         else:
             link = strip_tags(_tag(block, "link")) or strip_tags(_tag(block, "guid"))
         source_name = strip_tags(_tag(block, "source"))
+        source_url = re.search(r"<source[^>]*url=[\"']([^\"']+)[\"']", block, re.I)
         if source_name and title.endswith(f" - {source_name}"):  # Google Notícias põe " - Fonte" no fim
             title = title[: -len(f" - {source_name}")]
         if not title or not re.match(r"^https?://", link, re.I):
             continue
         items.append({
             "title": title[:400], "url": _decode(link).strip()[:2000], "source": source_name[:160] or None,
+            "source_domain": domain_of(source_url.group(1) if source_url else _decode(link)),
+            "image_url": feed_image(block),
             "excerpt": best_excerpt([_tag(block, "content:encoded"), _tag(block, "description"), _tag(block, "summary"), _tag(block, "content")])[:1500] or None,
             "published_at": _date(strip_tags(_tag(block, "pubDate") or _tag(block, "published") or _tag(block, "updated") or _tag(block, "dc:date"))),
         })
         if len(items) >= limit:
             break
     return items
+
+
+def domain_of(url: str) -> Optional[str]:
+    """'https://www.oglobo.globo.com/x' → 'oglobo.globo.com' (o Google Notícias vira o domínio do veículo pela tag source)."""
+    match = re.match(r"^https?://([^/:?#]+)", str(url or "").strip(), re.I)
+    host = (match.group(1).lower() if match else "").removeprefix("www.")
+    return host[:200] if host and "news.google." not in host else None
+
+
+def _https_image(url: str) -> Optional[str]:
+    url = html.unescape(str(url or "").strip())
+    if url.startswith("//"):
+        url = "https:" + url
+    return url[:1000] if url.startswith("https://") and not re.search(r"\.(svg|gif)(\?|$)", url, re.I) else None
+
+
+def feed_image(block: str) -> Optional[str]:
+    """Imagem que o próprio feed traz: media:content/thumbnail, enclosure de imagem ou a 1ª <img> do conteúdo."""
+    for pattern in (r"<media:(?:content|thumbnail)[^>]*url=[\"']([^\"']+)[\"']",
+                    r"<enclosure[^>]*type=[\"']image/[^\"']*[\"'][^>]*url=[\"']([^\"']+)[\"']",
+                    r"<enclosure[^>]*url=[\"']([^\"']+\.(?:jpe?g|png|webp)[^\"']*)[\"']",
+                    r"<img[^>]+src=[\"']([^\"']+)[\"']", r"&lt;img[^&]+src=[\"']([^\"']+)[\"']"):
+        match = re.search(pattern, block, re.I)
+        if match and _https_image(match.group(1)):
+            return _https_image(match.group(1))
+    return None
+
+
+def extract_og_image(page: str) -> Optional[str]:
+    """Imagem de capa da matéria (og:image / twitter:image)."""
+    for name in ("og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"):
+        m = re.search(rf"<meta[^>]+(?:property|name)=[\"']{name}[\"'][^>]*content=[\"']([^\"']+)[\"']", str(page or ""), re.I) or \
+            re.search(rf"<meta[^>]+content=[\"']([^\"']+)[\"'][^>]*(?:property|name)=[\"']{name}[\"']", str(page or ""), re.I)
+        if m and _https_image(m.group(1)):
+            return _https_image(m.group(1))
+    return None
 
 
 def extract_article_text(page: str, *, max_len: int = 1500) -> str:
@@ -228,3 +267,9 @@ class GdeltProvider:
 async def fetch_article_text(url: str) -> str:
     page = await _get(url, timeout=12)
     return extract_article_text(page or "")
+
+
+async def fetch_article(url: str) -> Dict[str, Optional[str]]:
+    """Texto e imagem de capa numa leitura só."""
+    page = await _get(url, timeout=12) or ""
+    return {"text": extract_article_text(page) or None, "image_url": extract_og_image(page)}

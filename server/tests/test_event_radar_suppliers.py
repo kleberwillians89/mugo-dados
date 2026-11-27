@@ -146,7 +146,9 @@ class PlanLinkTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(sp, "get_project", AsyncMock(return_value=project)), patch.object(sp, "load_profile", AsyncMock(return_value={"profile": {}})), \
              patch("services.studio_engines.throttle"), patch("services.studio_intelligence.build_content_intelligence", AsyncMock(return_value={})), \
              patch("services.studio_suppliers.suppliers_text", AsyncMock(return_value="- JÁ NO EVENTO: Foto Já")), \
-             patch("services.studio_llm.llm_json", llm), patch.object(sp, "sb_update", AsyncMock(side_effect=lambda t, filters, patch: [patch])):
+             patch("services.studio_llm.llm_json", llm), patch.object(sp, "sb_update", AsyncMock(side_effect=lambda t, filters, patch: [patch])), \
+             patch("services.studio_project_versions.latest", AsyncMock(return_value=None)), \
+             patch("services.studio_project_versions.snapshot", AsyncMock(return_value=1)):
             out = await sp.generate_plan("ruah", "p1")
         prompt = llm.await_args.kwargs["prompt"]
         self.assertIn("CLIMA E NOTÍCIAS DA REGIÃO", prompt)

@@ -106,12 +106,22 @@ class ShopTests(unittest.IsolatedAsyncioTestCase):
     async def test_search_uses_first_catalog_and_maps_fields(self):
         get = AsyncMock(side_effect=[{"data": [{"catalog_id": "9"}]},
                                      {"data": [{"product_id": 5, "product_name": "Legging Preta", "image_url": "https://img", "retailer_id": "SKU1",
-                                                "review_status": "approved", "product_variants": [{"product_id": 6, "variant_name": "P"}]}]}])
+                                                "review_status": "approved", "product_variants": [{"product_id": 6, "variant_name": "P"}]}]},
+                                     {"5": {"id": "5", "url": "https://roove.com.br/legging", "price": "R$ 199,00"}}])
         with patch("services.ig_engagement.credentials", AsyncMock(return_value=CREDS)), patch.object(shop, "_get", get):
             out = await shop.search_products("roove", " legging ")
         self.assertEqual(get.await_args_list[1].kwargs["params"], {"catalog_id": "9", "q": "legging"})
         self.assertEqual(out[0], {"product_id": "5", "name": "Legging Preta", "image_url": "https://img", "sku": "SKU1",
-                                  "review_status": "approved", "variants": [{"product_id": "6", "name": "P"}]})
+                                  "review_status": "approved", "variants": [{"product_id": "6", "name": "P"}],
+                                  "url": "https://roove.com.br/legging", "price": "R$ 199,00"})
+        self.assertEqual(get.await_args_list[2].kwargs["params"], {"ids": "5", "fields": "url,price,sale_price"})
+
+    async def test_sem_permissao_de_catalogo_os_produtos_vem_sem_link_e_preco(self):
+        get = AsyncMock(side_effect=[{"data": [{"product_id": 5, "product_name": "Legging", "image_url": None}]},
+                                     shop.StudioError("SHOP_PERMISSION")])
+        with patch("services.ig_engagement.credentials", AsyncMock(return_value=CREDS)), patch.object(shop, "_get", get):
+            out = await shop.search_products("roove", "", "9")
+        self.assertEqual((out[0]["url"], out[0]["price"]), (None, None))
 
 
 if __name__ == "__main__":

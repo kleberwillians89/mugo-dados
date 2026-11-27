@@ -106,13 +106,13 @@ export type MentionSource = "comments" | "direct";
 export type MentionShow = "todos" | "sem_analise" | "fora" | "revisados" | HealthSentiment;
 export type Mention = {
   id: string; source: MentionSource; network: "instagram"; at: string | null; author: string | null; text: string;
-  sentiment: HealthSentiment | null; sentiment_ai: HealthSentiment | null; theme: string | null; excluded: boolean; reviewed_at: string | null;
+  sentiment: HealthSentiment | null; sentiment_ai: HealthSentiment | null; theme: string | null; theme_ai?: string | null; can_edit_theme?: boolean; excluded: boolean; reviewed_at: string | null;
   post: { permalink: string | null; caption: string | null; at: string | null; thumb: string | null } | null;
 };
 export type MentionPage = { items: Mention[]; has_more: boolean; review_enabled: boolean; can_review: boolean };
 export const getMentions = (q: { start: string; end: string; source: MentionSource; show: MentionShow; offset?: number }) =>
   http<MentionPage>(base(`/mentions?start=${q.start}&end=${q.end}&source=${q.source}&show=${q.show}&offset=${q.offset ?? 0}&limit=30`));
-export type MentionReview = { sentiment?: HealthSentiment; excluded?: boolean; reset?: boolean };
+export type MentionReview = { sentiment?: HealthSentiment; theme?: string; excluded?: boolean; reset?: boolean };
 export const reviewMention = (source: MentionSource, id: string, body: MentionReview) =>
-  http<Pick<Mention, "id" | "source" | "sentiment" | "sentiment_ai" | "excluded" | "reviewed_at">>(
+  http<Pick<Mention, "id" | "source" | "sentiment" | "sentiment_ai" | "theme" | "theme_ai" | "excluded" | "reviewed_at">>(
     base(`/mentions/${source}/${encodeURIComponent(id)}`), { method: "PATCH", body: JSON.stringify(body) });

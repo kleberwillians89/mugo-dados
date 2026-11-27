@@ -102,6 +102,7 @@ def score_posts(rows: Iterable[Dict[str, Any]], *, start: date, end: date) -> Li
         if reach <= 0:
             continue  # post sem insight não diz nada sobre horário
         posts.append({
+            "media_id": row.get("media_id"),  # só presente quando o select pediu (liga o post à pauta)
             "format": _format_of(row),
             "weekday": local.weekday(),
             "hour": local.hour,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatGoogleAdsAccountLabel, type GoogleAdsAccount } from "./api";
+import { formatGoogleAdsAccountLabel, type GoogleAdsAccount } from "./onboardingApi";
 
 describe("formatGoogleAdsAccountLabel — nunca mostra apenas o ID cru", () => {
   it("mostra nome descritivo + ID formatado quando o nome está disponível", () => {

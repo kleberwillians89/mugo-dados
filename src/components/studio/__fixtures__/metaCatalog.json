@@ -1,0 +1,400 @@
+{
+ "objectives": [
+  {
+   "key": "OUTCOME_AWARENESS",
+   "label": "Reconhecimento",
+   "icon": "megaphone",
+   "hint": "Mostre seus anúncios para as pessoas com maior probabilidade de se lembrar deles."
+  },
+  {
+   "key": "OUTCOME_TRAFFIC",
+   "label": "Tráfego",
+   "icon": "cursor",
+   "hint": "Envie pessoas para um destino, como seu site, app, perfil do Instagram ou evento do Facebook."
+  },
+  {
+   "key": "OUTCOME_ENGAGEMENT",
+   "label": "Engajamento",
+   "icon": "chat",
+   "hint": "Receba mais mensagens, compras por mensagem, visualizações do vídeo, engajamento com a publicação ou curtidas da Página."
+  },
+  {
+   "key": "OUTCOME_LEADS",
+   "label": "Cadastros",
+   "icon": "filter",
+   "hint": "Colete cadastros para sua empresa ou marca."
+  },
+  {
+   "key": "OUTCOME_APP_PROMOTION",
+   "label": "Promoção do app",
+   "icon": "phone",
+   "hint": "Encontre novas pessoas para instalar seu app e continuar usando-o."
+  },
+  {
+   "key": "OUTCOME_SALES",
+   "label": "Vendas",
+   "icon": "bag",
+   "hint": "Encontre pessoas com probabilidade de comprar seu produto ou serviço."
+  }
+ ],
+ "special_categories": [
+  {
+   "key": "FINANCIAL_PRODUCTS_SERVICES",
+   "label": "Produtos e serviços financeiros"
+  },
+  {
+   "key": "EMPLOYMENT",
+   "label": "Emprego"
+  },
+  {
+   "key": "HOUSING",
+   "label": "Moradia"
+  },
+  {
+   "key": "ISSUES_ELECTIONS_POLITICS",
+   "label": "Questões sociais, eleições ou política"
+  }
+ ],
+ "bid_strategies": [
+  {
+   "key": "LOWEST_COST_WITHOUT_CAP",
+   "label": "Volume mais alto",
+   "hint": "Obter o maior número de resultados com o orçamento."
+  },
+  {
+   "key": "COST_CAP",
+   "label": "Meta de custo por resultado",
+   "hint": "Tentar manter o custo médio por resultado perto do valor informado."
+  },
+  {
+   "key": "LOWEST_COST_WITH_BID_CAP",
+   "label": "Limite de lance",
+   "hint": "Definir o lance máximo em cada leilão."
+  },
+  {
+   "key": "LOWEST_COST_WITH_MIN_ROAS",
+   "label": "Meta de ROAS",
+   "hint": "Manter um retorno mínimo sobre o investimento em anúncios."
+  }
+ ],
+ "locations": {
+  "NONE": "Sem local de conversão",
+  "WEBSITE": "Site",
+  "APP": "App",
+  "MESSAGING": "Apps de mensagem",
+  "ON_AD": "Formulários instantâneos",
+  "ON_POST": "No seu anúncio",
+  "PHONE_CALL": "Ligações",
+  "ON_PAGE": "Página do Facebook",
+  "INSTAGRAM_PROFILE": "Perfil do Instagram"
+ },
+ "location_order": [
+  "NONE",
+  "WEBSITE",
+  "APP",
+  "MESSAGING",
+  "ON_AD",
+  "ON_POST",
+  "INSTAGRAM_PROFILE",
+  "PHONE_CALL",
+  "ON_PAGE"
+ ],
+ "messaging_apps": [
+  {
+   "key": "MESSENGER",
+   "label": "Messenger"
+  },
+  {
+   "key": "INSTAGRAM_DIRECT",
+   "label": "Instagram"
+  },
+  {
+   "key": "WHATSAPP",
+   "label": "WhatsApp"
+  }
+ ],
+ "matrix": {
+  "OUTCOME_AWARENESS": {
+   "NONE": [
+    "REACH",
+    "IMPRESSIONS",
+    "AD_RECALL_LIFT",
+    "THRUPLAY"
+   ]
+  },
+  "OUTCOME_TRAFFIC": {
+   "WEBSITE": [
+    "LANDING_PAGE_VIEWS",
+    "LINK_CLICKS",
+    "IMPRESSIONS",
+    "REACH"
+   ],
+   "MESSAGING": [
+    "LINK_CLICKS"
+   ],
+   "INSTAGRAM_PROFILE": [
+    "VISIT_INSTAGRAM_PROFILE"
+   ],
+   "PHONE_CALL": [
+    "QUALITY_CALL",
+    "LINK_CLICKS"
+   ]
+  },
+  "OUTCOME_ENGAGEMENT": {
+   "MESSAGING": [
+    "CONVERSATIONS",
+    "LINK_CLICKS"
+   ],
+   "ON_POST": [
+    "POST_ENGAGEMENT",
+    "THRUPLAY",
+    "TWO_SECOND_CONTINUOUS_VIDEO_VIEWS",
+    "IMPRESSIONS",
+    "REACH"
+   ],
+   "PHONE_CALL": [
+    "QUALITY_CALL"
+   ],
+   "WEBSITE": [
+    "OFFSITE_CONVERSIONS",
+    "LANDING_PAGE_VIEWS",
+    "LINK_CLICKS",
+    "IMPRESSIONS",
+    "REACH"
+   ],
+   "ON_PAGE": [
+    "PAGE_LIKES"
+   ]
+  },
+  "OUTCOME_LEADS": {
+   "WEBSITE": [
+    "OFFSITE_CONVERSIONS",
+    "LANDING_PAGE_VIEWS",
+    "LINK_CLICKS",
+    "IMPRESSIONS",
+    "REACH"
+   ],
+   "ON_AD": [
+    "LEAD_GENERATION",
+    "QUALITY_LEAD"
+   ],
+   "MESSAGING": [
+    "CONVERSATIONS",
+    "LEAD_GENERATION"
+   ],
+   "PHONE_CALL": [
+    "QUALITY_CALL"
+   ]
+  },
+  "OUTCOME_APP_PROMOTION": {
+   "APP": [
+    "APP_INSTALLS",
+    "LINK_CLICKS"
+   ]
+  },
+  "OUTCOME_SALES": {
+   "WEBSITE": [
+    "OFFSITE_CONVERSIONS",
+    "VALUE",
+    "LANDING_PAGE_VIEWS",
+    "LINK_CLICKS",
+    "IMPRESSIONS",
+    "REACH"
+   ],
+   "MESSAGING": [
+    "CONVERSATIONS"
+   ],
+   "PHONE_CALL": [
+    "QUALITY_CALL"
+   ]
+  }
+ },
+ "goals": {
+  "REACH": "Maximizar o alcance dos anúncios",
+  "IMPRESSIONS": "Maximizar o número de impressões",
+  "AD_RECALL_LIFT": "Maximizar a lembrança do anúncio",
+  "THRUPLAY": "Maximizar ThruPlay",
+  "TWO_SECOND_CONTINUOUS_VIDEO_VIEWS": "Maximizar visualizações contínuas de 2 segundos do vídeo",
+  "LANDING_PAGE_VIEWS": "Maximizar o número de visualizações da página de destino",
+  "LINK_CLICKS": "Maximizar o número de cliques no link",
+  "VISIT_INSTAGRAM_PROFILE": "Maximizar visitas ao perfil do Instagram",
+  "CONVERSATIONS": "Maximizar o número de conversas",
+  "POST_ENGAGEMENT": "Maximizar o engajamento com uma publicação",
+  "PAGE_LIKES": "Maximizar o número de curtidas da Página",
+  "QUALITY_CALL": "Maximizar o número de ligações",
+  "OFFSITE_CONVERSIONS": "Maximizar o número de conversões",
+  "VALUE": "Maximizar o valor das conversões",
+  "LEAD_GENERATION": "Maximizar o número de leads",
+  "QUALITY_LEAD": "Maximizar o número de leads de conversão",
+  "APP_INSTALLS": "Maximizar o número de instalações do app"
+ },
+ "events": [
+  {
+   "key": "PURCHASE",
+   "label": "Compra"
+  },
+  {
+   "key": "ADD_TO_CART",
+   "label": "Adicionar ao carrinho"
+  },
+  {
+   "key": "INITIATE_CHECKOUT",
+   "label": "Iniciar finalização da compra"
+  },
+  {
+   "key": "ADD_PAYMENT_INFO",
+   "label": "Adicionar informações de pagamento"
+  },
+  {
+   "key": "CONTENT_VIEW",
+   "label": "Visualização do conteúdo"
+  },
+  {
+   "key": "ADD_TO_WISHLIST",
+   "label": "Adicionar à lista de desejos"
+  },
+  {
+   "key": "SEARCH",
+   "label": "Pesquisar"
+  },
+  {
+   "key": "LEAD",
+   "label": "Lead"
+  },
+  {
+   "key": "COMPLETE_REGISTRATION",
+   "label": "Concluir cadastro"
+  },
+  {
+   "key": "CONTACT",
+   "label": "Contato"
+  },
+  {
+   "key": "SUBMIT_APPLICATION",
+   "label": "Enviar candidatura"
+  },
+  {
+   "key": "SCHEDULE",
+   "label": "Agendar"
+  },
+  {
+   "key": "SUBSCRIBE",
+   "label": "Assinar"
+  },
+  {
+   "key": "START_TRIAL",
+   "label": "Iniciar avaliação"
+  }
+ ],
+ "ctas": {
+  "NO_BUTTON": "Sem botão",
+  "LEARN_MORE": "Saiba mais",
+  "SHOP_NOW": "Comprar agora",
+  "ORDER_NOW": "Pedir agora",
+  "GET_OFFER": "Obter oferta",
+  "SIGN_UP": "Cadastre-se",
+  "SUBSCRIBE": "Assinar",
+  "APPLY_NOW": "Candidatar-se",
+  "GET_QUOTE": "Solicitar cotação",
+  "CONTACT_US": "Fale conosco",
+  "BOOK_TRAVEL": "Reservar agora",
+  "DOWNLOAD": "Baixar",
+  "WATCH_MORE": "Assistir mais",
+  "SEE_MENU": "Ver cardápio",
+  "SEND_WHATSAPP_MESSAGE": "Enviar mensagem do WhatsApp",
+  "WHATSAPP_MESSAGE": "Enviar mensagem do WhatsApp",
+  "MESSAGE_PAGE": "Enviar mensagem",
+  "INSTAGRAM_MESSAGE": "Enviar mensagem pelo Instagram",
+  "CALL_NOW": "Ligar agora",
+  "INSTALL_MOBILE_APP": "Instalar agora",
+  "USE_APP": "Usar app",
+  "LIKE_PAGE": "Curtir Página",
+  "VIEW_INSTAGRAM_PROFILE": "Ver perfil do Instagram"
+ },
+ "ctas_by_location": {
+  "NONE": [
+   "LEARN_MORE",
+   "SHOP_NOW",
+   "ORDER_NOW",
+   "GET_OFFER",
+   "SIGN_UP",
+   "SUBSCRIBE",
+   "APPLY_NOW",
+   "GET_QUOTE",
+   "CONTACT_US",
+   "BOOK_TRAVEL",
+   "DOWNLOAD",
+   "WATCH_MORE",
+   "SEE_MENU",
+   "NO_BUTTON"
+  ],
+  "WEBSITE": [
+   "LEARN_MORE",
+   "SHOP_NOW",
+   "ORDER_NOW",
+   "GET_OFFER",
+   "SIGN_UP",
+   "SUBSCRIBE",
+   "APPLY_NOW",
+   "GET_QUOTE",
+   "CONTACT_US",
+   "BOOK_TRAVEL",
+   "DOWNLOAD",
+   "WATCH_MORE",
+   "SEE_MENU",
+   "NO_BUTTON"
+  ],
+  "APP": [
+   "INSTALL_MOBILE_APP",
+   "USE_APP",
+   "DOWNLOAD",
+   "SHOP_NOW",
+   "LEARN_MORE",
+   "SIGN_UP"
+  ],
+  "MESSAGING": [
+   "MESSAGE_PAGE"
+  ],
+  "ON_AD": [
+   "SIGN_UP",
+   "LEARN_MORE",
+   "SUBSCRIBE",
+   "APPLY_NOW",
+   "GET_QUOTE",
+   "GET_OFFER",
+   "DOWNLOAD",
+   "BOOK_TRAVEL"
+  ],
+  "ON_POST": [
+   "LEARN_MORE",
+   "SHOP_NOW",
+   "ORDER_NOW",
+   "GET_OFFER",
+   "SIGN_UP",
+   "SUBSCRIBE",
+   "APPLY_NOW",
+   "GET_QUOTE",
+   "CONTACT_US",
+   "BOOK_TRAVEL",
+   "DOWNLOAD",
+   "WATCH_MORE",
+   "SEE_MENU",
+   "NO_BUTTON"
+  ],
+  "PHONE_CALL": [
+   "CALL_NOW"
+  ],
+  "ON_PAGE": [
+   "LIKE_PAGE"
+  ],
+  "INSTAGRAM_PROFILE": [
+   "VIEW_INSTAGRAM_PROFILE"
+  ],
+  "MESSAGING:WHATSAPP": [
+   "WHATSAPP_MESSAGE"
+  ],
+  "MESSAGING:INSTAGRAM_DIRECT": [
+   "INSTAGRAM_MESSAGE"
+  ]
+ }
+}

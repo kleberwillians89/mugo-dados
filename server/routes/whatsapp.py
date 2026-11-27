@@ -4,9 +4,11 @@ Números: qualquer membro da empresa (são da empresa ativa, revalidada no backe
 Caixa de entrada e mensagens: agência e admin da marca — é conversa com cliente final.
 """
 from __future__ import annotations
+from uuid import UUID, uuid4
 
+import re
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -63,11 +65,12 @@ async def read_whatsapp_messages(client_id: str, conversation_id: str, limit: in
 
 class WhatsAppReply(BaseModel):
     text: str = Field(min_length=1, max_length=4096)
+    request_id: UUID | None = None
 
 
 _REPLY_ERRORS = {
     "CONVERSATION_NOT_FOUND": 404, "EMPTY_MESSAGE": 422, "OUTSIDE_WINDOW": 409, "REPLY_UNSUPPORTED": 409,
-    "CRM_UNREACHABLE": 502, "SEND_FAILED": 502,
+    "CRM_UNREACHABLE": 502, "SEND_FAILED": 502, "SEND_OUTCOME_UNKNOWN": 502, "INVALID_REPLY": 422,
 }
 
 
@@ -79,7 +82,7 @@ async def reply_whatsapp_conversation(client_id: str, conversation_id: str, body
     cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
     author = "equipe Mugô" if await is_agency_user(authorization) else "equipe da marca"
     try:
-        return await brand_reply(cid, conversation_id, body.text, author=author)
+        return await brand_reply(cid, conversation_id, body.text, author=author, request_id=str(body.request_id or uuid4()))
     except StudioError as exc:
         status = _REPLY_ERRORS.get(exc.code, 502)
         detail = str(exc) if str(exc) and str(exc) != exc.code else "Não foi possível enviar agora."
@@ -367,33 +370,60 @@ async def whatsapp_template_preflight(client_id: str, payload: WhatsAppTemplateP
     approved = bool(matched and str(matched.get("status", "")).upper() == "APPROVED")
     return {"ok": True, "provider": provider, "template_found": bool(matched),
             "template_approved": approved, "template_status": matched.get("status") if matched else None,
-            "can_send": False, "reason": "Campanhas WhatsApp ainda exigem listas com opt-in específico, fila e homologação.",
+            "can_send": approved, "reason": "Modelo aprovado: a campanha pode ser enviada." if approved else "Modelo não aprovado na Meta.",
             "messages_sent": 0}
 
 
 
-# ---- Campanhas: prévia e rascunhos; nenhum endpoint de envio em massa.
+# ---- Campanhas: prévia, rascunho e envio em massa (template aprovado, todos os contatos menos quem pediu para sair).
 class BulkCampaignDraftIn(BaseModel):
     name: str = Field(min_length=3, max_length=120)
     template_name: str = Field(min_length=3, max_length=81)
     language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
-    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp|capture)$")
+    provider: str = Field(default="all", pattern="^(all|shopify|fbits|whatsapp|capture|planilha|leads_unificados)$")
+    header_media_url: Optional[str] = Field(default=None, max_length=1000)
+    # Só para a planilha: os contatos escolhidos à mão (ex.: testar com poucos antes de mandar para todos).
+    selected_contacts: Optional[List[str]] = Field(default=None, max_length=5000)
+
+
+class BulkSendIn(BaseModel):
+    scheduled_at: Optional[str] = Field(default=None, max_length=40)
+    exclude_previous_template_recipients: bool = True
+
+
+class BulkTestIn(BaseModel):
+    recipient_name: Optional[str] = Field(default=None, max_length=100)
+    phone: str = Field(min_length=8, max_length=32, pattern=r"^[+0-9() .-]+$")
+    template_name: str = Field(min_length=3, max_length=81, pattern=r"^[a-z0-9_]+$")
+    language: str = Field(default="pt_BR", pattern="^(pt_BR|en_US|es_ES)$")
+    header_media_url: Optional[str] = Field(default=None, max_length=1000, pattern=r"^https://")
+
+
+@router.post("/campaigns/test")
+async def whatsapp_campaign_test(client_id: str, payload: BulkTestIn, authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    from services.whatsapp_campaign_send import BulkSendError, send_test
+    try:
+        recorded = await send_test(cid, **payload.model_dump())
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+    return {"ok": True, "status": "accepted", "recorded": recorded}
 
 
 @router.get("/campaigns/drafts")
 async def whatsapp_campaign_draft_list(client_id: str, authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
     from services.whatsapp_campaign_drafts import list_drafts
-    return {"ok": True, "drafts": await list_drafts(cid), "sending_enabled": False}
+    return {"ok": True, "drafts": await list_drafts(cid), "sending_enabled": True}
 
 
 @router.get("/campaigns/audience-preview")
 async def whatsapp_campaign_audience_preview(client_id: str, provider: str = "all",
                                               authorization: Optional[str] = Header(None)):
     cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
-    from services.whatsapp_campaign_drafts import audience_preview
+    from services.whatsapp_campaign_drafts import audience_with_sendable
     try:
-        return {"ok": True, **await audience_preview(cid, provider)}
+        return {"ok": True, **await audience_with_sendable(cid, provider)}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -411,7 +441,47 @@ async def whatsapp_campaign_create_draft(client_id: str, payload: BulkCampaignDr
         result = await save_draft(cid, payload.model_dump(), approved=bool(validated["template_approved"]))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"ok": True, **result, "sending_enabled": False}
+    return {"ok": True, **result, "sending_enabled": True}
+
+
+@router.post("/campaigns/drafts/{draft_id}/send")
+async def whatsapp_campaign_send(client_id: str, draft_id: str, payload: Optional[BulkSendIn] = None,
+                                 authorization: Optional[str] = Header(None)):
+    """Põe a campanha na fila: agora ou na data agendada. O Relógio dos jobs envia (de 5 em 5 minutos)."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    if not re.fullmatch(r"[0-9a-f-]{36}", draft_id):
+        raise HTTPException(status_code=404, detail="Campanha não encontrada.")
+    from services.whatsapp_campaign_send import BulkSendError, start
+    try:
+        return {"ok": True, **await start(cid, draft_id, payload.scheduled_at if payload else None,
+                                          payload.exclude_previous_template_recipients if payload else True)}
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+
+
+@router.post("/campaigns/drafts/{draft_id}/cancel")
+async def whatsapp_campaign_cancel(client_id: str, draft_id: str, authorization: Optional[str] = Header(None)):
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    if not re.fullmatch(r"[0-9a-f-]{36}", draft_id):
+        raise HTTPException(status_code=404, detail="Campanha não encontrada.")
+    from services.whatsapp_campaign_send import BulkSendError, cancel
+    try:
+        return {"ok": True, **await cancel(cid, draft_id)}
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+
+
+@router.get("/campaigns/drafts/{draft_id}/report")
+async def whatsapp_campaign_report(client_id: str, draft_id: str, authorization: Optional[str] = Header(None)):
+    """Depois do envio: responderam e compraram (em até 7 dias), cruzando pelo telefone."""
+    cid = await require_client_role(client_id, authorization, allowed_roles=TEMPLATE_ROLES)
+    if not re.fullmatch(r"[0-9a-f-]{36}", draft_id):
+        raise HTTPException(status_code=404, detail="Campanha não encontrada.")
+    from services.whatsapp_campaign_send import BulkSendError, report
+    try:
+        return {"ok": True, **await report(cid, draft_id)}
+    except BulkSendError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
 
 # ---- Instagram Direct da marca na mesma tela (gravado pelo webhook instagram-webhook).
 class InstagramReply(BaseModel):
@@ -491,6 +561,16 @@ class AiSettingsIn(BaseModel):
     catalog_id: Optional[str] = Field(default=None, max_length=30)
     product_cards: Optional[bool] = None
     human_pause_minutes: Optional[int] = Field(default=None, ge=0, le=10080)
+    ad_group_link: Optional[str] = Field(default=None, max_length=500)
+    ad_group_message: Optional[str] = Field(default=None, max_length=1000)
+    claude_model: Optional[str] = Field(default=None, pattern=r"^claude-(haiku|sonnet|opus)-5-5$")
+    product_style: Optional[str] = Field(default=None, pattern=r"^(carrossel|catalogo|links)$")
+    product_button: Optional[str] = Field(default=None, max_length=20)
+
+
+class ClaudeKeyIn(BaseModel):
+    api_key: str = Field(min_length=20, max_length=300)
+    model: str = Field(default="claude-sonnet-5-5", pattern=r"^claude-(haiku|sonnet|opus)-5-5$")
 
 
 class SimTurn(BaseModel):
@@ -512,6 +592,31 @@ async def read_ai_settings(client_id: str, authorization: Optional[str] = Header
     cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
     try:
         return {"settings": await get_settings(cid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.put("/ai-settings/claude-key")
+async def set_ai_claude_key(client_id: str, body: ClaudeKeyIn, authorization: Optional[str] = Header(None)):
+    """Chave do Claude da própria marca para o atendente (conferida e guardada criptografada; nunca volta para a tela)."""
+    from services.tenant import require_user_id
+    from services.whatsapp_ai import save_claude_key
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    user_id = await require_user_id(authorization)
+    try:
+        return {"settings": await save_claude_key(cid, api_key=body.api_key, model=body.model, user_id=user_id)}
+    except Exception as exc:  # noqa: BLE001
+        raise _ai_http(exc) from None
+
+
+@router.delete("/ai-settings/claude-key")
+async def delete_ai_claude_key(client_id: str, authorization: Optional[str] = Header(None)):
+    from services.tenant import require_user_id
+    from services.whatsapp_ai import remove_claude_key
+    cid = await require_client_role(client_id, authorization, allowed_roles=INBOX_ROLES)
+    user_id = await require_user_id(authorization)
+    try:
+        return {"settings": await remove_claude_key(cid, user_id=user_id)}
     except Exception as exc:  # noqa: BLE001
         raise _ai_http(exc) from None
 

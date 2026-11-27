@@ -6,13 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({
   getClipping: vi.fn(), getClippingInsights: vi.fn(), getClippingReport: vi.fn(), exportClipping: vi.fn(), refreshClipping: vi.fn(), saveClippingSettings: vi.fn(), setClippingStatus: vi.fn(), clippingToCalendar: vi.fn(),
   listCampaigns: vi.fn(), getCampaign: vi.fn(), createCampaign: vi.fn(), regeneratePiece: vi.fn(), editPiece: vi.fn(), setCampaignStatus: vi.fn(), campaignToCalendar: vi.fn(),
-  listMatrices: vi.fn(), getMatrix: vi.fn(), createMatrix: vi.fn(), archiveMatrix: vi.fn(), updateOpportunity: vi.fn(), addOpportunity: vi.fn(), deleteOpportunity: vi.fn(), refineOpportunity: vi.fn(), createOpportunityContent: vi.fn(),
+  listMatrices: vi.fn(), getMatrix: vi.fn(), createMatrix: vi.fn(), completeMatrix: vi.fn(), updateMatrixBriefing: vi.fn(), updateMatrixPeriod: vi.fn(), archiveMatrix: vi.fn(), updateOpportunity: vi.fn(), addOpportunity: vi.fn(), deleteOpportunity: vi.fn(), refineOpportunity: vi.fn(), createOpportunityContent: vi.fn(),
+  submitMatrixApproval: vi.fn(), commentMatrixApproval: vi.fn(), decideMatrixApproval: vi.fn(),
   setOpportunitiesStatus: vi.fn(), matrixToCalendar: vi.fn(),
   listDocuments: vi.fn(), getDocument: vi.fn(), createDocument: vi.fn(), saveDocument: vi.fn(), documentAI: vi.fn(), documentToCalendar: vi.fn(),
 }));
 const studioApi = vi.hoisted(() => ({ getBrandProfile: vi.fn(), strategyChat: vi.fn() }));
+const briefsApi = vi.hoisted(() => ({ listBriefs: vi.fn() }));
 vi.mock("../app/contentOps", async (original) => ({ ...(await original<typeof import("../app/contentOps")>()), ...api }));
 vi.mock("../app/studio", async (original) => ({ ...(await original<typeof import("../app/studio")>()), ...studioApi }));
+vi.mock("../app/briefs", async (original) => ({ ...(await original<typeof import("../app/briefs")>()), ...briefsApi }));
 vi.mock("../components/clipping/BrandHealth", () => ({ default: () => <p>Painel saúde da marca</p> }));
 vi.mock("./Radar", () => ({ default: () => <p>Radar cultural do teste</p> }));
 vi.mock("../components/clipping/BrandHealthAlerts", () => ({ default: () => <p>Alertas da marca</p> }));
@@ -36,6 +39,7 @@ let host: HTMLDivElement; let root: Root;
 let scrollTargets: string[];
 beforeEach(() => { scrollTargets = []; Element.prototype.scrollIntoView = function () { scrollTargets.push((this as HTMLElement).id); };
   window.history.replaceState({}, "", "/social-media"); api.getClippingInsights?.mockResolvedValue(null); api.listMatrices.mockResolvedValue({ matrices: [] }); api.listDocuments.mockResolvedValue({ documents: [] }); api.listCampaigns.mockResolvedValue({ campaigns: [] });
+  briefsApi.listBriefs.mockResolvedValue({ briefs: [], team: true, destinations: {}, roles: {} });
   studioApi.getBrandProfile.mockResolvedValue({ profile: { pillars: [{ name: "Produto", weight: 60, description: "" }, { name: "Bastidores", weight: 40, description: "" }],
     editorial_platforms: ["instagram", "tiktok"], posts_per_week: 3, posts_per_week_by_platform: {} }, saved: true });
   studioApi.strategyChat.mockResolvedValue({ reply: "Use Produto como eixo principal.", suggested_actions: ["Criar carrossel"], based_on: { posts_analisados: 3 } });
@@ -81,7 +85,7 @@ describe("Clipping", () => {
     await show(<Clipping canManage initialTab="materias" />);
     expect(host.textContent).toContain("menções da marca em 7 dias");
     expect(host.textContent).toContain("+2 vs. semana anterior");
-    expect(host.querySelector('a[href="https://news/1"]')?.textContent).toContain("Curavino lança linha natural");
+    expect(host.querySelector('h4 a[href="https://news/1"]')?.textContent).toContain("Curavino lança linha natural");
     expect(host.textContent).toContain("Positiva");
     expect(host.textContent).toContain("Virar pauta");
   });
@@ -185,6 +189,50 @@ describe("Social Media: Matriz de conteúdo", () => {
     expect(host.querySelector(".matrixStats")?.textContent).toContain("2 pilares");
     expect(host.querySelector(".matrixStats")?.textContent).toContain("1 oportunidades");
     expect(host.querySelectorAll(".matrixCard").length).toBe(1);
+  });
+
+  it("usa período editável e briefing existente como insumo da geração", async () => {
+    briefsApi.listBriefs.mockResolvedValue({ briefs: [{ id: "b1", status: "pronto", request: "Natal", created_at: "x", created_side: "mugo",
+      brief: { title: "Campanha de Natal", summary: "Promoção após dia 25; não falar de férias" } }], team: true, destinations: {}, roles: {} });
+    api.createMatrix.mockResolvedValue({ matrix: matrix([opp("a")]) });
+    await show(<Campaigns />);
+    const mode = host.querySelector<HTMLSelectElement>('select[aria-label="Briefing da matriz"]')!;
+    await act(async () => { mode.value = "existing"; mode.dispatchEvent(new Event("change", { bubbles: true })); });
+    const brief = [...host.querySelectorAll<HTMLSelectElement>("select")].find((select) => [...select.options].some((option) => option.textContent === "Campanha de Natal"))!;
+    const start = host.querySelector<HTMLInputElement>('input[aria-label="Início do período da nova matriz"]')!;
+    await act(async () => { brief.value = "b1"; brief.dispatchEvent(new Event("change", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(start, "2026-12-07"); start.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { byText("Gerar matriz").click(); }); await act(async () => {});
+    expect(api.createMatrix).toHaveBeenCalledWith({ start: "2026-12-07", brief_id: "b1" });
+  });
+
+  it("informa a quantidade faltante e complementa sem substituir a matriz", async () => {
+    const partial = { ...matrix([opp("a"), opp("b")]), target_count: 4, generated_count: 2, missing_count: 2 };
+    const completed = { ...partial, generated_count: 4, missing_count: 0, opportunities: [opp("a"), opp("b"), opp("c"), opp("d")] };
+    api.listMatrices.mockResolvedValue({ matrices: [partial] }); api.getMatrix.mockResolvedValue({ matrix: partial });
+    api.completeMatrix.mockResolvedValue({ matrix: completed });
+    await show(<Campaigns />);
+    expect(host.textContent).toContain("Foram criadas 2 de 4 pautas. Faltam 2");
+    await act(async () => { byText("Gerar somente as 2 restantes").click(); }); await act(async () => {});
+    expect(api.completeMatrix).toHaveBeenCalledWith("m1");
+    expect(host.querySelectorAll(".matrixCard").length).toBe(4);
+  });
+
+  it("envia a matriz inteira e permite decisão somente ao aprovador", async () => {
+    const draft = { ...matrix([opp("a")]), approval_status: "rascunho", approval_version: 0, approval_events: [] };
+    const review = { ...draft, approval_status: "em_revisao", approval_version: 1,
+      approval_events: [{ id: "e1", version: 1, action: "enviada", actor_name: "Ana", created_at: "x" }] };
+    const approved = { ...review, approval_status: "aprovada",
+      approval_events: [...review.approval_events, { id: "e2", version: 1, action: "aprovada", actor_name: "Bia", created_at: "y" }] };
+    api.listMatrices.mockResolvedValue({ matrices: [draft] }); api.getMatrix.mockResolvedValue({ matrix: draft });
+    api.submitMatrixApproval.mockResolvedValue({ matrix: review }); api.decideMatrixApproval.mockResolvedValue({ matrix: approved });
+    await show(<Campaigns canApproveMatrix />);
+    await act(async () => { byText("Enviar para Aprovação Interna").click(); }); await act(async () => {});
+    expect(api.submitMatrixApproval).toHaveBeenCalledWith("m1");
+    expect(host.textContent).toContain("Em revisão");
+    await act(async () => { byText("Aprovar matriz").click(); }); await act(async () => {});
+    expect(api.decideMatrixApproval).toHaveBeenCalledWith("m1", "aprovar", undefined);
+    expect(host.textContent).toContain("Aprovada");
   });
 
   it("seleciona, descarta e envia ao Calendário sem reenviar o que já foi", async () => {

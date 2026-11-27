@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { ExternalLink, FileText, MessageSquare, Pencil, RotateCw, ScanText, Sparkles, Type, UploadCloud } from "lucide-react";
+import { ExternalLink, FileText, FolderDown, MessageSquare, Pencil, RotateCw, ScanText, Sparkles, Type, UploadCloud } from "lucide-react";
+import KnowledgeCloudImport from "./KnowledgeCloudImport";
 import { needsOcr, originalsByDocument, teachAndKeepOriginal, type TeachWithOriginal } from "../../app/brandKnowledgeUpload";
-import { getKnowledge, retryKnowledgeDocument, saveKnowledge, teachFromText, type BrandKnowledge as Knowledge, type KnowledgeKind, type TeachResult } from "../../app/studio";
+import { getKnowledge, learnFromLibrary, retryKnowledgeDocument, saveKnowledge, teachFromText, type BrandKnowledge as Knowledge, type KnowledgeKind, type TeachResult } from "../../app/studio";
 import { parseKnowledge } from "./brandKnowledge.helpers";
 
 const KINDS: Record<KnowledgeKind, string> = { institucional: "Institucional", produto: "Produtos e preços", campanha: "Campanha",
@@ -31,6 +32,7 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
   const [kind, setKind] = useState<KnowledgeKind>("institucional");
   const [text, setText] = useState("");
   const [pasting, setPasting] = useState(false);
+  const [cloud, setCloud] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,11 +43,33 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
   const [ocrFile, setOcrFile] = useState<File | null>(null);
   const [originals, setOriginals] = useState<Record<string, string>>({});
   const input = useRef<HTMLInputElement>(null);
+  const [library, setLibrary] = useState<string | null>(null);
 
   useEffect(() => {
     getKnowledge().then(setData).catch(() => setData({ knowledge: "", sources: 0, updated_at: null, documents: [] }));
     void originalsByDocument().then(setOriginals);
   }, [version]);
+
+  // A IA lê sozinha os documentos novos da Biblioteca (sem enviar duas vezes). Até 3 rodadas de 4 arquivos.
+  useEffect(() => {
+    if (!canManage) return;
+    let alive = true;
+    void (async () => {
+      const read: string[] = []; const skipped: string[] = [];
+      for (let round = 0; round < 3 && alive; round += 1) {
+        if (round === 0) setLibrary("Lendo os documentos da Biblioteca…");
+        let res;
+        try { res = await learnFromLibrary(); } catch { break; }
+        read.push(...res.read.map((r) => r.name)); skipped.push(...res.skipped.map((r) => `${r.name} (${r.reason})`));
+        if (res.running || !res.left || !res.read.length) break;
+      }
+      if (!alive) return;
+      setLibrary(read.length || skipped.length ? [read.length ? `Li da Biblioteca: ${read.join(", ")}.` : "",
+        skipped.length ? `Não deu para ler: ${skipped.join(", ")}.` : ""].filter(Boolean).join(" ") : null);
+      if (read.length) getKnowledge().then((d) => { if (alive) setData(d); }).catch(() => undefined);
+    })();
+    return () => { alive = false; };
+  }, [canManage, version]);
 
   async function run(label: string, task: () => Promise<TeachResult>) {
     setBusy(label); setError(null); setOk(null); setWarn(null);
@@ -123,6 +147,9 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
           {busy === "texto" ? "Aprendendo…" : "Ensinar"}</button>
           <button type="button" className="ds-button" onClick={() => setPasting(false)}>Cancelar</button></div>
       </div> : <button type="button" className="kbLink" onClick={() => setPasting(true)}><Type size={14} aria-hidden="true" /> ou colar um texto</button>}
+      {cloud ? <KnowledgeCloudImport kind={kind} knownNames={data.documents.map((d) => d.name)} onClose={() => setCloud(false)}
+        onLearned={(res) => void run(res.document.name, async () => res)} />
+        : <button type="button" className="kbLink" onClick={() => setCloud(true)}><FolderDown size={14} aria-hidden="true" /> ou importar do Google Drive ou do Canva</button>}
       {error ? <p role="alert" className="studioError">{error}</p> : null}
       {warn ? <p role="status" className="studioWarn">{warn}</p> : null}
       {ocrFile ? <div className="kbRow">
@@ -131,6 +158,7 @@ export default function BrandKnowledge({ canManage, version = 0 }: { canManage: 
         <small className="libHint">Até 20 páginas, leva 1 a 3 minutos.</small>
       </div> : null}
       {ok ? <p className="studioOk">{ok}</p> : null}
+      {library ? <p className="libHint" role="status" data-testid="library-learn">{library}</p> : null}
       {data.documents.length ? <div className="kbDocs">
         <h4>Já lidos <span>{data.documents.length}</span></h4>
         <ul>{data.documents.slice(0, 8).map((d) => <li key={d.id || d.name + d.created_at} title={d.summary || undefined}

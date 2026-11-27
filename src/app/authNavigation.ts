@@ -1,15 +1,19 @@
-export function shouldOpenMetaAfterSignIn({
+export function shouldOpenHomeAfterSignIn({
   event,
   bootstrapCompleted,
   knownUserId,
   nextUserId,
+  requestedRoute,
+  hasSetupSignal,
 }: {
   event: string;
   bootstrapCompleted: boolean;
   knownUserId: string | null;
   nextUserId: string | null;
+  requestedRoute: string;
+  hasSetupSignal: boolean;
 }): boolean {
-  return event === "SIGNED_IN" && bootstrapCompleted && Boolean(nextUserId) && knownUserId !== nextUserId;
+  return event === "SIGNED_IN" && bootstrapCompleted && Boolean(nextUserId) && knownUserId !== nextUserId && requestedRoute === "home" && !hasSetupSignal;
 }
 
 // Papéis que administram integrações da empresa (mesma lista usada pelo guard

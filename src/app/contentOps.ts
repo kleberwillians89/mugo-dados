@@ -16,6 +16,8 @@ export type Clipping = {
   status: "novo" | "lido" | "arquivado" | "pauta"; calendar_item_id: string | null; created_at: string;
   relevance?: number | null; criticality?: Criticality | null; main_theme?: string | null; entities?: string[];
   opportunities?: string[]; risks?: string[]; justification?: string | null; evidence?: string[]; alert_status?: string;
+  /** Capa da matéria (og:image ou mídia do feed) e domínio do veículo (para o ícone quando não há capa). */
+  image_url?: string | null; source_domain?: string | null;
 };
 export type Count = { key: string; count: number };
 export type ClippingInsights = {
@@ -135,10 +137,14 @@ export type Opportunity = {
   guard?: { type: string; text: string; fix: string }[]; status: OpportunityStatus; edited: boolean; position: number; calendar_item_id: string | null; updated_at?: string;
 };
 export type MatrixSummary = { id: string; week_start: string; weeks?: number | null; platforms: Platform[]; pillars: { name: string; weight?: number }[];
-  focus: string | null; summary: string | null; status: string; created_at: string };
+  focus: string | null; brief_id?: string | null; brief_snapshot?: { id?: string; title?: string; summary?: string; objective?: string; audience?: string; deadline?: string; goal?: string; deliverables?: string[]; avoid?: string[] } | null;
+  target_count?: number; generated_count?: number; missing_count?: number; approval_status?: "rascunho" | "em_revisao" | "aprovada" | "ajuste_solicitado";
+  approval_version?: number; summary: string | null; status: string; created_at: string };
 /** Quantas semanas a matriz cobre (antes eram sempre 4). */
 export const matrixWeeks = (m: Pick<MatrixSummary, "weeks"> | null | undefined) => Math.min(8, Math.max(1, Number(m?.weeks) || 4));
-export type ContentMatrix = MatrixSummary & { notes?: string[]; opportunities: Opportunity[] };
+export type MatrixApprovalEvent = { id: string; version: number; action: "enviada" | "comentario" | "aprovada" | "ajuste_solicitado";
+  opportunity_id?: string | null; comment?: string | null; actor_name?: string | null; created_at: string };
+export type ContentMatrix = MatrixSummary & { notes?: string[]; approval_events?: MatrixApprovalEvent[]; opportunities: Opportunity[] };
 export type MatrixRequest = { week_start: string; platforms: Platform[]; pillars: string[]; per_week: number; focus: string };
 export type OpportunityPatch = Partial<Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale" | "script" | "visual_idea">> & { status?: Exclude<OpportunityStatus, "exportada"> };
 export type OpportunityCreate = Pick<Opportunity, "platform" | "pillar" | "week" | "weekday" | "format" | "title" | "hook" | "angle" | "caption_draft" | "rationale"> & Partial<Pick<Opportunity, "script" | "visual_idea">>;
@@ -167,8 +173,17 @@ export function cancelAgentRun(runId: string) {
 const mx = (path = "") => base(`/matrix${path}`);
 export function listMatrices() { return http<{ matrices: MatrixSummary[] }>(mx()); }
 export function getMatrix(id: string) { return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(id)}`)); }
-export function createMatrix(period: { weeks?: number; start?: string } = {}) {
+export function createMatrix(period: { weeks?: number; start?: string; brief_id?: string; focus?: string } = {}) {
   return http<{ matrix: ContentMatrix }>(mx(), { method: "POST", body: JSON.stringify(period), timeoutMs: 180_000 });
+}
+export function completeMatrix(id: string) {
+  return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(id)}/complete`), { method: "POST", timeoutMs: 180_000 });
+}
+export function updateMatrixBriefing(id: string, input: { brief_id?: string | null; focus?: string | null }) {
+  return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(id)}/briefing`), { method: "PATCH", body: JSON.stringify(input) });
+}
+export function updateMatrixPeriod(id: string, input: { weeks: number; start: string }) {
+  return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(id)}/period`), { method: "PATCH", body: JSON.stringify(input) });
 }
 export function archiveMatrix(id: string) { return http<{ matrix: MatrixSummary }>(mx(`/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 export function updateOpportunity(matrixId: string, id: string, patch: OpportunityPatch) {
@@ -196,6 +211,17 @@ export function matrixToCalendar(matrixId: string, ids?: string[]) {
   return http<{ created: number; already: number; calendar_item_ids: string[]; matrix: ContentMatrix }>(
     mx(`/${encodeURIComponent(matrixId)}/calendar`), { method: "POST", body: JSON.stringify(ids?.length ? { ids } : {}), timeoutMs: 120_000 });
 }
+export function submitMatrixApproval(matrixId: string) {
+  return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(matrixId)}/approval/submit`), { method: "POST" });
+}
+export function commentMatrixApproval(matrixId: string, comment: string, opportunityId?: string) {
+  return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(matrixId)}/approval/comments`),
+    { method: "POST", body: JSON.stringify({ comment, opportunity_id: opportunityId || null }) });
+}
+export function decideMatrixApproval(matrixId: string, decision: "aprovar" | "solicitar_ajuste", comment?: string) {
+  return http<{ matrix: ContentMatrix }>(mx(`/${encodeURIComponent(matrixId)}/approval/decision`),
+    { method: "POST", body: JSON.stringify({ decision, comment: comment || null }) });
+}
 
 /* ------------------------------------------------------------------ Redação (editor de texto da marca) */
 
@@ -221,4 +247,8 @@ export function documentAI(input: { action: DocAIAction; kind: DocKind; title?: 
 }
 export function documentToCalendar(id: string, input: { scheduled_at?: string; channel: Platform; format: StudioFormat }) {
   return http<{ calendar_item_id: string; created: boolean; updated: boolean }>(docs(`/${encodeURIComponent(id)}/calendar`), { method: "POST", body: JSON.stringify(input) });
+}
+/** Redação → E-mail Marketing: o texto vira rascunho de e-mail (ligado à tarefa do documento, se houver). */
+export function documentToEmail(id: string) {
+  return http<{ campaign: { id: string; name: string; status: string } }>(docs(`/${encodeURIComponent(id)}/email`), { method: "POST", timeoutMs: 60_000 });
 }

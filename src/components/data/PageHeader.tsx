@@ -1,4 +1,8 @@
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
+import { ArrowLeft } from "lucide-react";
+import { goBackInApp } from "../../app/routes";
+import MugoIAAssist from "../mugoIA/MugoIAAssist";
+import { ASSIST_SCREENS, MugoIAAssistContext } from "../mugoIA/assist";
 
 type Props = {
   /** Empresa analisada. Não aparece mais acima do título (a marca já está no seletor da sidebar);
@@ -16,22 +20,33 @@ type Props = {
   panel?: ReactNode;
   /** Nota do controle, ex.: as datas efetivas do período. */
   controlsNote?: ReactNode;
+  /** Botão "Voltar" acima do título (padrão: sim). A Home não tem: é o destino seguro. */
+  back?: boolean;
 };
 
 /**
  * Cabeçalho comum das páginas: onde estou (empresa › página) à esquerda,
  * período à direita. Nada de marca do produto nem navegação aqui.
  */
-export default function PageHeader({ title, subnav, dateline, controls, panel, controlsNote }: Props) {
+export default function PageHeader({ title, subnav, dateline, controls, panel, controlsNote, back = true }: Props) {
+  // Páginas públicas (link de aprovação do cliente) não têm Mugoverso para onde voltar.
+  const showBack = back && typeof window !== "undefined" && !window.location.pathname.startsWith("/aprovar/");
+  // Telas de criação: a Mugô IA fica à mão no cabeçalho (o App diz qual tela é e se a pessoa pode usá-la).
+  const assist = useContext(MugoIAAssistContext);
+  const hasAssist = !!assist && !!ASSIST_SCREENS[assist.screen];
   return (
     <header className="ds-pageHeader">
       <div className="ds-pageHeaderIdentity">
+        {showBack ? <button type="button" className="ds-backButton" onClick={() => goBackInApp()}>
+          <ArrowLeft size={16} aria-hidden="true" /> Voltar
+        </button> : null}
         <h1 className="ds-pageTitle">{title}</h1>
         {subnav ? <div className="ds-pageSubnav">{subnav}</div> : null}
         {dateline ? <div className="ds-dateline">{dateline}</div> : null}
       </div>
-      {controls || panel || controlsNote ? (
+      {controls || panel || controlsNote || hasAssist ? (
         <div className="ds-pageHeaderAside">
+          {hasAssist ? <MugoIAAssist /> : null}
           {controls}
           {panel}
           {controlsNote ? <p className="ds-controlsNote">{controlsNote}</p> : null}

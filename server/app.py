@@ -51,6 +51,8 @@ from routes.google import router as google_router
 from routes.google_oauth import router as google_oauth_router
 from routes.fbits import router as fbits_router
 from routes.meta_legacy import router as meta_legacy_router
+from routes.me import router as me_router
+from routes.task_work import router as task_work_router
 from routes.invitations import router as invitations_router
 from routes.client_access import router as client_access_router
 from routes.team import router as team_router
@@ -61,7 +63,7 @@ from routes.creators import router as creators_router
 from routes.radar import router as radar_router
 from routes.benchmark import router as benchmark_router
 from routes.automations import client_router as automations_client_router, router as automations_router
-from routes.studio import public_router as studio_public_router, router as studio_router
+from routes.studio import public_reports_router as studio_public_reports_router, public_router as studio_public_router, router as studio_router
 from routes.sales_origin import router as sales_origin_router
 from routes.whatsapp import router as whatsapp_router
 from routes.customers import router as customers_router
@@ -80,6 +82,7 @@ from routes.channels import router as channels_router
 from routes.crm import router as crm_router
 from routes.hooks import router as hooks_router
 from routes.lead_capture import router as lead_capture_router
+from routes.ruah_public_capture import router as ruah_public_capture_router
 from routes.roove_first_access import router as roove_first_access_router
 from routes.content_ops import router as content_ops_router
 from routes.ai_settings import router as ai_settings_router
@@ -215,6 +218,7 @@ default_allow_origin = ",".join(
 )
 raw = (os.getenv("ALLOW_ORIGIN") or default_allow_origin).strip()
 allow_origins = [o.strip() for o in raw.split(",") if o.strip()]
+allow_origins = list(dict.fromkeys([*allow_origins, "https://ruahparfums.com.br", "https://www.ruahparfums.com.br"]))
 allow_all_origins = "*" in allow_origins
 
 app.add_middleware(
@@ -384,9 +388,13 @@ app.include_router(automations_router)
 app.include_router(automations_client_router)
 app.include_router(studio_router)
 app.include_router(studio_public_router)
+app.include_router(studio_public_reports_router)
 app.include_router(crm_router)
+app.include_router(me_router)
+app.include_router(task_work_router)
 app.include_router(hooks_router)
 app.include_router(lead_capture_router)
+app.include_router(ruah_public_capture_router)
 app.include_router(roove_first_access_router)
 app.include_router(content_ops_router)
 app.include_router(ai_settings_router)

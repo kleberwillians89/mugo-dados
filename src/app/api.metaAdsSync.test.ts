@@ -15,7 +15,7 @@ vi.mock("./activeClient", () => ({
   getActiveClientConfigurationWarning: () => null,
 }));
 
-import { syncClientMetaAdsAccount } from "./api";
+import { syncClientMetaAdsAccount } from "./onboardingApi";
 
 afterEach(() => {
   vi.unstubAllGlobals();

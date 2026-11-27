@@ -131,6 +131,16 @@
 .emInboundUrl code{flex:1;min-width:0;overflow-wrap:anywhere;background:#f6f4ef;border:1px solid #e3dfd7;border-radius:8px;padding:8px 10px;font-size:12px}
 .emInbound pre{white-space:pre-wrap;font-size:12px;background:#f6f4ef;border-radius:8px;padding:10px}
 
+/* Existing email block editor: reuse brand Library, no separate assets dashboard. */
+.emLibraryRow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
+.emLibraryPicker{display:grid;gap:10px;padding:12px;margin-top:6px;border:1px solid var(--border-subtle,#dce0e3);border-radius:12px;background:var(--surface-subtle,#f6f8f9)}
+.emLibraryPicker p{margin:0;font-size:13px}
+.emLibraryImages{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px;max-height:290px;overflow:auto}
+.emLibraryImages button{display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:0;border:1px solid var(--border-subtle,#dce0e3);border-radius:9px;padding:6px;background:var(--surface,#fff);cursor:pointer;text-align:left}
+.emLibraryImages button:hover,.emLibraryImages button:focus-visible{border-color:#004f6e}
+.emLibraryImages img{width:100%;height:90px;object-fit:cover;border-radius:5px}
+.emLibraryImages span{font-size:11px;overflow-wrap:anywhere;line-height:1.3}
+@media(max-width:600px){.emLibraryImages{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* Captacao — pagina editorial Mugô Verso (multiempresa). */
 .emCapture{display:grid;gap:22px;min-width:0;color:var(--text-primary,#15181b)}
@@ -171,3 +181,10 @@
 .emCaptureResults th{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-secondary,#657078)}
 .emCaptureSources table{width:100%}
 @media(max-width:760px){.emCaptureHero{padding:23px 19px;align-items:start}.emCapturePanel{padding:18px}.emCaptureLinkGrid{grid-template-columns:1fr}.emCaptureLinkWide{grid-column:auto}.emCaptureStats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.emImageThumb {
+  display: block;
+  max-width: 160px;
+  max-height: 100px;
+  object-fit: contain;
+}

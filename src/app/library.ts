@@ -1,6 +1,6 @@
 import { clientClientPath, http } from "./api";
 
-/** Biblioteca da marca: arquivos e links por categoria + arte dos posts aprovados (lida do Calendário). */
+/** Biblioteca da marca: só material de marca, em arquivos e links por categoria. Arte de post não entra aqui. */
 export type LibraryCategory = "produto" | "logo" | "referencia" | "foto" | "video" | "documento" | "outro";
 export type LibraryItem = {
   id: string; kind: "arquivo" | "link" | "post"; category: LibraryCategory | "aprovado"; title: string; url: string;
@@ -9,7 +9,8 @@ export type LibraryItem = {
   item_id?: string; status?: string; permalink?: string | null; format?: string | null;
 };
 export const LIBRARY_CATEGORIES: Record<LibraryCategory, string> = {
-  produto: "Produto", logo: "Logo", referencia: "Referência", foto: "Foto", video: "Vídeo bruto", documento: "Documento", outro: "Outro",
+  logo: "Logo e identidade", produto: "Produto", foto: "Fotos da marca", video: "Vídeos da marca", referencia: "Referência",
+  documento: "Documento", outro: "Outro",
 };
 /** Mesma lista do servidor (studio_library.TYPES). */
 export const LIBRARY_ACCEPT = [
@@ -31,6 +32,17 @@ export function addLibraryLink(input: { url: string; title?: string; category: L
 }
 export function deleteLibraryItem(id: string) { return http<{ ok: true }>(base(`/${encodeURIComponent(id)}`), { method: "DELETE" }); }
 
+/** Motivo legível de uma recusa do Storage (o "tente de novo" sozinho escondia a causa). */
+export function storageUploadError(status: number, body: string): string {
+  let detail = "";
+  try { const parsed = JSON.parse(body || "{}") as { error?: string; message?: string }; detail = `${parsed.error || ""} ${parsed.message || ""}`.toLowerCase(); }
+  catch { detail = String(body || "").toLowerCase(); }
+  if (status === 415 || detail.includes("mime")) return "O armazenamento do MUGOVERSO não está aceitando esse tipo de arquivo. Avise a equipe Mugô.";
+  if (status === 413 || detail.includes("too large") || detail.includes("size")) return "Arquivo maior que o limite do armazenamento. Envie uma versão menor ou um link do Drive.";
+  if (status === 403 || detail.includes("signature") || detail.includes("expired")) return "O link de envio expirou. Tente de novo.";
+  return `O envio do arquivo falhou (erro ${status}). Tente de novo.`;
+}
+
 /** Envia direto para o Storage (link assinado) com progresso e registra na Biblioteca. */
 export async function uploadLibraryFile(file: File, category: LibraryCategory, onProgress?: (pct: number) => void, title?: string, note?: string) {
   const type = (file.type || "").toLowerCase();
@@ -43,7 +55,7 @@ export async function uploadLibraryFile(file: File, category: LibraryCategory, o
     xhr.setRequestHeader("Content-Type", type);
     xhr.setRequestHeader("x-upsert", "false");
     xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100)); };
-    xhr.onload = () => (xhr.status < 400 ? resolve() : reject(new Error("O envio do arquivo falhou. Tente de novo.")));
+    xhr.onload = () => (xhr.status < 400 ? resolve() : reject(new Error(storageUploadError(xhr.status, xhr.responseText))));
     xhr.onerror = () => reject(new Error("O envio do arquivo falhou. Confira a conexão."));
     xhr.send(file);
   });
@@ -67,4 +79,16 @@ export function formatBytes(n?: number | null): string {
   if (!n) return "";
   if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
   return `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0).replace(".", ",")} MB`;
+}
+
+
+/** Importar do Google Drive (pasta inteira) ou do Canva direto para a Biblioteca. */
+export type LibraryCloudFile = { id: string; name: string; mime: string; size: number | null; path: string; supported: boolean; reason: string | null; category: LibraryCategory };
+export function listLibraryCloud(url: string) {
+  return http<{ source: "drive" | "canva"; files: LibraryCloudFile[]; truncated: boolean }>(base("/import/list"),
+    { method: "POST", body: JSON.stringify({ url }), timeoutMs: 60_000 });
+}
+export function importLibraryCloud(source: "drive" | "canva", file: LibraryCloudFile, category: LibraryCategory) {
+  return http<{ item: LibraryItem }>(base("/import/file"),
+    { method: "POST", body: JSON.stringify({ source, id: file.id, name: file.name, mime: file.mime, category }), timeoutMs: 330_000 });
 }

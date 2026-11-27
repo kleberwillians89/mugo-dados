@@ -1103,8 +1103,14 @@
 .matrixIntro{margin:0;max-width:68ch;font-size:14px;color:var(--text-secondary)}
 .matrixTopActions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .matrixPick{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--text-muted)}
-.matrixPick select{min-height:36px;padding:0 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface);font:400 13px var(--font-body);max-width:320px}
+.matrixPick select,.matrixPick input{min-height:36px;padding:0 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font:400 13px var(--font-body);max-width:320px}
 .matrixMuted{margin:0;font-size:13px;color:var(--text-muted)}
+.matrixBriefSetup{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface-subtle,#f7f6f3)}
+.matrixBriefSetup .is-wide{flex:1 1 360px;align-items:flex-start}.matrixBriefSetup .is-wide select,.matrixBriefSetup .is-wide textarea{width:100%;max-width:none;box-sizing:border-box}
+.matrixBriefSetup textarea{min-height:70px;padding:9px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font:400 13px var(--font-body);resize:vertical}
+.matrixBriefSetup .matrixHint{flex-basis:100%;margin:0}
+.matrixLinkedBrief{display:grid;gap:3px;padding:12px 16px;border-left:3px solid var(--brand,#0c6170);background:var(--surface);border-radius:8px}
+.matrixLinkedBrief span{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}.matrixLinkedBrief p{margin:0;font-size:13px;color:var(--text-secondary)}
 
 .matrixBrief{display:grid;gap:10px;padding:16px 18px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:12px}
 .matrixSummary{margin:0;padding:0;border:0;background:none;border-radius:0}
@@ -1145,6 +1151,9 @@
 
 .matrixBar{margin-top:0;padding:10px 16px;border-color:var(--border-subtle);border-radius:12px;box-shadow:0 -6px 20px rgba(21,24,27,.06);font-size:13px;color:var(--text-secondary)}
 .matrixBar b{color:var(--text-primary)}
+.matrixApproval{display:grid;gap:10px;padding:16px 18px;border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface)}
+.matrixApproval>header{display:flex;justify-content:space-between;gap:12px;align-items:center}.matrixApproval h3{margin:2px 0 0;font-size:16px}.matrixApproval header div>span{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.matrixApprovalForm{display:grid;gap:8px}.matrixApprovalForm label{display:grid;gap:4px;font-size:12px;color:var(--text-muted)}.matrixApprovalForm select,.matrixApprovalForm textarea{width:100%;box-sizing:border-box;border:1px solid var(--border-subtle);border-radius:8px;padding:9px 10px;background:var(--surface);color:var(--text-primary);font:inherit}.matrixApprovalForm textarea{min-height:76px;resize:vertical}.matrixApprovalForm>div{display:flex;flex-wrap:wrap;gap:8px}
 @media (max-width:640px){.matrixTop{align-items:stretch}.matrixTopActions{width:100%}.matrixTopActions .ds-button{flex:1}}
 .tacticalChannel .studioLink{color:var(--text-secondary);font-weight:500;text-decoration:underline;text-decoration-color:rgba(21,24,27,.22);text-underline-offset:3px}
 .tacticalChannel .studioLink:hover{color:var(--text-primary);text-decoration-color:currentColor}
@@ -1811,3 +1820,205 @@
 .metaLiveDeliveryStatus>div{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;padding:5px 0;border-top:1px solid var(--border,#e6ecee);font-size:12px}
 .metaLiveDeliveryStatus>div strong{font-size:11px}
 .metaLiveDeliveryStatus>small{font-size:10px;color:var(--text-secondary,#60717b);display:block;margin-top:8px}
+
+/* Importar do Google Drive / Canva para o Conhecimento */
+.kbCloud{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface,#fff)}
+.kbCloud .kbRow{flex-wrap:wrap;align-items:flex-end}
+.kbCloudField{display:flex;flex-direction:column;gap:4px;flex:1 1 320px;font-size:13px;color:var(--text-muted)}
+.kbCloudField input{min-height:44px;border:1px solid var(--border-subtle);border-radius:10px;padding:0 12px;font:inherit;font-size:14px;color:var(--text-primary)}
+.kbCloudList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:420px;overflow:auto}
+.kbCloudList li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 10px;border-radius:8px;background:#f6f8f9}
+.kbCloudList li.is-off{opacity:.65}
+.kbCloudList label{display:flex;align-items:flex-start;gap:10px;flex:1 1 280px;min-width:0;cursor:pointer}
+.kbCloudList input{margin-top:3px;width:18px;height:18px}
+.kbCloudName{display:flex;flex-direction:column;min-width:0}
+.kbCloudName b{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.kbCloudName small{font-size:12px;color:var(--text-muted)}
+.kbCloudState{font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:#eef1f3;color:#3f474d}
+.kbCloudState.is-ok{background:#e3f1ea;color:#185f3b}.kbCloudState.is-aviso{background:#fbeedb;color:#7a4705}.kbCloudState.is-erro{background:#f8e3e4;color:#8a2830}
+.kbCloudNote{flex-basis:100%;padding-left:28px;font-size:12px;color:var(--text-muted)}
+/* Biblioteca · importar do Drive/Canva (mesmo desenho do Conhecimento) */
+.libCloud{display:flex;flex-direction:column;gap:10px;padding:12px;margin:0 0 12px;border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface,#fff)}
+.libCloudRow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 12px}
+.libCloudField{display:flex;flex-direction:column;gap:4px;flex:1 1 320px;font-size:13px;color:var(--text-muted)}
+.libCloudField input{min-height:44px;border:1px solid var(--border-subtle);border-radius:10px;padding:0 12px;font:inherit;font-size:14px;color:var(--text-primary)}
+.libCloudList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:460px;overflow:auto}
+.libCloudList li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 10px;border-radius:8px;background:#f6f8f9}
+.libCloudList li.is-off{opacity:.65}
+.libCloudPick{display:flex;align-items:flex-start;gap:10px;flex:1 1 280px;min-width:0;cursor:pointer}
+.libCloudPick input{margin-top:3px;width:18px;height:18px}
+.libCloudName{display:flex;flex-direction:column;min-width:0}
+.libCloudName b{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.libCloudName small{font-size:12px;color:var(--text-muted)}
+.libCloudCat select{min-height:36px;border:1px solid var(--border-subtle);border-radius:8px;padding:0 8px;font:inherit;font-size:13px;background:#fff}
+.libCloudState{font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:#eef1f3;color:#3f474d}
+.libCloudState.is-ok{background:#e3f1ea;color:#185f3b}.libCloudState.is-erro{background:#f8e3e4;color:#8a2830}
+.libCloudNote{flex-basis:100%;padding-left:28px;font-size:12px;color:var(--text-muted)}
+/* O que aconteceu com a publicação, no próprio dia do calendário */
+.calChipPublish{display:inline-block;margin-top:2px;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:700;line-height:1.5;background:#eef1f3;color:#3f474d}
+.calChipPublish.is-ok{background:#e3f1ea;color:#185f3b}.calChipPublish.is-wait{background:#fbeedb;color:#7a4705}
+.calChipPublish.is-bad{background:#f8e3e4;color:#8a2830}.calChipPublish.is-info{background:#e8eef7;color:#2b4d7a}
+/* Pilares da Matriz no Calendário */
+.calPillars{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 10px;font-size:12px}
+.calPillars>span{font-weight:700;color:var(--text-secondary,#62717c);margin-right:4px}
+.calPillars button:not(.ds-link){min-height:30px;padding:0 10px;border:1px solid #e3d3b5;border-radius:99px;background:#fbf6ec;color:#7a5d2e;font:inherit;font-size:12px;cursor:pointer}
+.calPillars button.is-active{background:#7a5d2e;color:#fff;border-color:#7a5d2e}
+.calPillars button b{font-weight:700;margin-left:2px}
+/* Esteira de agentes recolhida (só a equipe vê) */
+.agentPipelineWrap{border:1px solid var(--border-subtle,#e1e6e9);border-radius:12px;padding:8px 12px;margin:0 0 12px;background:var(--surface,#fff)}
+.agentPipelineWrap>summary{cursor:pointer;font-weight:700;font-size:14px;padding:4px 0}
+.agentPipelineWrap>summary small{font-weight:400;color:var(--text-secondary,#62717c)}
+.agentPipelineWrap[open]>summary{margin-bottom:8px}
+
+/* Música do Reels */
+.reelsMusicPicked{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--border,#d1dade);border-radius:10px;margin-bottom:8px}
+.reelsMusicPicked img,.reelsMusicList img,.reelsMusicIcon{width:40px;height:40px;border-radius:6px;object-fit:cover;flex:none;background:#eef2f1}
+.reelsMusicIcon{display:grid;place-items:center;color:#4c5b63}
+.reelsMusicPicked>div,.reelsMusicList li>div{display:grid;min-width:0;flex:1}
+.reelsMusicPicked b,.reelsMusicList b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reelsMusicPicked small,.reelsMusicList small{font-size:12px;color:var(--text-secondary,#62717c)}
+.reelsMusicVolumes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
+.reelsMusicVolumes label{display:grid;gap:4px;font-size:12px}
+.reelsMusicBox{display:grid;gap:8px;margin-top:8px;padding:10px;border:1px solid var(--border,#d1dade);border-radius:10px}
+.reelsMusicSearch{display:flex;gap:6px}
+.reelsMusicSearch input{flex:1;min-width:0}
+.reelsMusicList{list-style:none;margin:0;padding:0;display:grid;gap:6px;max-height:320px;overflow:auto}
+.reelsMusicList li{display:flex;align-items:center;gap:8px;padding:6px;border-radius:8px}
+.reelsMusicList li.is-on{background:#eef6f7}
+.reelsMusicList .ds-button{min-height:32px;padding:0 10px}
+@media (max-width:560px){.reelsMusicVolumes{grid-template-columns:1fr}}
+
+/* Criar público (igual ao Gerenciador) */
+.metaAudCreate{display:grid;gap:8px;margin:8px 0}
+.metaAudCreate>.ds-button{justify-self:start}
+.metaAudCreateBox{display:grid;gap:10px;padding:12px;border:1px solid var(--border,#d1dade);border-radius:12px}
+.metaAudKinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.metaAudKinds button{display:grid;gap:2px;text-align:left;padding:10px;border:1px solid var(--border,#d1dade);border-radius:10px;background:var(--surface,#fff);font:inherit;cursor:pointer;color:inherit}
+.metaAudKinds button small{font-size:12px;color:var(--text-secondary,#62717c)}
+.metaAudKinds button.is-on{border-color:#0b6073;box-shadow:0 0 0 1px #0b6073;background:#eef6f7}
+.metaAudCreateBox>.ds-button.is-primary{justify-self:start}
+
+/* Sticker apenas na prévia do modal original: a publicação interativa continua manual. */
+.igMedia .storyStickerPreview{position:absolute;inset:0;z-index:3;pointer-events:none;text-align:center}
+.storyStickerCard{position:absolute;transform:translate(-50%,-50%) scale(var(--story-sticker-scale,1));transform-origin:center center;display:grid;gap:7px;width:min(88%,270px);max-height:78%;overflow:hidden;padding:14px 12px;background:#fff;color:#222;border-radius:16px;box-shadow:0 4px 25px #0004;font-size:13px;line-height:1.35;pointer-events:auto;touch-action:none;cursor:grab;user-select:none;box-sizing:border-box}
+.storyStickerCard strong{overflow-wrap:anywhere;font-size:14px}
+.storyStickerOption{background:#ededf0;border-radius:9px;padding:7px 9px;overflow-wrap:anywhere;color:#202020;font-size:12px}
+.storyStickerPreview>small{max-width:95%;padding:4px 9px;border-radius:8px;background:#0009;color:#fff;font-size:10px}
+
+.projResearchNav{margin:16px 0 20px}
+.projResearch{display:grid;gap:16px;min-width:0}
+.projResearchIntro{display:flex;align-items:center;gap:14px;padding:22px;border-radius:16px;background:#eaf2f4;color:#153d4d}
+.projResearchIntro h3,.projResearchIntro p{margin:0}
+.projResearchIntro p{margin-top:4px;font-size:14px}
+.projResearchForm{display:grid;gap:12px;border:1px solid var(--border,#dedbd4);border-radius:14px;padding:16px}
+.projResearchFields{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:10px;align-items:end}
+.projResearch .projInline input{max-width:none;width:100%;min-width:0}
+.projResearchOptions,.projResearchFilters,.projResearchCategories,.projResearchStatus,.projResearchSource{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.projResearchOptions{justify-content:space-between}
+.projResearchQueries{display:grid;gap:10px}
+.projResearchFilters{align-items:end}
+.projResearchFilters .ds-button[aria-pressed=true]{background:#18475a;border-color:#18475a;color:white}
+.projResearchStatus{font-size:13px}
+.projResearchStatus small{background:#f1f4f5;border-radius:6px;padding:5px 8px}
+.projResearchCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px}
+.projResearchCard{display:flex;flex-direction:column;gap:10px;min-width:0;padding:16px;border:1px solid var(--border,#dedbd4);border-radius:14px;background:white;overflow-wrap:anywhere}
+.projResearchCard[data-selected=true]{border-color:#317387}
+.projResearchCard header{display:flex;align-items:center;gap:9px;font-weight:650}
+.projResearchIcon{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;background:#e9f1f5;color:#18475a}
+.projResearchCard[data-category=suppliers] .projResearchIcon{background:#faf0d9;color:#6b4812}
+.projResearchCard[data-category=market] .projResearchIcon{background:#edf1e6;color:#425226}
+.projResearchCard h4,.projResearchCard p{margin:0}
+.projResearchCard p,.projResearchSource{font-size:13px}
+.projResearchSource{margin-top:auto;padding-top:6px}
+.projResearchSource a{display:inline-flex;align-items:center;gap:4px;text-decoration:underline}
+.projResearchEmpty{border:1px dashed var(--border,#dedbd4);border-radius:12px;padding:24px;text-align:center}
+@media(max-width:620px){.projResearchFields{grid-template-columns:1fr}.projResearchFields>.ds-button{justify-self:start}}
+
+.storyStickerCard:active{cursor:grabbing}
+.storyStickerCard:focus-visible{outline:3px solid #e9a925;outline-offset:3px}
+.storyStickerControls{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.storyStickerControls small{flex:1;font-size:12px;color:var(--text-secondary,#62717c)}
+
+/* Redimensionamento do sticker (somente prévia). Controles no painel, sem mudar o modal. */
+.storyStickerSize{display:grid;gap:6px}
+.storyStickerSize label{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600}
+.storyStickerSizeRow{display:flex;gap:8px;align-items:center}
+.storyStickerSizeRow>input[type=range]{flex:1;min-width:0;accent-color:#19516b}
+.storyStickerSizeRow>.ds-button{flex:none;min-width:34px;padding:4px 9px}
+.storyStickerSizeRow>.studioLink{flex:none;font-size:12px}
+@media(max-width:460px){.storyStickerSizeRow{flex-wrap:wrap}.storyStickerSizeRow>.studioLink{width:100%;text-align:left}}
+
+/* Leitura da IA das campanhas no ar (Mídia On) */
+.mediaLiveRead{display:grid;gap:14px}
+.mediaLiveRead .ds-sectionHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.mediaLiveRead h2{display:flex;align-items:center;gap:8px}
+.mediaLiveReadSummary{margin:0;padding:14px 16px;border-radius:14px;background:var(--mugo-ivory,#f9f5ef);border-left:3px solid var(--mugo-deep-blue,#0c4160);font-size:15px;line-height:1.5}
+.mediaLiveReadGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.mediaLiveReadCard{display:grid;gap:8px;padding:14px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:16px;background:#fff}
+.mediaLiveReadCard header{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.mediaLiveReadCard header small{color:var(--text-secondary,#5c6670);width:100%}
+.mediaLiveReadCard dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:0}
+.mediaLiveReadCard dt{font-size:11px;color:var(--text-secondary,#5c6670)}
+.mediaLiveReadCard dd{margin:0;font-weight:600}
+.mediaLiveReadCard p{margin:0;line-height:1.45}
+.mediaLiveReadSignals{margin:0;padding-left:18px;font-size:12px;color:var(--text-secondary,#5c6670)}
+@media (max-width:640px){.mediaLiveReadCard dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mediaVerdict{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--mugo-soft-gray,#e7eceb);color:var(--mugo-deep-blue,#0c4160)}
+.mediaVerdict.is-positive{background:#e3f2e8;color:#1f6b3a}.mediaVerdict.is-warning{background:#f8ecd2;color:#8a5a00}
+.mediaVerdict.is-negative{background:#f6dcdf;color:var(--mugo-red,#b22234)}
+
+/* Mídia On: indicadores compactos abaixo das campanhas */
+.mediaKpiStrip{display:grid;gap:12px;padding:16px 18px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:16px;background:#fff}
+.mediaKpiHead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+.mediaKpiHead h2{margin:0;font-size:18px;color:var(--mugo-deep-blue,#0c4160)}.mediaKpiHead small{color:var(--text-secondary,#5c6670)}
+.mediaKpiGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0}
+.mediaKpiGrid div{padding:10px 12px;border-radius:12px;background:var(--mugo-ivory,#f9f5ef)}
+.mediaKpiGrid dt{font-size:12px;color:var(--text-secondary,#5c6670)}.mediaKpiGrid dd{margin:2px 0 0;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+.mediaKpiFoot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+.mediaKpiFoot small{color:var(--text-secondary,#5c6670);line-height:1.5}
+.mediaKpiFoot .ds-button{display:inline-flex;align-items:center;gap:6px}
+.mediaAnalysisHead{margin:8px 0 0}.mediaAnalysisHead h2{margin:0;font-size:18px}.mediaAnalysisHead p{margin:4px 0 0;color:var(--text-secondary,#5c6670);font-size:13px}
+/* Planejamento: edição com salvamento automático e versões */
+.projSaveState{margin:0 0 8px;font-size:12px;color:var(--text-secondary,#5c6670)}
+.projSaveState.is-saved{color:#1f6b3a}.projSaveState.is-error{color:var(--mugo-red,#b22234)}
+.projEditFields{display:grid;gap:10px;margin:0 0 14px;padding:0;border:0;min-width:0}
+.projEditFields label{display:grid;gap:4px;font-size:12px;font-weight:600;color:var(--text-secondary,#5c6670)}
+.projEditFields textarea,.projEditFields input{font:inherit;font-size:14px;font-weight:400;color:var(--text-primary,#1b1f1c);padding:8px 10px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:10px;background:#fff;resize:vertical}
+.projEditFields textarea:focus-visible,.projEditFields input:focus-visible{outline:2px solid var(--mugo-deep-blue,#0c4160);outline-offset:1px}
+.projEditInputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.projVersionsButton{display:inline-flex;align-items:center;gap:6px}
+.projVersionList{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.projVersionList button{width:100%;display:grid;gap:2px;text-align:left;padding:12px 14px;border:1px solid var(--mugo-soft-gray,#e7eceb);border-radius:12px;background:#fff;cursor:pointer}
+.projVersionList button:hover{border-color:var(--mugo-deep-blue,#0c4160)}
+.projVersionList span{font-size:13px;color:var(--mugo-deep-blue,#0c4160)}.projVersionList small{font-size:12px;color:var(--text-secondary,#5c6670)}
+
+/* Cartões só informativos (o que é, de quem, até quando): clique em qualquer parte abre a tarefa */
+.taskBoard .taskCard{cursor:pointer}
+.taskBoard .taskCard:hover{box-shadow:0 2px 10px rgba(21,24,27,.08)}
+.taskChangeNote{margin:6px 0 0;padding:6px 8px;border-radius:8px;background:#fff4e5;color:#7a4b00;font-size:12.5px;line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.taskWaiting{display:inline-block;margin-top:6px;font-size:12px;color:#7a6420}
+.taskFromCalendar.is-quiet{background:transparent;padding:0;color:var(--text-muted,#6b7075);font-weight:500}
+.taskFormOptional{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:640px){.taskFormOptional{grid-template-columns:1fr}}
+.taskAssigneePicker .ds-link{display:inline-block;margin-top:6px;text-align:left;align-self:flex-start}
+/* Detalhe da tarefa: "Produzido a partir desta tarefa" (Ir para o job) */
+.taskProduced{display:grid;gap:8px}
+.taskProduced h3{margin:0;font-size:14px;font-weight:700}
+.taskProduced ul{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.taskProduced button{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:9px 12px;border:1px solid var(--border-subtle,#e5e7eb);border-radius:10px;background:var(--surface,#fff);text-align:left;font:inherit;color:inherit;cursor:pointer}
+.taskProduced button:disabled{cursor:default;opacity:.7}
+.taskProduced button:not(:disabled):hover{border-color:var(--mugo-deep-blue,#0c4160)}
+.taskProduced span{display:grid;gap:2px;min-width:0}
+.taskProduced small{font-size:12px;color:var(--text-muted,#6b7280)}
+.taskProduced b{overflow-wrap:anywhere}
+.taskProduced em{font-style:normal;font-size:12px;color:var(--mugo-deep-blue,#0c4160)}
+
+/* Redação: "Enviar para…" (Calendário, E-mail Marketing, Social Media) */
+.redacaoSendTo{position:relative}
+.redacaoSendTo>summary{list-style:none;cursor:pointer}
+.redacaoSendTo>summary::-webkit-details-marker{display:none}
+.redacaoSendTo>div{position:absolute;right:0;top:calc(100% + 6px);z-index:20;display:grid;min-width:240px;padding:6px;border:1px solid var(--border-subtle,#e5e7eb);border-radius:12px;background:var(--surface,#fff);box-shadow:0 10px 30px -12px rgba(0,0,0,.25)}
+.redacaoSendTo>div button{display:grid;gap:2px;padding:8px 10px;border:0;border-radius:8px;background:none;text-align:left;font:inherit;font-weight:600;color:inherit;cursor:pointer}
+.redacaoSendTo>div button:hover{background:var(--surface-muted,#f4f4f5)}
+.redacaoSendTo>div small{font-weight:400;font-size:12px;color:var(--text-muted,#6b7280)}

@@ -57,6 +57,7 @@ def creator_digest(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "network": row.get("network"),
             "handle": row.get("handle"),
             "display_name": row.get("display_name"),
+            "avatar_url": row.get("avatar_url") if str(row.get("avatar_url") or "").startswith("https://") else None,
             "followers": row.get("followers"),
             "engagement_rate": row.get("engagement_rate"),
             "sample_size": row.get("sample_size"),

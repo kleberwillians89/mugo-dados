@@ -24,3 +24,9 @@ export const monthKey = (offset: number) => {
 
 /** Handle do Instagram a partir do nome da empresa (prévia do post no celular). */
 export const handleFromName = (name: string) => "@" + name.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+
+/** Nome para mostrar: sem nome cadastrado, a parte antes do @ (nunca o e-mail inteiro no card). */
+export const displayName = (name?: string | null) => {
+  const text = String(name || "").trim();
+  return text.includes("@") ? text.split("@")[0] : text;
+};

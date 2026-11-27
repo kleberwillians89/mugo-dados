@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getActiveClientId } from "../../app/activeClient";
 import { listAdAudiences, type AccountAudience, type AccountAudiences, type AdPayload, type AudienceRef } from "../../app/metaAds";
+import MetaAudienceCreator from "./MetaAudienceCreator";
 
 type Audience = AdPayload["audience"];
 const ref = (a: AccountAudience): AudienceRef => ({ id: a.id, name: a.name });
@@ -35,6 +36,7 @@ export default function MetaAudiencePicker({ audience, onChange, disabled }: {
 
   const included = useMemo(() => new Set((audience.custom_audiences || []).map((a) => a.id)), [audience.custom_audiences]);
   const excluded = useMemo(() => new Set((audience.excluded_audiences || []).map((a) => a.id)), [audience.excluded_audiences]);
+  const foreignPicked = (data?.custom || []).filter((a) => a.foreign && (included.has(a.id) || excluded.has(a.id)));
   const custom = (data?.custom || []).filter((a) => !query.trim() || a.name.toLowerCase().includes(query.trim().toLowerCase()));
 
   function toggle(a: AccountAudience, side: "include" | "exclude", on: boolean) {
@@ -51,6 +53,13 @@ export default function MetaAudiencePicker({ audience, onChange, disabled }: {
         <p className="ds-caption">Os que já foram criados no Meta para esta marca. Escolha aqui em vez de escrever o público.</p></div>
       <button type="button" className="ds-button" disabled={disabled || loading} onClick={() => void load(true)}>{loading ? "Buscando…" : "Atualizar lista"}</button>
     </div>
+    <MetaAudienceCreator sources={data?.custom || []} disabled={disabled} onCreated={(made) => {
+      onChange({ custom_audiences: [...(audience.custom_audiences || []).filter((x) => x.id !== made.id), made] });
+      void load(true);
+    }} />
+    {foreignPicked.length ? <p className="ds-caption metaAdsMissing" role="alert">
+      {foreignPicked.map((a) => a.name).join(", ")}: criado com o perfil de outra conta (um parceiro, por exemplo). O Meta recusa esse público
+      em anúncio da marca. Desmarque e, se precisar, crie um igual em "+ Criar público".</p> : null}
     {error ? <p className="ds-caption metaAdsMissing" role="alert">{error}</p> : null}
     {!data && loading ? <p className="ds-caption">Buscando os públicos no Meta…</p> : null}
     {data ? <>
@@ -74,7 +83,7 @@ export default function MetaAudiencePicker({ audience, onChange, disabled }: {
             <div><b>{a.name}</b><small>{a.kind_label} · {a.size}{a.status ? ` · ${a.status}` : ""}</small></div>
             <label className="metaAdsCheck"><input type="checkbox" checked={included.has(a.id)} disabled={disabled || (!a.ready && !included.has(a.id))}
               onChange={(e) => toggle(a, "include", e.target.checked)} />Incluir</label>
-            <label className="metaAdsCheck"><input type="checkbox" checked={excluded.has(a.id)} disabled={disabled}
+            <label className="metaAdsCheck"><input type="checkbox" checked={excluded.has(a.id)} disabled={disabled || (a.foreign && !excluded.has(a.id))}
               onChange={(e) => toggle(a, "exclude", e.target.checked)} />Excluir</label>
           </li>)}
           {!custom.length ? <li><small>Nenhum público com esse nome.</small></li> : null}

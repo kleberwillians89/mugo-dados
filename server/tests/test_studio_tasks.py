@@ -29,6 +29,13 @@ class ViewTests(unittest.TestCase):
 
 
 class ScopeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_internal_review_list_is_scoped_by_tenant_and_status(self):
+        select = AsyncMock(return_value=[{**ROW, "status": "internal_review"}])
+        with patch.object(st, "sb_select", select):
+            out = await st.list_tasks("roove", status="internal_review")
+        self.assertEqual(select.await_args.kwargs["filters"], {"client_id": "eq.roove", "status": "eq.internal_review"})
+        self.assertEqual(out["tasks"][0]["status"], "internal_review")
+
     async def test_client_list_filters_visible_and_hides_internal_fields(self):
         select = AsyncMock(return_value=[ROW])
         with patch.object(st, "sb_select", select):
@@ -56,6 +63,16 @@ class ScopeTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(st, "sb_select", AsyncMock(return_value=[ROW])), patch.object(st, "sb_update", update):
             await st.update_task("roove", "t1", {"status": "in_progress"}, client_view=False)
         self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.t1"})
+
+    async def test_cancel_preserves_task_and_approval_history(self):
+        update = AsyncMock(return_value=[{**ROW, "status": "cancelled"}])
+        delete = AsyncMock()
+        with patch.object(st, "_owned", AsyncMock(return_value=ROW)), patch.object(st, "sb_update", update), \
+             patch.object(st, "sb_delete", delete):
+            out = await st.update_task("roove", "t1", {"status": "cancelled"}, client_view=False)
+        self.assertEqual(out["status"], "cancelled")
+        self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.t1"})
+        delete.assert_not_awaited()
 
 
 if __name__ == "__main__":

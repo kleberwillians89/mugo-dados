@@ -8,7 +8,7 @@ import {
   type Action, type CampaignAction, type Channel, type Distribution, type Objective, type ObjectiveParameters, type Outcome, type PlanVsActual, type SavedStrategy, type Scenario, type ScenarioKey, type Strategy, type StrategySummary,
 } from "../app/media";
 import { buildSimpleMediaView, type SimpleMediaCampaign } from "../app/mediaSimpleView";
-import { navigateToAppRoute } from "../app/routes";
+import { getPathForRoute, navigateToAppRoute, type AppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import HeroFigure from "../components/data/HeroFigure";
@@ -16,8 +16,17 @@ import KpiFigure from "../components/data/KpiFigure";
 import Delta from "../components/data/Delta";
 import SegmentedControl from "../components/data/SegmentedControl";
 import MetaAdsPanel, { type PrepareRequest } from "../components/studio/MetaAdsPanel";
+import MediaLiveRead from "../components/studio/MediaLiveRead";
+import type { LiveRead, LiveReadNote } from "../app/metaAds";
+import MediaKpiStrip from "../components/studio/MediaKpiStrip";
+import MediaGoals from "../components/goals/MediaGoals";
+import { requestGoalsSection } from "../app/newProjectRequest";
+import "../styles/goals.css";
 import GoogleAdsPanel, { type GooglePrepareRequest } from "../components/studio/GoogleAdsPanel";
 import MediaCampaignHub from "../components/studio/MediaCampaignHub";
+import MediaLiveCampaigns from "../components/studio/MediaLiveCampaigns";
+import MediaNow from "../components/studio/MediaNow";
+import MediaClientCampaigns from "../components/studio/MediaClientCampaigns";
 import { listBriefs, type Brief } from "../app/briefs";
 import "../styles/studio.css";
 import "../styles/mediaCampaignHub.css";
@@ -26,7 +35,8 @@ const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
 const PHASE = { base: "Base", aquecimento: "Aquecimento", pico: "Pico" } as const;
 const CHANNEL_COLOR: Record<Channel, string> = { meta: "#1e3f5a", google_ads: "#c98a00" };
 const message = (cause: unknown, fallback: string) => (cause instanceof Error && cause.message ? cause.message : fallback);
-const nextMonth = () => { const d = new Date(); const n = new Date(d.getFullYear(), d.getMonth() + 1, 1); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`; };
+/** Abre sempre no mês de hoje (a equipe avança para o próximo pela seta quando for planejar). */
+const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftMonth = (m: string, n: number) => { const d = new Date(Number(m.slice(0, 4)), Number(m.slice(5)) - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const changePct = (now: number | null | undefined, before: number | null | undefined) => (now == null || !before ? null : ((now - before) / Math.abs(before)) * 100);
 const emptyObjectiveParameters = (): Record<Objective, ObjectiveParameters> => ({ vendas: {}, leads: {}, trafego: {}, alcance: {}, retencao: {}, remarketing: {} });
@@ -36,11 +46,13 @@ type ExperienceMode = "simple" | "technical";
 const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 /** Mídia On: estratégia de mídia paga calculada com os dados da conta, cruzada com o calendário editorial. */
-export default function MediaOn({ canManage, canManageCampaigns = canManage }: { canManage: boolean; canManageCampaigns?: boolean }) {
+export default function MediaOn({ canManage, canManageCampaigns = canManage, canView = () => false }: { canManage: boolean; canManageCampaigns?: boolean; canView?: (route: AppRoute) => boolean }) {
   const clientId = getActiveClientId();
   const clientName = getActiveClientName() || "marca";
-  const [month, setMonth] = useState(nextMonth);
+  const [month, setMonth] = useState(thisMonth);
   const [objective, setObjective] = useState<Objective>("vendas");
+  // A leitura da IA das campanhas no ar também responde "o que explica" e "o que melhorar" no Resumo Executivo.
+  const [liveRead, setLiveRead] = useState<LiveRead | null>(null);
   const [prepare, setPrepare] = useState<PrepareRequest>(null);
   const [googlePrepare, setGooglePrepare] = useState<GooglePrepareRequest>(null);
   const [mediaBriefs, setMediaBriefs] = useState<Brief[]>([]);
@@ -63,6 +75,10 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
   const [campaigns, setCampaigns] = useState<CampaignAction[]>([]);
   const [objectiveParameters, setObjectiveParameters] = useState<Record<Objective, ObjectiveParameters>>(emptyObjectiveParameters);
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("simple");
+  // Mídia On enxuta: "Agora" (campanhas no ar + criar) para todos; "Planejamento" (estratégia, cenários, curvas) só para a equipe.
+  const [tab, setTab] = useState<"agora" | "planejamento">("agora");
+  const [building, setBuilding] = useState(false);
+  const [creationChannel, setCreationChannel] = useState<"meta" | "google" | null>(null);
 
   const monthLabel = MONTH_NAMES[Number(month.slice(5)) - 1];
 
@@ -164,14 +180,15 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
   const autoKey = useRef<string | null>(null);
   useEffect(() => {
     const key = `${clientId}:${month}`;
-    if (!canManage || busy || view || error || !tracking ||
+    // Só gera sozinha quando a equipe abre o Planejamento (na aba Agora não gasta IA à toa).
+    if (!canManage || tab !== "planejamento" || busy || view || error || !tracking ||
       (tracking.plan && (clientId !== "pace-sneakers-demo" || (tracking.plan.strategy && "scenario" in tracking.plan.strategy))) ||
       history.length || autoKey.current === key) return;
     autoKey.current = key;
     setAutoMade(true);
     void generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canManage, busy, view, error, tracking, history.length, clientId, month]);
+  }, [canManage, tab, busy, view, error, tracking, history.length, clientId, month]);
 
   async function generate() {
     const m = margin ? Number(margin) / 100 : undefined;
@@ -251,29 +268,85 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
   const plan = tracking?.plan;
   const simpleView = useMemo(() => strategy ? buildSimpleMediaView(strategy, campaigns) : null, [strategy, campaigns]);
 
+  const planning = canManage && tab === "planejamento";
   return <Shell title="Mídia On" variant="editorial"><div className="ds-page mediaPage">
-    <PageHeader company={clientName} title="Mídia On" controls={<div className="mediaMonth">
+    <PageHeader company={clientName} title="Mídia On" controls={planning ? <div className="mediaMonth">
       <button type="button" className="ds-button" aria-label="Mês anterior" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
       <strong>{monthLabel} {month.slice(0, 4)}</strong>
       <button type="button" className="ds-button" aria-label="Próximo mês" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
-    </div>} dateline={plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
-      : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>} />
-    {canManageCampaigns ? <MediaCampaignHub
-      briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
-      canManage={canManage} busy={Boolean(busy)} onSelect={setSelectedBriefId}
-      onRefresh={() => void loadCampaignBriefs()} onEditBrief={() => navigateToAppRoute("briefing")}
-      onMeta={prepareBriefForMeta} onGoogle={prepareBriefForGoogle}
-    /> : null}
+    </div> : undefined} dateline={planning ? (plan ? <span>Plano {plan.status === "aprovado" ? "aprovado" : "em rascunho"}{plan.updated_at ? ` · atualizado em ${new Date(plan.updated_at).toLocaleDateString("pt-BR")}` : ""}</span>
+      : <span>Estratégia calculada com Meta Ads, Google Ads, loja, metas e calendário editorial.</span>) : <span>Campanhas no ar agora e o que fazer com elas.</span>} />
+    {canManage ? <div className="mediaTabs" role="tablist" aria-label="Mídia On">
+      <button type="button" role="tab" aria-selected={tab === "agora"} className={tab === "agora" ? "is-active" : ""} onClick={() => setTab("agora")}>Agora</button>
+      <button type="button" role="tab" aria-selected={tab === "planejamento"} className={tab === "planejamento" ? "is-active" : ""} onClick={() => setTab("planejamento")}>Planejamento</button>
+    </div> : null}
+    {!planning ? <>
+      {canManageCampaigns ? <section className="mediaCreate">
+        <div className="mediaCreateBar">
+          <div><strong>Criar campanha</strong><p>Escolha a plataforma para começar.</p></div>
+          <button type="button" className="ds-button" aria-expanded={building}
+            onClick={() => { setBuilding(!building); setCreationChannel(null); }}>
+            {building ? "Fechar criação" : "Criar campanha"}
+          </button>
+        </div>
+        {building ? <>
+          <div className="mediaCreateChannels" role="group" aria-label="Escolha a plataforma">
+            {canManage ? <button type="button" className="ds-button" aria-pressed={creationChannel === "meta"}
+              onClick={() => setCreationChannel("meta")}>Meta Ads</button> : null}
+            <button type="button" className="ds-button" aria-pressed={creationChannel === "google"}
+              onClick={() => setCreationChannel("google")}>Google Ads</button>
+          </div>
+          <div className="mediaOtherChannels">
+            <h3>TikTok, Pinterest e LinkedIn</h3>
+            <p>Conecte as contas para consultar o desempenho pago. A criação de campanhas no Mugoverso está disponível para Meta Ads e Google Ads.</p>
+            <div className="mediaCreateChannels">
+              {([{ label: "TikTok", route: "tiktok" }, { label: "Pinterest", route: "pinterest" },
+                { label: "LinkedIn", route: "linkedin" }] as const).map(({ label, route }) => (
+                <div key={route} className="mediaChannelLinks">
+                  <strong>{label}</strong>
+                  {canView(route) ? <a className="ds-link" href={getPathForRoute(route)}>Ver desempenho</a> : null}
+                  {canView("integrations") ? <a className="ds-link"
+                    href={`${getPathForRoute("integrations")}?channel=${route}`}>Gerenciar conexão</a> : null}
+                </div>
+              ))}
+            </div>
+          </div>
+          {creationChannel ? <>
+            <details className="mediaCreateBrief"><summary>Usar briefing existente</summary>
+              <MediaCampaignHub
+                briefs={mediaBriefs} selectedId={selectedBriefId} loading={briefsLoading} error={briefsError}
+                canManage={canManage} busy={Boolean(busy)} onSelect={setSelectedBriefId}
+                onRefresh={() => void loadCampaignBriefs()} onEditBrief={() => navigateToAppRoute("briefing")}
+                onMeta={prepareBriefForMeta} onGoogle={prepareBriefForGoogle} channel={creationChannel}
+              />
+            </details>
+            <div className="mediaAdCreation" id="media-campaign-builder">
+              {creationChannel === "meta" && canManage
+                ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} />
+                : <GoogleAdsPanel request={googlePrepare} />}
+            </div>
+          </> : null}
+        </> : null}
+      </section> : null}
+      <MediaNow showRecommendations={canManage}
+        reportLink={canView("google") ? <a className="ds-button" href={getPathForRoute("google")}>Relatório do Google</a> : null}
+        history={
+        <MediaLiveCampaigns defaultFilter="encerrada" fixedFilter title="Campanhas encerradas na Meta" />
+      } />
+    </> : null}
+    {planning ? <MediaLiveRead onData={setLiveRead} /> : null}
+    {planning ? <MediaClientCampaigns /> : null}
+    {planning ? <>
+    {canManage ? <MediaKpiStrip onOpen={(target) => { navigateToAppRoute(target); window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state })); }} /> : null}
+    {canManage ? <MediaGoals onOpenPlanning={() => { requestGoalsSection(); navigateToAppRoute("planning"); window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state })); }} /> : null}
+    <div className="mediaAnalysisHead"><h2>Planejamento e análise de mídia</h2>
+      <p>Estratégia do mês, verba por canal e relatórios aprofundados. A operação das campanhas fica acima.</p></div>
     <div className="mediaExperienceSwitch" role="group" aria-label="Modo de visualização">
       <button type="button" className={`mediaExperienceButton is-simple ${experienceMode === "simple" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "simple"} onClick={() => setExperienceMode("simple")}>Resumo Executivo</button>
       <button type="button" className={`mediaExperienceButton is-technical ${experienceMode === "technical" ? "is-active" : ""}`}
         aria-pressed={experienceMode === "technical"} onClick={() => setExperienceMode("technical")}>Análise Técnica</button>
     </div>
-    {canManageCampaigns ? <div className="mediaAdCreation" id="media-campaign-builder">
-      {canManage ? <MetaAdsPanel month={month} objective={objective} daysLeft={strategy?.days || 14} request={prepare} /> : null}
-      <GoogleAdsPanel request={googlePrepare} />
-    </div> : null}
     {canManage && experienceMode === "technical" ? <BrandContextPanel clientId={getActiveClientId()} /> : null}
 
     {canManage && experienceMode === "technical" ? <p className="ds-footnote mediaModeNote">{distribution === "equilibrado" ? "Equilibrado: Meta e Google sempre recebem ao menos 20% da verba; canal sem histórico entra como teste estimado." : "Hiperfoco: a verba vai para onde os dados mostram mais retorno; canal sem histórico fica de fora."}</p> : null}
@@ -324,7 +397,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
         : "A equipe ainda não publicou a estratégia deste mês."}</p>
       {canManage && experienceMode === "simple" ? <button type="button" className="ds-button is-primary" onClick={() => setExperienceMode("technical")}>Preparar minha primeira análise</button> : null}</div> : null}
 
-    {strategy && simpleView && experienceMode === "simple" ? <SimpleMediaOverview view={simpleView} /> : null}
+    {strategy && simpleView && experienceMode === "simple" ? <SimpleMediaOverview view={simpleView} live={liveRead} /> : null}
 
     {strategy && scenario && result && experienceMode === "technical" ? <>
       {strategy.objective_projection?.message ? <p className={`mediaEstimate ${strategy.objective_projection.status === "declared_only" ? "is-limited" : ""}`}>
@@ -507,6 +580,7 @@ export default function MediaOn({ canManage, canManageCampaigns = canManage }: {
           <td className={r.cpa != null && r.target_cpa != null && r.cpa > r.target_cpa * 1.3 ? "is-over" : ""}>{money(r.cpa)} <small>({money(r.target_cpa)})</small></td>
           <td>{ratio(r.roas)} <small>({ratio(r.target_roas)})</small></td></tr>)}</tbody></table></div>
     </section> : null}
+    </> : null}
   </div></Shell>;
 }
 
@@ -518,8 +592,14 @@ function SimpleCampaignCard({ item, showDecisionReason = false }: { item: Simple
   </article>;
 }
 
-function SimpleMediaOverview({ view }: { view: ReturnType<typeof buildSimpleMediaView> }) {
+function LiveNotes({ notes }: { notes: LiveReadNote[] }) {
+  return <ul className="mediaSimpleReasons">{notes.map((n) => <li key={`${n.id}:${n.texto}`}><b>{n.campanha}</b> <small>({n.canal})</small>: {n.texto}</li>)}</ul>;
+}
+
+function SimpleMediaOverview({ view, live }: { view: ReturnType<typeof buildSimpleMediaView>; live?: LiveRead | null }) {
   const supportedExplanations = view.wins.filter((item) => item.explanation);
+  const liveWhy = live?.explicacoes || [];
+  const liveImprove = live?.melhorias || [];
   return <div className="mediaSimpleView" aria-label="Resumo executivo do desempenho">
     <section className="ds-section mediaSimpleHero" aria-labelledby="media-simple-summary">
       <span className="mediaSimpleEyebrow">Seu marketing em 1 minuto</span>
@@ -540,15 +620,15 @@ function SimpleMediaOverview({ view }: { view: ReturnType<typeof buildSimpleMedi
 
     <section className="ds-section" aria-labelledby="media-simple-why">
       <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-why" className="ds-sectionTitle">O que pode explicar os resultados?</h2>
-        <p className="ds-caption">Os dados mostram sinais; não provam causalidade.</p></div></div>
-      {supportedExplanations.length ? <ul className="mediaSimpleReasons">{supportedExplanations.map((item) => <li key={`${item.channel}:${item.campaign}`}><b>{item.campaign}:</b> {item.explanation}</li>)}</ul>
+        <p className="ds-caption">{liveWhy.length ? "Leitura da IA das campanhas no ar (Meta e Google). Sinais, não prova de causa." : "Os dados mostram sinais; não provam causalidade."}</p></div></div>
+      {liveWhy.length ? <LiveNotes notes={liveWhy} /> : supportedExplanations.length ? <ul className="mediaSimpleReasons">{supportedExplanations.map((item) => <li key={`${item.channel}:${item.campaign}`}><b>{item.campaign}:</b> {item.explanation}</li>)}</ul>
         : <p className="mediaSimpleLimitation">Os dados disponíveis mostram desempenho, mas não trazem evidência suficiente para explicar por que ele ocorreu.</p>}
     </section>
 
     <section className="ds-section" aria-labelledby="media-simple-improve">
       <div className="ds-sectionHead"><div className="ds-sectionHeadText"><h2 id="media-simple-improve" className="ds-sectionTitle">O que pode melhorar?</h2>
-        <p className="ds-caption">Campanhas marcadas pela análise atual para revisão ou otimização.</p></div></div>
-      {view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} showDecisionReason />)}</div>
+        <p className="ds-caption">{liveImprove.length ? "Da leitura da IA das campanhas no ar, em ordem de impacto." : "Campanhas marcadas pela análise atual para revisão ou otimização."}</p></div></div>
+      {liveImprove.length ? <LiveNotes notes={liveImprove} /> : view.improvements.length ? <div className="mediaSimpleGrid">{view.improvements.map((item) => <SimpleCampaignCard key={`${item.channel}:${item.campaign}`} item={item} showDecisionReason />)}</div>
         : <p className="mediaSimpleLimitation">Nenhuma campanha foi marcada para revisão com os dados disponíveis.</p>}
     </section>
 

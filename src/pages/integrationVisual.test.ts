@@ -69,7 +69,8 @@ describe("professional integration states and official identity", () => {
 
   it("ships the manual Meta routes and explicit deployment error", () => {
     const onboarding = source("./Onboarding.tsx");
-    const api = source("../app/api.ts");
+    // As rotas de integração ficam em onboardingApi.ts (separado de api.ts para não pesar em toda tela).
+    const api = source("../app/api.ts") + source("../app/onboardingApi.ts");
     expect(onboarding).toContain("Configuração avançada por ID");
     expect(onboarding).toContain("Validar IDs");
     expect(onboarding).toContain("Atualize o deploy do backend");

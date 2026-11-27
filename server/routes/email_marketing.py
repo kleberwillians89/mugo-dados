@@ -2,14 +2,17 @@
 admin do cliente. Descadastro e webhook do Resend são públicos (token assinado / assinatura Svix)."""
 from __future__ import annotations
 
+import base64
+import binascii
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
+from pydantic import BaseModel, Field
 
-from services import cart_recovery, commercial_flows, email_marketing, email_resend, relationship_lists
-from services.tenant import require_client_read, require_client_role, require_user_id
+from services import cart_recovery, commercial_flows, email_approval, email_marketing, email_resend, relationship_lists
+from services.tenant import is_agency_user, require_client_read, require_client_role, require_user_id
 
 router = APIRouter(tags=["email"])
 WRITERS = ("agency_admin", "client_admin")
@@ -102,6 +105,30 @@ async def email_delete_list(list_id: str, client_id: str | None = Query(default=
         raise _fail(exc) from exc
 
 
+@router.post("/api/email/import-consents")
+async def email_import_consents(payload: Dict[str, Any] = Body(...),
+                                x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                authorization: str | None = Header(default=None)):
+    from services.relationship_contacts import ContactSyncError
+
+    cid = await require_client_role(x_client_id, authorization, allowed_roles=WRITERS)
+    if payload.get("consent_confirmed") is not True:
+        raise HTTPException(422, "Confirme que a coluna é específica para marketing por e-mail.")
+    encoded = payload.get("content_base64")
+    if not isinstance(encoded, str) or len(encoded) > 12_000_000:
+        raise HTTPException(422, "Arquivo ausente ou grande demais.")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        user_id = await require_user_id(authorization)
+        return await email_marketing.import_email_consents(cid, str(payload.get("filename") or ""), raw, user_id)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(422, "Arquivo inválido.") from exc
+    except ContactSyncError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+    except email_marketing.EmailError as exc:
+        raise _fail(exc) from exc
+
+
 # ---------------------------------------------------------------- remetente
 
 @router.get("/api/email/settings")
@@ -152,6 +179,107 @@ async def email_preview(payload: Dict[str, Any] = Body(...), client_id: str | No
 
 # ---------------------------------------------------------------- campanhas
 
+@router.post("/api/email/images")
+async def email_upload_image(request: Request, client_id: str | None = Query(default=None),
+                             x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                             authorization: str | None = Header(default=None)):
+    from services import email_images
+
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > email_images.MAX_BYTES:
+            raise HTTPException(status_code=413, detail="A imagem deve ter até 5 MB.")
+        data.extend(chunk)
+    try:
+        return {"url": await email_images.upload_image(cid, bytes(data))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+class EmailReviewSubmission(BaseModel):
+    expected_updated_at: str = Field(min_length=1, max_length=64)
+
+
+class EmailReviewDecision(BaseModel):
+    version: int = Field(ge=1)
+    decision: Literal["approved", "changes_requested"]
+    comment: str = Field(default="", max_length=1000)
+
+
+async def _require_internal_review(client_id: str | None, authorization: str | None) -> tuple[str, str]:
+    cid = await require_client_read(client_id, authorization)
+    if not await is_agency_user(authorization, cid):
+        raise HTTPException(status_code=403, detail="Aprovação Interna é restrita à equipe Mugô.")
+    return cid, await require_user_id(authorization)
+
+
+async def _review_actor_name(authorization: str | None) -> str:
+    from services.auth import get_user_from_bearer
+
+    user = await get_user_from_bearer(authorization) or {}
+    metadata = user.get("user_metadata") or {}
+    return str(metadata.get("full_name") or metadata.get("name")
+               or str(user.get("email") or "").split("@")[0] or "Equipe Mugô")[:120]
+
+
+async def _campaign_response(cid: str, authorization: str | None, campaign: dict) -> dict:
+    public = email_marketing.public_campaign(campaign)
+    review = email_approval.review_summary(campaign)
+    agency = await is_agency_user(authorization, cid)
+    valid = False
+    if campaign["status"] == "rascunho" and (review["status"] == "approved" or (agency and review["status"] == "pending")):
+        settings = await email_marketing.get_settings(cid)
+        snapshot = campaign["internal_review"]["versions"][-1]["snapshot"]
+        if snapshot != email_marketing.review_snapshot(campaign, settings):
+            review["status"] = "draft"
+        else:
+            valid = email_marketing.approval_valid(campaign, settings)
+    public["can_dispatch"] = valid
+    if agency:
+        public["review"] = review
+    return public
+
+
+@router.get("/api/email/internal-approval")
+async def email_approval_queue(client_id: str | None = Query(default=None),
+                               x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                               authorization: str | None = Header(default=None)):
+    cid, _ = await _require_internal_review(client_id or x_client_id, authorization)
+    try:
+        return {"campaigns": await email_approval.queue(cid)}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/campaigns/{campaign_id}/internal-approval")
+async def email_submit_approval(campaign_id: str, payload: EmailReviewSubmission,
+                                client_id: str | None = Query(default=None),
+                                x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                authorization: str | None = Header(default=None)):
+    cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
+    _, uid = await _require_internal_review(cid, authorization)
+    try:
+        return {"review": await email_approval.submit(cid, campaign_id, uid, payload.expected_updated_at,
+                                                        actor_name=await _review_actor_name(authorization))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
+@router.post("/api/email/campaigns/{campaign_id}/internal-approval/decision")
+async def email_decide_approval(campaign_id: str, payload: EmailReviewDecision,
+                                client_id: str | None = Query(default=None),
+                                x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+                                authorization: str | None = Header(default=None)):
+    cid, uid = await _require_internal_review(client_id or x_client_id, authorization)
+    try:
+        return {"review": await email_approval.decide(cid, campaign_id, uid, payload.version,
+                                                       payload.decision, payload.comment.strip(),
+                                                       actor_name=await _review_actor_name(authorization))}
+    except Exception as exc:  # noqa: BLE001
+        raise _fail(exc) from exc
+
+
 @router.get("/api/email/campaigns")
 async def email_campaigns(client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
                           authorization: str | None = Header(default=None)):
@@ -169,7 +297,8 @@ async def email_create_campaign(payload: Dict[str, Any] = Body(default={}), clie
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     user_id = await require_user_id(authorization)
     try:
-        return {"ok": True, "campaign": await email_marketing.save_campaign(cid, payload, user_id=user_id)}
+        campaign = await email_marketing.save_campaign(cid, payload, user_id=user_id)
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -182,7 +311,7 @@ async def email_campaign(campaign_id: str, client_id: str | None = Query(default
     try:
         campaign = await email_marketing.get_campaign(cid, campaign_id)
         live = campaign["status"] in ("enviando", "enviada")
-        return {"ok": True, "campaign": campaign, "stats": await email_marketing.campaign_stats(cid, campaign_id) if live else None}
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign), "stats": await email_marketing.campaign_stats(cid, campaign_id) if live else None}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -194,7 +323,8 @@ async def email_update_campaign(campaign_id: str, payload: Dict[str, Any] = Body
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     user_id = await require_user_id(authorization)
     try:
-        return {"ok": True, "campaign": await email_marketing.save_campaign(cid, payload, user_id=user_id, campaign_id=campaign_id)}
+        campaign = await email_marketing.save_campaign(cid, payload, user_id=user_id, campaign_id=campaign_id)
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -218,6 +348,8 @@ async def email_test(campaign_id: str, payload: Dict[str, Any] = Body(...), clie
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     try:
         campaign = await email_marketing.get_campaign(cid, campaign_id)
+        if isinstance(payload.get("draft"), dict):
+            campaign = {**campaign, **email_marketing.clean_campaign(payload["draft"])}
         return {"ok": True, **(await email_marketing.send_test(cid, campaign, str(payload.get("to") or "")))}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
@@ -242,7 +374,8 @@ async def email_schedule(campaign_id: str, payload: Dict[str, Any] = Body(defaul
     """Agenda (ou envia já, sem data). O envio sai pelo job a cada 5 minutos."""
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     try:
-        return {"ok": True, "campaign": await email_marketing.schedule(cid, campaign_id, payload.get("at"))}
+        campaign = await email_marketing.schedule(cid, campaign_id, payload.get("at"), payload.get("expected_updated_at"))
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -253,7 +386,8 @@ async def email_cancel(campaign_id: str, client_id: str | None = Query(default=N
                        authorization: str | None = Header(default=None)):
     cid = await require_client_role(client_id or x_client_id, authorization, allowed_roles=WRITERS)
     try:
-        return {"ok": True, "campaign": await email_marketing.cancel(cid, campaign_id)}
+        campaign = await email_marketing.cancel(cid, campaign_id)
+        return {"ok": True, "campaign": await _campaign_response(cid, authorization, campaign)}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 
@@ -349,12 +483,34 @@ async def cart_register_webhooks(client_id: str | None = Query(default=None), x_
 @router.get("/api/cart-recovery/whatsapp-templates")
 async def cart_templates(client_id: str | None = Query(default=None), x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
                          authorization: str | None = Header(default=None)):
-    from services import whatsapp_native
+    from services import whatsapp_native, brand_whatsapp_templates, crm_whatsapp_templates
+    from services.whatsapp_sources import bridge_for
     cid = await require_client_read(client_id or x_client_id, authorization)
     try:
         numbers = await whatsapp_native.list_numbers(cid)
-        templates = await whatsapp_native.list_templates(cid) if any(n.get("status") == "active" for n in numbers) else []
-        return {"ok": True, "numbers": numbers, "templates": templates}
+        has_native = any(n.get("status") == "active" for n in numbers)
+        # A shared model catalog, but never claim the native-only automation
+        # sender can deliver via Ruah/CRM Mugô. It cannot.
+        if has_native:
+            templates = await whatsapp_native.list_templates(cid)
+            provider = "native"
+        elif bridge_for(cid):
+            templates = await brand_whatsapp_templates.list_templates(cid)
+            provider = "crm_bridge"
+        else:
+            try:
+                templates = await crm_whatsapp_templates.list_templates(cid)
+                provider = "mugozap_crm"
+            except Exception as exc:
+                from services.studio_calendar import StudioError
+                if isinstance(exc, StudioError) and exc.code in {
+                    "CRM_TEMPLATES_NOT_LINKED", "CRM_TEMPLATES_NOT_CONNECTED", "CRM_TEMPLATES_NOT_CONFIGURED",
+                }:
+                    templates, provider = [], "none"
+                else:
+                    raise
+        return {"ok": True, "numbers": numbers, "templates": templates,
+                "provider": provider, "send_supported": has_native}
     except Exception as exc:  # noqa: BLE001
         raise _fail(exc) from exc
 

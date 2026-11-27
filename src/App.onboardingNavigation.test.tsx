@@ -250,7 +250,7 @@ describe("App — convergência do onboarding (link/convite → Integrações)",
     expect(container.querySelector('[data-testid="onboarding-stub"]')).toBeNull();
     // viewer não ganha a aba de Integrações (a navegação existe, o item não).
     expect(container.querySelector('nav[aria-label="Navegação principal"]')).toBeTruthy();
-    expect(findNavItem("Ecommerce")).toBeTruthy();
+    expect(findNavItem("Início")).toBeTruthy();
     expect(findNavItem("Integrações")).toBeUndefined();
   });
 

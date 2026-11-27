@@ -49,10 +49,10 @@ async def _run(args: argparse.Namespace) -> Any:
         result = await run_daily_instagram_sync(
             limit=args.limit, process_thumbnails=not args.skip_thumbnails,
         )
-        # Autocorreção: preenche os KPIs do perfil dos últimos 30 dias que faltarem (só os ausentes).
+        # Autocorreção: preenche os KPIs do perfil dos últimos 120 dias que faltarem (só os ausentes).
         try:
             from services.instagram_profile_history import backfill_all
-            history = await backfill_all(days=30)
+            history = await backfill_all(days=120)  # 120 dias: dá base para comparar períodos de até ~2 meses
             if isinstance(result, dict):
                 result = {**result, "profile_history": history}
         except Exception as exc:  # noqa: BLE001 — o sync do dia já foi gravado
@@ -149,12 +149,30 @@ async def _run(args: argparse.Namespace) -> Any:
     if args.command == "studio-clipping":
         from services.studio_clipping import refresh_all
         return await refresh_all()
+    if args.command == "whatsapp-bulk-due":
+        from services.whatsapp_campaign_send import process_due
+        return await process_due()
+    if args.command == "brand-learnings":
+        from services.brand_learnings import run_all as learnings_run
+        return await learnings_run()
+    if args.command == "mugo-notices":
+        from services.mugo_notices import run_all as notices_run
+        return await notices_run()
+    if args.command == "media-alerts":
+        from services.media_alerts import run_all as alerts_run
+        return await alerts_run()
+    if args.command == "monthly-reports":
+        from services.monthly_report import close_all
+        return await close_all()
     if args.command == "media-strategies-monthly":
         from services.media_monthly import run_monthly as media_monthly
         return await media_monthly(args.client_id, args.month)
     if args.command == "brand-knowledge-retry":
         from services.brand_knowledge import retry_failed
         return await retry_failed(args.client_id)
+    if args.command == "brand-learning-weekly":
+        from services.brand_learning import run_weekly
+        return await run_weekly(args.client_id)
     if args.command == "brand-profile-monthly":
         from services.studio_brand_brain import run_monthly
         return await run_monthly(args.client_id)
@@ -344,6 +362,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("customer-journey", help="Jornada do cliente: une pedidos e conversas por pessoa (cadastro, e-mail, telefone).")
     sub.add_parser("brand-health", help="Saúde da marca: sentimento de comentários/Direct pela IA e alertas de termos sensíveis.")
     sub.add_parser("studio-clipping", help="Busca diária de notícias (Google Notícias) das marcas com clipping configurado.")
+    sub.add_parser("whatsapp-bulk-due", help="Disparo em massa: envia as campanhas da fila (agora ou agendadas) e retoma as que pararam.")
+    sub.add_parser("brand-learnings", help="Ciclo fechado da IA: o que cada post e anúncio rendeu contra a média vira aprendizado.")
+    sub.add_parser("mugo-notices", help="A Mugô IA notou: alertas do Início por regra fixa; urgentes também por WhatsApp.")
+    sub.add_parser("media-alerts", help="Alertas da Mídia On: reprovada, sem entrega, custo alto, fim próximo (vira tarefa).")
+    sub.add_parser("monthly-reports", help="Relatório mensal: fecha o mês anterior como rascunho para a equipe liberar.")
     media_monthly = sub.add_parser(
         "media-strategies-monthly",
         help="Mídia On: gera, no começo do mês, uma estratégia por objetivo para cada empresa (não duplica).",
@@ -355,6 +378,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Tenta de novo a IA nos materiais da marca que falharam ou ficaram pendentes (memória sempre em dia).",
     )
     knowledge_retry.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
+    weekly_learning = sub.add_parser(
+        "brand-learning-weekly",
+        help="Segunda: a IA junta os sinais da semana de cada marca e deixa os aprendizados pendentes de revisão.",
+    )
+    weekly_learning.add_argument("--client-id", default=None, help="Rodar só para uma empresa (teste).")
     monthly = sub.add_parser(
         "brand-profile-monthly",
         help="Dia 1: gera a sugestão do perfil da marca (IA avançada) de cada marca ativa, pendente de revisão da equipe.",

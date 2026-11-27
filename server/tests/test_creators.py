@@ -297,20 +297,34 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SuggestTests(unittest.IsolatedAsyncioTestCase):
-    async def run_suggest(self, llm_items, lookup_side_effect, count=2):
+    async def run_suggest(self, llm_items, lookup_side_effect, count=2, fit=None, history=None, campaign="influencer", web=""):
         lookup = AsyncMock(side_effect=lookup_side_effect)
+        calls = []
+
+        async def fake_llm(**kwargs):
+            calls.append(kwargs)
+            if kwargs["schema_name"] == "creator_fit":
+                return {"profiles": fit or []}
+            return {"suggestions": llm_items}
+        empty = {"fecharam": [], "nao_fecharam": [], "em_conversa": [], "na_base": []}
         with patch.object(creators, "load_business_context", AsyncMock(return_value={"available": True, "context": {"segment": "perfumaria"}})), \
              patch.object(creators, "sb_get_one", AsyncMock(return_value={"name": "Ruah"})), \
              patch.object(creators, "get_active_connection_for_client", AsyncMock(return_value={"username": "ruahparfums"})), \
-             patch("services.studio_llm.llm_json", AsyncMock(return_value={"suggestions": llm_items})), \
+             patch.object(creators, "creator_history", AsyncMock(return_value=history or empty)), \
+             patch.object(creators, "_recent_posts", AsyncMock(return_value={})), \
+             patch.object(creators, "_web_creators", AsyncMock(return_value=web)), \
+             patch.object(creators, "sb_delete", AsyncMock(return_value=[])), \
+             patch("services.studio_llm.llm_json", fake_llm), \
              patch.object(creators, "lookup", lookup):
-            return await creators.suggest(CID, "influencer", None, count), lookup
+            result = await creators.suggest(CID, campaign, None, count)
+        self.calls = calls
+        return result, lookup
 
     async def test_only_meta_verified_handles_are_returned(self):
         def fake_lookup(cid, network, handle):
             if handle == "inexistente":
                 raise IntegrationError("x", status_code=404, code="CREATOR_NOT_FOUND", provider="meta")
-            return {"handle": handle, "followers": 1000}
+            return {"handle": handle, "followers": 20000}
         items = [{"handle": "@Inexistente", "reason": "a"}, {"handle": "ruahparfums", "reason": "própria marca"},
                  {"handle": "nome inválido", "reason": "b"}, {"handle": "boa.criadora", "reason": "afinidade"}]
         result, lookup = await self.run_suggest(items, fake_lookup)
@@ -322,6 +336,47 @@ class SuggestTests(unittest.IsolatedAsyncioTestCase):
         err = IntegrationError("x", status_code=401, code="META_REAUTH_REQUIRED", provider="meta")
         with self.assertRaises(IntegrationError):
             await self.run_suggest([{"handle": "alguem", "reason": "a"}], err)
+
+    async def test_tiny_accounts_and_low_fit_are_filtered_and_best_fit_comes_first(self):
+        sizes = {"umseguidor": 1, "media": 30000, "grande": 400000, "foradotema": 80000}
+        items = [{"handle": h, "reason": "x"} for h in sizes]
+        fit = [{"handle": "media", "fit": 9, "reason": "fala de pirâmide olfativa"}, {"handle": "grande", "fit": 7, "reason": "perfumes"},
+               {"handle": "foradotema", "fit": 2, "reason": "games"}]
+        result, _ = await self.run_suggest(items, lambda cid, n, h: {"id": h, "handle": h, "followers": sizes[h]}, count=3, fit=fit)
+        self.assertEqual([s["creator"]["handle"] for s in result["suggestions"]], ["media", "grande"])
+        self.assertEqual(result["suggestions"][0]["reason"], "fala de pirâmide olfativa")
+        self.assertEqual(result["filtered"]["poucos seguidores"], ["umseguidor"])
+        self.assertEqual(result["filtered"]["pouca afinidade com a marca"], ["foradotema"])
+
+    async def test_uses_brand_brain_history_and_stronger_model(self):
+        history = {"fecharam": ["@yasmin (6,1 mi seguidores): Reels BF"], "nao_fecharam": [], "em_conversa": [], "na_base": ["yasmin"]}
+        items = [{"handle": "yasmin", "reason": "já é da base"}, {"handle": "nova", "reason": "x"}]
+        result, lookup = await self.run_suggest(items, lambda cid, n, h: {"id": h, "handle": h, "followers": 50000}, history=history)
+        self.assertNotIn("yasmin", [c.args[2] for c in lookup.await_args_list])
+        first = self.calls[0]
+        self.assertEqual(first["brand"], "criadores")
+        self.assertIn("FECHARAM", first["prompt"])
+        self.assertEqual(first["model"], "gpt-4.1")
+
+    async def test_handles_found_on_the_web_are_checked_first(self):
+        web = "- @perfumista.br (40 mil) https://www.instagram.com/olfato_raro/ e https://instagram.com/p/abc"
+        result, lookup = await self.run_suggest([{"handle": "outra", "reason": "x"}],
+                                                lambda cid, n, h: {"id": h, "handle": h, "followers": 40000}, count=3, web=web)
+        checked = [c.args[2] for c in lookup.await_args_list]
+        self.assertEqual(checked[:2], ["perfumista.br", "olfato_raro"])
+        self.assertIn("CRIADORES ENCONTRADOS NA WEB", self.calls[0]["prompt"])
+
+    def test_web_handles(self):
+        self.assertEqual(creators.web_handles("@a.b x instagram.com/reel/123 instagram.com/c_d e-mail x@y.com"), ["a.b", "c_d"])
+
+    def test_gate_rules(self):
+        from datetime import datetime, timezone
+        now = datetime(2026, 11, 24, tzinfo=timezone.utc)
+        self.assertEqual(creators.suggestion_gate({"followers": 3000}, [], "influencer", now), "poucos seguidores")
+        self.assertIsNone(creators.suggestion_gate({"followers": 3000}, [], "ugc", now))
+        old = [{"timestamp": "2026-05-01T10:00:00+0000"}]
+        self.assertEqual(creators.suggestion_gate({"followers": 9000}, old, "influencer", now), "sem posts recentes")
+        self.assertIsNone(creators.suggestion_gate({"followers": 9000}, [{"timestamp": "2026-11-20T10:00:00+0000"}], "influencer", now))
 
 
 if __name__ == "__main__":

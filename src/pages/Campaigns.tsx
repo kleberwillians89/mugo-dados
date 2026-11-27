@@ -1,10 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import BrandContextPanel from "../components/studio/BrandContextPanel";
 import { getActiveClientId, getActiveClientName } from "../app/activeClient";
+import { getPathForRoute, openAppRoute } from "../app/routes";
 import Shell from "../components/Shell";
 import PageHeader from "../components/data/PageHeader";
 import ContentMatrix from "../components/studio/ContentMatrix";
-import AgentPipeline from "../components/studio/AgentPipeline";
 import "../styles/studio.css";
 
 const Calendar = lazy(() => import("./Calendar"));
@@ -17,7 +17,9 @@ type SocialMediaProps = {
   canViewSocial?: boolean;
   canViewCalendar?: boolean;
   canManageCalendar?: boolean;
+  canApproveMatrix?: boolean;
   isAgency?: boolean;
+  canViewSocialPerformance?: boolean;
   initialTab?: SocialMediaTab;
 };
 
@@ -46,7 +48,9 @@ export default function Campaigns({
   canViewSocial = true,
   canViewCalendar = true,
   canManageCalendar = true,
+  canApproveMatrix = false,
   isAgency = false,
+  canViewSocialPerformance = false,
   initialTab,
 }: SocialMediaProps) {
   const clientId = getActiveClientId();
@@ -58,9 +62,6 @@ export default function Campaigns({
     if (new URLSearchParams(window.location.search).get("perfil") !== "1") return;
     window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
   }, []);
-  // Esteira de agentes terminou: recarrega a Matriz e o Calendário com o que ela criou.
-  const [agentsRound, setAgentsRound] = useState(0);
-  const onAgentsDone = useCallback(() => setAgentsRound((n) => n + 1), []);
 
   const openSection = useCallback((next: SocialMediaTab, updateUrl = true) => {
     const allowed = allowedSection(next, canViewSocial, canViewCalendar);
@@ -80,16 +81,23 @@ export default function Campaigns({
 
   return <Shell title="Social Media" variant="editorial"><div className="ds-page studioPage">
     <PageHeader company={clientName} title="Social Media" />
+    {canViewSocial && canViewSocialPerformance ? <a className="ds-button" href={getPathForRoute("process_social")}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        openAppRoute("process_social");
+      }}>Ver desempenho orgânico e pago</a> : null}
     {canViewSocial ? <BrandContextPanel clientId={clientId} /> : null}
     {canViewSocial ? <section id="social-matriz" className="socialWorkspaceSection" aria-labelledby="social-matriz-title">
       <header className="socialSectionHeader"><span>01</span><div><h2 id="social-matriz-title">Matriz Tática de Conteúdo</h2><p>Planejamento editorial do período escolhido (4 semanas por padrão, até 8).</p></div></header>
-      {isAgency && canManage && canManageCalendar ? <AgentPipeline clientId={clientId} onDone={onAgentsDone} onOpenCalendar={() => openSection("calendario")} /> : null}
-      <ContentMatrix key={`matrix:${clientId}:${agentsRound}`} canManage={canManage} onOpenCalendar={() => openSection("calendario")}
+      {/* A esteira de agentes roda só por dentro (pedido do Briefing etc.): não aparece para ninguém. */}
+      <ContentMatrix key={`matrix:${clientId}`} canManage={canManage} canApprove={canApproveMatrix} onOpenCalendar={() => openSection("calendario")}
         onOpenBrandProfile={isAgency && canManageCalendar ? () => { setProfileOpenRequest((value) => value + 1); openSection("calendario"); } : undefined} />
     </section> : null}
     {canViewCalendar ? <section id="social-calendario" className="socialWorkspaceSection" aria-labelledby="social-calendario-title">
-      <header className="socialSectionHeader"><span>02</span><div><h2 id="social-calendario-title">Calendário de Postagens</h2><p>Edição, programação, aprovações e publicação no calendário existente.</p></div></header>
-      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}:${agentsRound}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} showBrandContext={false} /></Suspense>
+      <header className="socialSectionHeader"><span>02</span><div><h2 id="social-calendario-title">Calendário de Postagens</h2><p>O que vai ser publicado e o que já foi, no dia e na hora. Os pilares da Matriz aparecem em cada post.</p></div>
+        {canViewSocial ? <button type="button" className="ds-link" onClick={() => document.getElementById("matrix-approval")?.scrollIntoView?.({ behavior: "smooth", block: "start" })}>Aprovação da Matriz</button> : null}</header>
+      <Suspense fallback={<p>Carregando calendário…</p>}><Calendar key={`calendar:${clientId}`} embedded isAgency={isAgency} canManage={canManageCalendar} openProfileRequest={profileOpenRequest} showBrandContext={false} /></Suspense>
     </section> : null}
   </div></Shell>;
 }

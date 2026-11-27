@@ -152,3 +152,36 @@ button.bhCard{font:inherit;text-align:left;cursor:pointer;color:inherit}
 .bhMentionInfo dd { margin: 0; overflow-wrap: anywhere; }
 .bhMentionEdit { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 .bhMentionEdit label { display: inline-flex; gap: 8px; align-items: center; }
+
+.bhListeningModal .modalPanel { max-width: 860px; }
+.bhListeningModal .bhMentions { margin: 0; border: 0; padding: 0; box-shadow: none; }
+.hiMethod {
+  margin-top: 14px;
+  border: 1px solid var(--bh-line);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+}
+.hiMethod summary {
+  padding: 12px 14px;
+  color: var(--accent, #1e3f5a);
+  font-weight: 600;
+  cursor: pointer;
+}
+.hiMethodBody { padding: 0 14px 12px; font-size: 13px; }
+.hiMethodBody ul { padding-inline-start: 18px; }
+.hiMethodBody li + li { margin-top: 6px; }
+.bhMentionEdit form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bhMentionEdit input:not([type="checkbox"]) {
+  border: 1px solid var(--bh-line);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+  padding: 6px 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 520px) {
+  .bhMentionInfo { margin-inline-start: 0; }
+  .bhMentionEdit form label { flex-wrap: wrap; }
+}

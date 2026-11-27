@@ -155,6 +155,8 @@ class EveryMutationRouteHasARoleGuardTests(unittest.TestCase):
         "require_client_role", "require_client_manage",
         "require_platform_admin", "require_agency_admin",
         "_manage_context", "_mutation_context", "_require_cron_secret", "_commercial_admin",
+        # E-mail Marketing (#570): aprovação interna só da equipe Mugô (is_agency_user), recusa o resto com 403.
+        "_require_internal_review",
     )
     # Rotas de mutação sem guarda de papel, com motivo auditado.
     EXEMPT = {

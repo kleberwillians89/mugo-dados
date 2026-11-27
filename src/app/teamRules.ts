@@ -13,16 +13,30 @@ export function normalizeLoginIdentifier(raw: string): string {
 /** Tela (rota do app) → código de permissão para ver. Telas fora da lista não dependem de permissão. */
 export const ROUTE_MODULE: Record<string, string> = {
   central: "central", goals: "central", ecommerce: "ecommerce", customers: "customers", meta: "meta",
-  google: "google", channels: "meta", tiktok: "meta", pinterest: "meta", linkedin: "meta", origins: "origins", whatsapp: "origins", email_marketing: "customers", customer_value: "customers", ai_actions: "customers", plan: "central", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai", mugo_ia: "brand_ai",
+  google: "google", channels: "meta", tiktok: "meta", pinterest: "meta", linkedin: "meta", origins: "origins", whatsapp: "origins", email_marketing: "customers", capture: "customers", customer_value: "customers", ai_actions: "customers", plan: "central", calendar: "calendar", approval: "calendar", brand_ai: "brand_ai", mugo_ia: "brand_ai",
   media: "media", social_report: "social_report", tasks: "tasks", briefing: "tasks", library: "calendar", planning: "tasks", production: "tasks", clipping: "clipping", radar: "clipping", brand_health: "clipping", benchmark: "clipping", creators: "creators",
   engagement: "engagement", users: "team", campaigns: "social_media", redacao: "social_media",
+  final_approval: "final_approval",
 };
 
 /** Módulos liberados só pela equipe Mugô: não vêm de "acesso total" nem do papel (mesma regra do backend). */
 export const OPT_IN_CODES = new Set(["social_media.view", "social_media.edit", "tasks.approve"]);
 
+const PROCESS_ROUTES: Record<string, string[]> = {
+  process_planning: ["radar", "benchmark", "planning", "goals", "campaigns", "calendar"],
+  process_content: ["campaigns", "redacao", "production", "briefing", "creators", "clipping"],
+  process_campaign: ["media"],
+  process_relationship: ["email_marketing", "capture", "engagement", "whatsapp"],
+  process_analysis: ["origins", "ecommerce", "customers", "social_report", "brand_health", "ai_actions"],
+  process_social: ["meta", "tiktok", "pinterest", "linkedin"],
+};
+
 /** Social Media reúne recursos distintos sem fundir suas permissões. */
 export function canViewAppRoute(route: string, can: (code: string) => boolean): boolean {
+  if (route === "home") return true;
+  if (route === "internal_approval") return can("tasks.approve");
+  const processChildren = PROCESS_ROUTES[route];
+  if (processChildren) return processChildren.some((child) => canViewAppRoute(child, can));
   if (route === "campaigns") return can("social_media.view") || can("calendar.view");
   // Planejamento e Evento são internos: equipe Mugô ou quem aprova internamente (mesma regra do backend).
   if (route === "planning" || route === "production") return can("tasks.approve");

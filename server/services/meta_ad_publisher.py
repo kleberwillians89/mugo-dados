@@ -12,6 +12,7 @@ Exige a permissão ads_management na conexão do Meta (o cliente reconecta uma v
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
@@ -24,6 +25,7 @@ from .ig_supabase import sb_delete, sb_insert, sb_select, sb_update
 from .meta_config import META_GRAPH_BASE_URL
 from .studio_calendar import StudioError
 from .ads_tracking import clean_tracking, tracking_suffix
+from . import meta_structure as ms
 
 TABLE = "studio_ad_drafts"
 ADS_SCOPE = "ads_management"
@@ -35,6 +37,8 @@ OBJECTIVES: Dict[str, Dict[str, Any]] = {
     "alcance": {"label": "Alcance", "objective": "OUTCOME_AWARENESS", "optimization": "REACH"},
     "engajamento": {"label": "Engajamento", "objective": "OUTCOME_ENGAGEMENT", "optimization": "POST_ENGAGEMENT"},
     "vendas": {"label": "Vendas no site (pixel)", "objective": "OUTCOME_SALES", "optimization": "OFFSITE_CONVERSIONS", "event": "PURCHASE", "destination": "WEBSITE"},
+    # Click-to-WhatsApp: o anúncio abre a conversa no WhatsApp da marca (a IA do MUGOVERSO responde e manda o grupo).
+    "whatsapp": {"label": "Conversas no WhatsApp", "objective": "OUTCOME_ENGAGEMENT", "optimization": "CONVERSATIONS", "destination": "WHATSAPP"},
     "leads": {"label": "Cadastros no site (pixel)", "objective": "OUTCOME_LEADS", "optimization": "OFFSITE_CONVERSIONS", "event": "LEAD", "destination": "WEBSITE"},
     # Públicos personalizados criados pelo pixel (ou reaproveitados se já existem com o mesmo nome).
     "retencao": {"label": "Retenção: compradores 180 dias (pixel)", "objective": "OUTCOME_SALES", "optimization": "OFFSITE_CONVERSIONS",
@@ -86,18 +90,89 @@ def _names(value: Any, limit: int = 12) -> List[str]:
 
 # ---------------------------------------------------------------- rascunho
 
+AD_FORMATS = ("single", "carousel", "multi")
+MAX_CARDS = 10
+
+
+def clean_cards(value: Any) -> List[Dict[str, str]]:
+    """Imagens do carrossel (ou dos anúncios separados), na ordem escolhida. Só HTTPS, sem repetir, até 10."""
+    cards: List[Dict[str, str]] = []
+    seen = set()
+    for raw in value if isinstance(value, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        url = _text(raw.get("image_url"), LIMITS["image_url"])
+        if not url.startswith("https://") or url in seen:
+            continue
+        seen.add(url)
+        link = _text(raw.get("link"), LIMITS["link"])
+        cards.append({"image_url": url, "headline": _text(raw.get("headline"), 45), "description": _text(raw.get("description"), 20),
+                      "link": link if link.startswith(("http://", "https://")) else ""})
+        if len(cards) >= MAX_CARDS:
+            break
+    return cards
+
+
+MAX_ADS = 10
+WHATSAPP_LINK = "https://api.whatsapp.com/send"
+
+
+def clean_creative(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Só a parte visual de um anúncio: imagem única, vídeo ou carrossel."""
+    fmt = "carousel" if raw.get("format") == "carousel" else "single"
+    return {"format": fmt, "image_url": _text(raw.get("image_url"), LIMITS["image_url"]),
+            "media_type": "video" if raw.get("media_type") == "video" and fmt == "single" else "image",
+            "video_url": _text(raw.get("video_url"), LIMITS["image_url"]),
+            "instagram_post_id": _text(raw.get("instagram_post_id"), 70) or None,
+            "calendar_item_id": _text(raw.get("calendar_item_id"), 60) or None,
+            "cards": clean_cards(raw.get("cards"))}
+
+
+def ad_units(ad: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Todos os anúncios que vão para o conjunto, na ordem. O formato antigo "multi" vira um anúncio de imagem por cartão."""
+    if ad.get("format") == "multi":
+        return [{"format": "single", "image_url": c["image_url"], "media_type": "image", "video_url": "", "cards": [],
+                 "headline": c.get("headline") or "", "link": c.get("link") or ""} for c in ad.get("cards") or []]
+    first = {"format": ad.get("format") if ad.get("format") == "carousel" else "single", "image_url": ad.get("image_url") or "",
+             "media_type": ad.get("media_type") or "image", "video_url": ad.get("video_url") or "", "cards": ad.get("cards") or [],
+             "instagram_post_id": ad.get("instagram_post_id")}
+    return [first, *(ad.get("extra_ads") or [])]
+
+
+def unit_key(unit: Dict[str, Any]) -> str:
+    """Identidade de um anúncio pela arte (para retomar certo mesmo se a ordem mudar ou um anúncio sair)."""
+    if unit["format"] == "carousel":
+        return "carousel:" + "|".join(c["image_url"] for c in unit["cards"])
+    return ("video:" + (unit.get("instagram_post_id") or unit["video_url"])) if unit["media_type"] == "video" else "image:" + unit["image_url"]
+
+
+def unit_missing(unit: Dict[str, Any]) -> Optional[str]:
+    if unit["format"] == "carousel":
+        return None if len(unit["cards"]) >= 2 else "pelo menos 2 imagens no carrossel"
+    if unit["media_type"] == "video":
+        return None if unit["video_url"].startswith("https://") else "URL HTTPS do vídeo"
+    return None if unit["image_url"] else "imagem"
+
+
 def clean_placements(value: Any) -> Dict[str, Any]:
     """Validate explicit Meta placement filters without silently adding platforms."""
     p = value if isinstance(value, dict) else {}
     mode = str(p.get("mode") or "automatic")
     if mode not in ("automatic", "manual"):
         raise StudioError("AD_PLACEMENTS_INVALID")
-    allowed = {"platforms": ("instagram", "facebook"),
-               "instagram": ("stream", "story", "reels"),
-               "facebook": ("feed", "story", "facebook_reels")}
+    # Posicionamentos manuais do Gerenciador (nomes da API). O padrão de rascunho antigo continua o mesmo.
+    allowed = {"platforms": ("instagram", "facebook", "messenger", "audience_network"),
+               "instagram": ("stream", "story", "reels", "explore", "explore_home", "profile_feed", "ig_search"),
+               "facebook": ("feed", "story", "facebook_reels", "marketplace", "video_feeds", "right_hand_column",
+                            "search", "instream_video", "profile_feed", "notification"),
+               "messenger": ("messenger_home", "story", "sponsored_messages"),
+               "audience_network": ("classic", "rewarded_video")}
+    defaults = {"platforms": ["instagram", "facebook"], "instagram": ["stream", "story", "reels"],
+                "facebook": ["feed", "story", "facebook_reels"], "messenger": ["messenger_home", "story"],
+                "audience_network": ["classic"]}
     result: Dict[str, Any] = {"mode": mode}
     for key, options in allowed.items():
-        items = p.get(key, list(options))
+        items = p.get(key, defaults[key])
         if not isinstance(items, list) or any(not isinstance(x, str) or x not in options for x in items):
             raise StudioError("AD_PLACEMENTS_INVALID")
         result[key] = list(dict.fromkeys(items))
@@ -138,7 +213,18 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
     excluded = _refs(aud.get("excluded_audiences"))
     skip = {a["id"] for a in excluded}  # o mesmo público nos dois lados: vale a exclusão
     ad = data.get("ad") if isinstance(data.get("ad"), dict) else {}
+    # Estrutura igual ao Gerenciador (objetivo oficial, local de conversão, meta, orçamento e lance).
+    meta = ms.clean_meta(data.get("meta"), legacy_objective_key=objective, daily_budget=budget)
+    if not meta["budget"]:
+        meta["budget"] = budget
+    objective = ms.legacy_objective(meta, objective)
+    budget = ms.daily_equivalent(meta, start.isoformat(), end.isoformat())
+    allowed_ctas = ms.ctas_for(meta["conversion_location"], meta["messaging_apps"])
     cta = str(ad.get("cta") or "LEARN_MORE")
+    if cta == "SEND_WHATSAPP_MESSAGE":
+        cta = "WHATSAPP_MESSAGE"
+    if cta not in allowed_ctas:
+        cta = allowed_ctas[0]
     try:
         tracking = clean_tracking(data.get("tracking"))
     except ValueError as exc:
@@ -148,10 +234,15 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
         "name": _text(data.get("name"), LIMITS["name"]) or "Campanha Mídia On",
         "objective": objective,
         "daily_budget": budget,
+        "meta": meta,
         "placements": clean_placements(data.get("placements")),
+        # Conjunto de dados (pixel) escolhido na revisão; vazio = o que está recebendo eventos.
+        "pixel_id": str(data.get("pixel_id") or "") if re.fullmatch(r"\d{5,25}", str(data.get("pixel_id") or "")) else None,
         "start_date": start.isoformat(), "end_date": end.isoformat(),
         "audience": {"age_min": age_min, "age_max": age_max, "gender": gender if gender in GENDERS else "todos",
                      "regions": _names(aud.get("regions")), "interests": _names(aud.get("interests")),
+                     # Interesses escolhidos na lista oficial da Meta (id exato, sem precisar buscar pelo nome).
+                     "interest_refs": _refs(aud.get("interest_refs"), limit=25),
                      "advantage": bool(aud.get("advantage", True)),
                      # Públicos que já existem na conta de anúncios do cliente (lista em /studio/ads/audiences).
                      "saved_audience": _ref(aud.get("saved_audience")),
@@ -160,30 +251,46 @@ def clean_payload(data: Dict[str, Any], *, today: Optional[date] = None) -> Dict
         "ad": {"primary_text": _text(ad.get("primary_text"), LIMITS["primary_text"]),
                "headline": _text(ad.get("headline"), LIMITS["headline"]),
                "description": _text(ad.get("description"), LIMITS["description"]),
-               "cta": cta if cta in CTAS else "LEARN_MORE",
+               "cta": cta,
                "link": _text(ad.get("link"), LIMITS["link"]),
                "image_url": _text(ad.get("image_url"), LIMITS["image_url"]),
                "calendar_item_id": _text(ad.get("calendar_item_id"), 60) or None,
                 "media_type": "video" if ad.get("media_type") == "video" else "image",
                 "video_url": _text(ad.get("video_url"), LIMITS["image_url"]),
-                "instagram_post_id": _text(ad.get("instagram_post_id"), 70) or None},
+                "instagram_post_id": _text(ad.get("instagram_post_id"), 70) or None,
+                # Vários criativos: "carousel" = um anúncio em carrossel; "multi" = um anúncio por imagem no mesmo conjunto.
+                "format": ad.get("format") if ad.get("format") in AD_FORMATS else "single",
+                "cards": clean_cards(ad.get("cards")),
+                # Número do WhatsApp do anúncio (Click-to-WhatsApp), só dígitos com DDI; vazio = o ligado à Página.
+                "whatsapp_number": re.sub(r"\D", "", str(ad.get("whatsapp_number") or ""))[:15] or None,
+                # Anúncios 2, 3… do mesmo conjunto (mesma verba), cada um com o seu formato. Texto e link são os do anúncio 1.
+                "extra_ads": [clean_creative(x) for x in (ad.get("extra_ads") if isinstance(ad.get("extra_ads"), list) else [])
+                              if isinstance(x, dict)][:MAX_ADS - 1]},
     }
 
 
 def readiness(payload: Dict[str, Any]) -> List[str]:
     """O que falta para publicar (mostrado na tela antes do botão)."""
-    missing = []
-    if payload["daily_budget"] < MIN_DAILY_BRL:
-        missing.append(f"Orçamento diário de pelo menos R$ {MIN_DAILY_BRL:.0f}".replace(".", ","))
+    meta = payload["meta"]
+    missing = ms.missing(meta, payload, MIN_DAILY_BRL)
     ad = payload["ad"]
-    if not ad["primary_text"]:
+    if not ad["primary_text"] and not meta.get("use_existing_post"):
         missing.append("Texto principal do anúncio")
-    if ad["media_type"] == "video":
-        if not ad["video_url"].startswith("https://"):
-            missing.append("URL HTTPS do vídeo")
-    elif not ad["image_url"]:
-        missing.append("Imagem do anúncio")
-    if OBJECTIVES[payload["objective"]].get("destination") == "WEBSITE" and not ad["link"].startswith(("http://", "https://")):
+    units = ad_units(ad)
+    if meta.get("use_existing_post"):
+        # Post existente do Instagram: a arte e a legenda vêm do próprio post.
+        if not ad.get("instagram_post_id"):
+            missing.append("Post existente do Instagram")
+        units = units[1:]
+    if ad["format"] == "multi" and len(units) < 2:
+        missing.append("Pelo menos 2 imagens para os anúncios")
+    for index, unit in enumerate(units):
+        problem = unit_missing(unit)
+        if problem:
+            label = "Imagem do anúncio" if problem == "imagem" and len(units) == 1 else \
+                ("URL HTTPS do vídeo" if problem.startswith("URL") and len(units) == 1 else f"Anúncio {index + 1}: {problem}")
+            missing.append(label)
+    if meta["conversion_location"] == "WEBSITE" and not ad["link"].startswith(("http://", "https://")):
         missing.append("Link do site (começando com https://)")
     return missing
 
@@ -196,7 +303,7 @@ def _view(row: Dict[str, Any]) -> Dict[str, Any]:
             if act and ids.get("campaign_id") else None)
     return {"id": str(row["id"]), "month": row.get("month"), "source_campaign": row.get("source_campaign"), "status": row.get("status"),
             "payload": payload, "missing": readiness(payload), "meta_ids": ids, "ads_manager_url": link, "error": row.get("error"),
-            "published_at": row.get("published_at"), "updated_at": row.get("updated_at")}
+            "published_at": row.get("published_at"), "updated_at": row.get("updated_at"), "joined": bool(ids.get("joined"))}
 
 
 async def list_drafts(client_id: str) -> List[Dict[str, Any]]:
@@ -224,6 +331,7 @@ async def _calendar_art(client_id: str, item_id: Optional[str]) -> str:
     return first
 
 
+TASK_BRIEF_KEYS = ("title", "summary", "objective", "key_message", "offer", "audience", "deadline", "goal", "notes")
 AD_SCHEMA_KEYS = ("name", "primary_text", "headline", "description", "cta", "age_min", "age_max", "gender", "regions", "interests")
 
 
@@ -245,11 +353,22 @@ async def generate_draft(client_id: str, *, user_id: str, month: Optional[str], 
         knowledge = (await knowledge_for_prompt(client_id, 1500)).strip()
     except Exception:  # noqa: BLE001 — memória indisponível não impede o rascunho
         knowledge = ""
-    schema = obj({"name": STR, "primary_text": STR, "headline": STR, "description": STR, "cta": STR,
-                  "age_min": INT, "age_max": INT, "gender": STR, "regions": arr(STR), "interests": arr(STR)})
+    brief = campaign.get("task_brief") if isinstance(campaign.get("task_brief"), dict) else {}
+    brief = {k: _text(v, 600) for k, v in brief.items() if k in TASK_BRIEF_KEYS and isinstance(v, str) and v.strip()}
+    fields = {"name": STR, "primary_text": STR, "headline": STR, "description": STR, "cta": STR,
+              "age_min": INT, "age_max": INT, "gender": STR, "regions": arr(STR), "interests": arr(STR)}
+    if brief:
+        # Com briefing da tarefa, a IA também sugere o objetivo oficial e o local de conversão (a pessoa revisa campo por campo).
+        fields.update({"meta_objective": STR, "conversion_location": STR, "messaging_app": STR})
+    schema = obj(fields)
     prompt = (f"CAMPANHA DO PLANO (Mídia On): {json.dumps({k: campaign.get(k) for k in ('campaign', 'action', 'why', 'planned_budget')}, ensure_ascii=False)}\n"
-              f"OBJETIVO NO META: {OBJECTIVES[obj_key]['label']}\n"
-              f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
+              + (f"BRIEFING DA TAREFA DO KANBAN: {json.dumps(brief, ensure_ascii=False)}\n"
+                 f"Escolha meta_objective entre {', '.join(ms.OBJECTIVES)} ({', '.join(o['label'] for o in ms.OBJECTIVES.values())}), "
+                 "conversion_location entre WEBSITE, MESSAGING, ON_AD (formulário instantâneo), NONE (só reconhecimento), "
+                 "e messaging_app (WHATSAPP, INSTAGRAM_DIRECT ou MESSENGER) se o local for MESSAGING; senão vazio. "
+                 "Siga o objetivo do briefing.\n"
+                 if brief else f"OBJETIVO NO META: {OBJECTIVES[obj_key]['label']}\n")
+              + f"PERFIL DA MARCA: {json.dumps({k: profile.get(k) for k in ('tone_of_voice', 'personality', 'audience', 'keywords_use', 'keywords_avoid', 'restrictions')}, ensure_ascii=False)}\n"
               f"NEGÓCIO: {json.dumps(business, ensure_ascii=False, default=str)[:2500]}\n"
               + (f"CONHECIMENTO DA MARCA (documentos): {knowledge}\n" if knowledge else "")
               + (f"COMO O PÚBLICO FALA DA MARCA (Saúde da marca; use para escolher o gancho, responder o que mais perguntam "
@@ -264,8 +383,15 @@ async def generate_draft(client_id: str, *, user_id: str, month: Optional[str], 
                           prompt=prompt, schema_name="meta_ad_draft", schema=schema, temperature=0.6)
     days = max(1, int(days_left or 14))
     planned = float(campaign.get("planned_budget") or 0)
+    suggested = None
+    if brief and data.get("meta_objective") in ms.OBJECTIVES:
+        app = str(data.get("messaging_app") or "")
+        suggested = {"objective": data["meta_objective"], "conversion_location": str(data.get("conversion_location") or ""),
+                     "messaging_apps": [app] if app in ms.MESSAGING_APPS else [],
+                     "budget": round(planned / days, 2) if planned else 30}
     payload = clean_payload({
-        "name": data.get("name") or campaign.get("campaign"), "objective": obj_key,
+        "meta": suggested,
+        "name": data.get("name") or campaign.get("campaign") or brief.get("title"), "objective": obj_key,
         "daily_budget": round(planned / days, 2) if planned else 30,
         "start_date": (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat(),
         "end_date": (datetime.now(timezone.utc).date() + timedelta(days=days)).isoformat(),
@@ -275,7 +401,7 @@ async def generate_draft(client_id: str, *, user_id: str, month: Optional[str], 
                "cta": data.get("cta"), "link": str(business.get("website") or business.get("site") or "")},
     })
     created = await sb_insert(TABLE, {"client_id": client_id, "month": f"{month}-01" if month else None,
-                                      "source_campaign": _text(campaign.get("campaign"), 200) or None,
+                                      "source_campaign": _text(campaign.get("campaign") or brief.get("title"), 200) or None,
                                       "payload": payload, "status": "rascunho", "created_by": user_id})
     if not created:
         raise StudioError("AD_SAVE_FAILED")
@@ -294,11 +420,38 @@ async def save_draft(client_id: str, draft_id: str, data: Dict[str, Any]) -> Dic
     return _view(rows[0] if rows else {**row, "payload": payload})
 
 
-async def duplicate_draft(client_id: str, draft_id: str, user_id: str) -> Dict[str, Any]:
-    """Duplicate planning only. Provider IDs, publication flags and errors never carry over."""
+async def duplicate_draft(client_id: str, draft_id: str, user_id: str, *, into_campaign: bool = False,
+                          adset_id: Optional[str] = None) -> Dict[str, Any]:
+    """Cópia para testar.
+    - padrão: campanha NOVA (verba própria). IDs da Meta, status e erros não passam para a cópia.
+    - into_campaign: inicia criativos novos em um conjunto da campanha existente."""
     original = await _draft(client_id, draft_id)
     new_payload = clean_payload(original.get("payload") or {})
-    name = _text(new_payload["name"] + " · cópia", LIMITS["name"])
+    meta_ids: Dict[str, Any] = {}
+    if into_campaign:
+        ids = original.get("meta_ids") or {}
+        target = str(adset_id or ids.get("adset_id") or "")
+        if original.get("status") != "publicada" or not ids.get("campaign_id") or not target:
+            raise StudioError("AD_NOT_PUBLISHED_YET",
+                              "Crie a campanha no Meta antes. Enquanto é rascunho, use o formato Vários anúncios.")
+        account_id = ids.get("ad_account_id")
+        if adset_id:
+            if not re.fullmatch(r"\d{5,30}", target):
+                raise StudioError("AD_NOT_READY", "Conjunto Meta inválido.")
+            _, account, _ = await _campaign_editor_context(client_id, draft_id)
+            remote = await _graph("GET", f"/{target}", token=account["token"], params={"fields": "id,campaign_id,account_id"})
+            if (str(remote.get("id") or "") != target
+                    or str(remote.get("campaign_id") or "") != str(ids["campaign_id"])
+                    or str(remote.get("account_id") or "").removeprefix("act_") != account["act"].removeprefix("act_")):
+                raise StudioError("AD_ACCOUNT_CHANGED", "Esse conjunto não pertence à campanha selecionada.")
+            account_id = account["act"]
+        meta_ids = {"ad_account_id": account_id, "campaign_id": ids["campaign_id"], "adset_id": target,
+                    "joined": True, "joined_from": str(original["id"])}
+        new_payload["ad"].update(format="single", media_type="image", image_url="", video_url="",
+                                 video_id=None, instagram_post_id=None, calendar_item_id=None, cards=[], extra_ads=[])
+        name = _text(new_payload["name"] + " · novo anúncio", LIMITS["name"])
+    else:
+        name = _text(new_payload["name"] + " · cópia", LIMITS["name"])
     new_payload["name"] = name
     inserted = await sb_insert(TABLE, {
         "client_id": client_id,
@@ -307,6 +460,7 @@ async def duplicate_draft(client_id: str, draft_id: str, user_id: str) -> Dict[s
         "payload": new_payload,
         "status": "rascunho",
         "created_by": user_id,
+        **({"meta_ids": meta_ids} if meta_ids else {}),
     })
     if not inserted:
         raise StudioError("AD_SAVE_FAILED")
@@ -318,6 +472,8 @@ async def live_delivery_status(client_id: str, draft_id: str) -> Dict[str, Any]:
     row = await _draft(client_id, draft_id)
     ids = row.get("meta_ids") or {}
     ad_ids = {key: str(ids.get(key) or "") for key in ("campaign_id", "adset_id", "ad_id")}
+    for n, extra in enumerate(_ads_of(ids)[1:], start=2):
+        ad_ids[f"ad_{n}"] = extra
     if not ad_ids["campaign_id"]:
         raise StudioError("AD_NOT_READY", "Campanha ainda não foi criada na Meta.")
     account = await _ad_account(client_id)
@@ -340,7 +496,540 @@ async def live_delivery_status(client_id: str, draft_id: str) -> Dict[str, Any]:
             "effective_status": _text(remote.get("effective_status"), 40),
         }
     return {"draft_id": draft_id, "client_id": client_id, "source": "meta_graph",
-            "checked_at": _now(), "objects": parts, "read_only": True}
+            "checked_at": _now(), "objects": parts, "read_only": True,
+            "delivery": ids.get("delivery"), "joined": bool(ids.get("joined"))}
+
+
+async def _campaign_editor_context(client_id: str, draft_id: str) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    row = await _draft(client_id, draft_id)
+    ids = row.get("meta_ids") or {}
+    if row.get("status") != "publicada" or not ids.get("campaign_id"):
+        raise StudioError("AD_NOT_PUBLISHED_YET")
+    account = await _ad_account(client_id)
+    attached = str(ids.get("ad_account_id") or "")
+    if attached and attached.removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    camp = await _graph("GET", f"/{ids['campaign_id']}", token=account["token"],
+                        params={"fields": "id,name,account_id,status,effective_status"})
+    returned = str(camp.get("account_id") or "")
+    if returned and returned.removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    return row, account, camp
+
+
+async def _campaign_children(account: Dict[str, Any], campaign_id: str, level: str, *,
+                             include_customer_goal: bool = False) -> List[Dict[str, Any]]:
+    """Load all objects up to a hard cap. Fail closed rather than hide additional items."""
+    if level not in ("adsets", "ads"):
+        raise StudioError("AD_NOT_READY", "Nível Meta inválido.")
+    fields = ("id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,start_time,end_time"
+              if level == "adsets" else
+              "id,name,campaign_id,adset_id,status,effective_status,creative{id,name,thumbnail_url}")
+    params: Dict[str, Any] = {"fields": fields, "limit": 100}
+    if level == "adsets" and include_customer_goal:
+        params["fields"] += ",ad_set_goal{type}"
+    seen: set[str] = set()
+    rows: List[Dict[str, Any]] = []
+    for _ in range(5):
+        try:
+            body = await _graph("GET", f"/{campaign_id}/{level}", token=account["token"], params=params)
+        except MetaAdError as exc:
+            message = str(exc).lower()
+            if ("ad_set_goal{type}" not in params["fields"] or exc.code != "AD_META_REJECTED"
+                    or "ad_set_goal" not in message
+                    or not any(reason in message for reason in ("nonexisting field", "unknown field"))):
+                raise
+            return await _campaign_children(account, campaign_id, level)
+        for item in body.get("data") or []:
+            if str(item.get("campaign_id") or "") != str(campaign_id):
+                # Never display or change objects from another campaign/account.
+                raise StudioError("AD_ACCOUNT_CHANGED")
+            rows.append(item)
+        paging = body.get("paging") or {}
+        cursor = str((paging.get("cursors") or {}).get("after") or "")
+        if not paging.get("next"):
+            return rows
+        if not cursor or cursor in seen:
+            break
+        seen.add(cursor)
+        params["after"] = cursor
+    raise StudioError("AD_NOT_READY", "A campanha tem muitos itens; a leitura completa na Meta não foi possível.")
+
+
+async def live_campaign_structure(client_id: str, draft_id: str) -> Dict[str, Any]:
+    """Live campaign → adsets → ads, never inferred from the local draft."""
+    row, account, campaign = await _campaign_editor_context(client_id, draft_id)
+    campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
+    adsets, ads = await asyncio.gather(
+        _campaign_children(account, campaign_id, "adsets", include_customer_goal=True),
+        _campaign_children(account, campaign_id, "ads"),
+    )
+    return {
+        "source": "meta_graph", "checked_at": _now(), "read_only": True,
+        "ad_account_id": account["act"].removeprefix("act_"),
+        "campaign": {k: campaign.get(k) for k in ("id", "name", "status", "effective_status")},
+        "adsets": [
+            {
+                **{k: a.get(k) for k in ("id", "name", "campaign_id", "status", "effective_status",
+                                        "daily_budget", "lifetime_budget", "start_time", "end_time")},
+                "customer_acquisition_goal": (a["ad_set_goal"].get("type")
+                                              if isinstance(a.get("ad_set_goal"), dict) else None),
+            }
+            for a in adsets
+        ],
+        "ads": [
+            {**{k: a.get(k) for k in ("id", "name", "campaign_id", "adset_id", "status", "effective_status")},
+             "creative": {k: (a.get("creative") or {}).get(k) for k in ("id", "name", "thumbnail_url")}}
+            for a in ads
+        ],
+    }
+
+
+async def change_live_object_status(client_id: str, draft_id: str, *,
+                                    level: str, object_id: str, active: bool) -> Dict[str, Any]:
+    """Edit exactly one Meta ad set or ad, with ancestry validation and read-back."""
+    if level not in ("adset", "ad") or not re.fullmatch(r"\d{5,30}", str(object_id or "")):
+        raise StudioError("AD_NOT_READY", "Objeto Meta inválido.")
+    row, account, _ = await _campaign_editor_context(client_id, draft_id)
+    campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
+    allowed = await _campaign_children(account, campaign_id, "adsets" if level == "adset" else "ads")
+    if str(object_id) not in {str(item["id"]) for item in allowed}:
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    expected = "ACTIVE" if active else "PAUSED"
+    await _graph("POST", f"/{object_id}", token=account["token"], data={"status": expected})
+    actual = await _graph("GET", f"/{object_id}", token=account["token"], params={"fields": "id,status,effective_status"})
+    if str(actual.get("id") or "") != object_id or str(actual.get("status") or "") != expected:
+        raise StudioError("AD_NOT_READY", "A Meta não confirmou a alteração; atualize o status antes de tentar outra vez.")
+    return {"id": object_id, "level": level, "requested_status": expected,
+            "status": actual.get("status"), "effective_status": actual.get("effective_status"),
+            "checked_at": _now(), "meta_confirmed": True}
+
+
+async def edit_live_adset_budget(client_id: str, draft_id: str, *, adset_id: str, daily_budget: float) -> Dict[str, Any]:
+    """Update one owned adset daily budget, never a sibling; verify readback before success."""
+    import math
+    if not re.fullmatch(r"\d{5,30}", str(adset_id or "")):
+        raise StudioError("AD_NOT_READY", "Conjunto Meta inválido.")
+    if not isinstance(daily_budget, (int, float)) or not math.isfinite(daily_budget) or not MIN_DAILY_BRL <= daily_budget <= 1_000_000:
+        raise StudioError("AD_NOT_READY", f"Orçamento diário deve ser de R$ {MIN_DAILY_BRL:.2f} a R$ 1.000.000.")
+    row, account, _ = await _campaign_editor_context(client_id, draft_id)
+    campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
+    allowed = await _campaign_children(account, campaign_id, "adsets")
+    match = next((a for a in allowed if str(a.get("id") or "") == adset_id), None)
+    if match is None:
+        raise StudioError("AD_ACCOUNT_CHANGED", "Esse conjunto não pertence à campanha selecionada.")
+    # Em campanhas com orçamento central (CBO), o conjunto não tem verba própria.
+    if not _num(match.get("daily_budget")):
+        raise StudioError("AD_NOT_READY", "Esse conjunto não tem orçamento diário próprio. Edite a verba da campanha.")
+    cents = int(round(daily_budget * 100))
+    await _graph("POST", f"/{adset_id}", token=account["token"], data={"daily_budget": str(cents)})
+    actual = await _graph("GET", f"/{adset_id}", token=account["token"],
+                          params={"fields": "id,campaign_id,daily_budget"})
+    if str(actual.get("id") or "") != adset_id or str(actual.get("campaign_id") or "") != campaign_id or abs(_num(actual.get("daily_budget")) - cents) > 1:
+        raise StudioError("AD_NOT_READY", "A Meta não confirmou a verba do conjunto; verifique antes de repetir.")
+    return {"id": adset_id, "campaign_id": campaign_id, "daily_budget": cents,
+            "meta_confirmed": True, "checked_at": _now(), "budget_level": "adset"}
+
+
+async def live_object_insights(client_id: str, draft_id: str, *, level: str, object_id: str) -> Dict[str, Any]:
+    """Read seven-day Meta insights for one authorized ad set or ad, without mutation."""
+    if level not in {"adset", "ad"} or not re.fullmatch(r"\d{5,30}", str(object_id or "")):
+        raise StudioError("AD_NOT_READY", "Nível ou objeto Meta inválido.")
+    row, account, _ = await _campaign_editor_context(client_id, draft_id)
+    campaign_id = str((row.get("meta_ids") or {})["campaign_id"])
+    allowed = await _campaign_children(account, campaign_id, "adsets" if level == "adset" else "ads")
+    if object_id not in {str(x.get("id") or "") for x in allowed}:
+        raise StudioError("AD_ACCOUNT_CHANGED", "Objeto não pertence à campanha desta empresa.")
+    body = await _graph("GET", f"/{object_id}/insights", token=account["token"],
+                        params={"fields": "spend,impressions,reach,clicks,inline_link_clicks,ctr,cpc,cpm,frequency,actions",
+                                "date_preset": "last_7d", "limit": 1})
+    data = (body.get("data") or [])
+    line = data[0] if data and isinstance(data[0], dict) else {}
+    actions = [
+        {"type": _text(a.get("action_type"), 80), "value": _num(a.get("value"))}
+        for a in (line.get("actions") or []) if isinstance(a, dict)
+    ][:30]
+    return {"source": "meta_graph", "read_only": True, "level": level,
+            "id": object_id, "campaign_id": campaign_id, "date_preset": "last_7d",
+            "checked_at": _now(), "has_data": bool(line),
+            "spend": _num(line.get("spend")), "impressions": int(_num(line.get("impressions"))),
+            "reach": int(_num(line.get("reach"))), "clicks": int(_num(line.get("clicks"))),
+            "link_clicks": int(_num(line.get("inline_link_clicks"))),
+            "ctr": _num(line.get("ctr")), "cpc": _num(line.get("cpc")),
+            "cpm": _num(line.get("cpm")), "frequency": _num(line.get("frequency")),
+            "actions": actions}
+
+
+# ---------------------------------------------------------------- ativar / pausar / resultados
+
+RESULT_ACTIONS = {
+    "leads": ("offsite_conversion.fb_pixel_lead", "lead", "onsite_conversion.lead_grouped"),
+    "vendas": ("offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase"),
+    "retencao": ("offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase"),
+    "remarketing": ("offsite_conversion.fb_pixel_purchase", "purchase", "omni_purchase"),
+    "trafego": ("link_click",),
+    "engajamento": ("post_engagement",),
+}
+RESULT_LABEL = {"leads": "Cadastros", "vendas": "Compras", "retencao": "Compras", "remarketing": "Compras",
+                "trafego": "Cliques no link", "engajamento": "Engajamentos", "alcance": "Pessoas alcançadas"}
+
+
+async def _published(client_id: str, draft_id: str) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, str]]:
+    row = await _draft(client_id, draft_id)
+    ids = row.get("meta_ids") or {}
+    if row.get("status") != "publicada" or not ids.get("campaign_id"):
+        raise StudioError("AD_NOT_READY", "Crie a campanha no Meta antes de ativar.")
+    account = await _ad_account(client_id)
+    if str(ids.get("ad_account_id") or account["act"]).removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_MISSING")
+    return row, ids, account
+
+
+def _ads_of(ids: Dict[str, Any]) -> List[str]:
+    return [str(x) for x in (ids.get("ad_ids") or ([ids["ad_id"]] if ids.get("ad_id") else []))]
+
+
+async def set_delivery(client_id: str, draft_id: str, *, active: bool, user_name: str,
+                       confirm_daily_budget: Optional[float] = None) -> Dict[str, Any]:
+    """Liga ou pausa a entrega na Meta. Ligar exige confirmar a verba diária (começa a gastar).
+    Pausar desliga a campanha inteira na hora; os anúncios ficam como estão para religar com um clique.
+    Anúncio que entrou numa campanha já existente ("novo anúncio nesta campanha") liga/pausa só ele."""
+    row, ids, account = await _published(client_id, draft_id)
+    payload = clean_payload(row.get("payload") or {})
+    joined = bool(ids.get("joined"))
+    if active and not joined and (confirm_daily_budget is None or abs(float(confirm_daily_budget) - payload["daily_budget"]) > 0.009):
+        raise StudioError("AD_CONFIRM_BUDGET", "Confirme a verba diária para ativar.")
+    status = "ACTIVE" if active else "PAUSED"
+    ads = _ads_of(ids)
+    if active:
+        # De baixo para cima: anúncios, conjunto e campanha — quando a campanha liga, tudo já está pronto.
+        adsets = [str(x) for x in (ids.get("adset_ids") or [ids["adset_id"]])]
+        targets = ads if joined else [*ads, *adsets, str(ids["campaign_id"])]
+    else:
+        targets = ads if joined else [str(ids["campaign_id"])]
+    for object_id in targets:
+        await _graph("POST", f"/{object_id}", token=account["token"], data={"status": status})
+    ids = {**ids, "delivery": {"state": "ativa" if active else "pausada", "by": (user_name or "")[:120], "at": _now()}}
+    await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"},
+                    patch={"meta_ids": ids, "updated_at": _now()})
+    print(f"[meta_ads_delivery] client_id={client_id} draft={draft_id} status={status} objects={len(targets)}")
+    return await live_delivery_status(client_id, draft_id)
+
+
+def _num(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def live_results(client_id: str, draft_id: str, period: str = "maximum") -> Dict[str, Any]:
+    """Números da campanha direto da Meta (somente leitura): gasto, alcance, cliques e o resultado do objetivo."""
+    row, ids, account = await _published(client_id, draft_id)
+    payload = clean_payload(row.get("payload") or {})
+    preset = period if period in ("today", "yesterday", "last_7d", "maximum") else "maximum"
+    fields = "spend,impressions,reach,clicks,inline_link_clicks,ctr,cpc,cpm,frequency,actions"
+    objects = _ads_of(ids) if ids.get("joined") else [str(ids["campaign_id"])]
+    total = {"spend": 0.0, "impressions": 0.0, "reach": 0.0, "clicks": 0.0, "link_clicks": 0.0, "results": 0.0}
+    wanted = RESULT_ACTIONS.get(payload["objective"], ())
+    for object_id in objects:
+        body = await _graph("GET", f"/{object_id}/insights", token=account["token"], params={"fields": fields, "date_preset": preset})
+        for line in body.get("data") or []:
+            total["spend"] += _num(line.get("spend"))
+            total["impressions"] += _num(line.get("impressions"))
+            total["reach"] += _num(line.get("reach"))
+            total["clicks"] += _num(line.get("clicks"))
+            total["link_clicks"] += _num(line.get("inline_link_clicks"))
+            actions = {a.get("action_type"): _num(a.get("value")) for a in line.get("actions") or []}
+            total["results"] += next((actions[k] for k in wanted if k in actions), 0.0)
+    if payload["objective"] == "alcance":
+        total["results"] = total["reach"]
+    impressions = total["impressions"]
+    return {"draft_id": draft_id, "period": preset, "checked_at": _now(), "currency": "BRL",
+            "spend": round(total["spend"], 2), "impressions": int(impressions), "reach": int(total["reach"]),
+            "clicks": int(total["clicks"]), "link_clicks": int(total["link_clicks"]),
+            "ctr": round(total["clicks"] / impressions * 100, 2) if impressions else 0.0,
+            "cpc": round(total["spend"] / total["clicks"], 2) if total["clicks"] else None,
+            "results": int(total["results"]), "result_label": RESULT_LABEL.get(payload["objective"], "Resultados"),
+            "cost_per_result": round(total["spend"] / total["results"], 2) if total["results"] else None,
+            "daily_budget": payload["daily_budget"], "read_only": True}
+
+
+STATE_LABEL = {"ACTIVE": "no_ar", "PAUSED": "pausada", "CAMPAIGN_PAUSED": "pausada", "ADSET_PAUSED": "pausada",
+               "IN_PROCESS": "em_analise", "PENDING_REVIEW": "em_analise", "WITH_ISSUES": "com_problema",
+               "DISAPPROVED": "reprovada", "ARCHIVED": "encerrada", "DELETED": "encerrada"}
+
+
+async def client_overview(client_id: str, limit: int = 12) -> Dict[str, Any]:
+    """Visão do CLIENTE (somente leitura): o que a agência colocou no Meta pela Mídia On, com o criativo,
+    se está no ar e os números desde o início. Sem verba editável, sem botões, sem IDs internos."""
+    rows = [r for r in await list_drafts(client_id) if (r.get("meta_ids") or {}).get("campaign_id")][:limit]
+
+    async def one(row: Dict[str, Any]) -> Dict[str, Any]:
+        payload, ad = row["payload"], row["payload"]["ad"]
+        units = ad_units(ad)
+        creatives = []
+        for unit in units:
+            cards = unit.get("cards") or []
+            creatives.append({"format": "carrossel" if unit.get("format") == "carousel" else "vídeo" if unit.get("media_type") == "video" else "imagem",
+                              "image_url": (cards[0].get("image_url") if cards else unit.get("image_url")) or None,
+                              "video_url": unit.get("video_url") or None, "cards": len(cards) or None})
+        item: Dict[str, Any] = {
+            "id": row["id"], "name": payload.get("name"), "objective": payload.get("objective"),
+            "daily_budget": payload.get("daily_budget"), "start_date": payload.get("start_date"), "end_date": payload.get("end_date"),
+            "primary_text": ad.get("primary_text"), "headline": ad.get("headline"), "link": ad.get("link") or None,
+            "creatives": creatives, "state": "desconhecido", "results": None,
+        }
+        if account is None:
+            return item
+        # Uma chamada só por campanha: status e números desde o início juntos (rápido para o cliente).
+        try:
+            body = await _graph("GET", f"/{row['meta_ids']['campaign_id']}", token=account["token"], params={
+                "fields": "effective_status,insights.date_preset(maximum){spend,impressions,reach,clicks,inline_link_clicks,actions}"})
+        except Exception:  # noqa: BLE001 - sem a Meta, a campanha aparece com o criativo e sem números
+            return item
+        item["state"] = STATE_LABEL.get(str(body.get("effective_status") or "").upper(), "desconhecido")
+        line = ((body.get("insights") or {}).get("data") or [{}])[0] or {}
+        spend, impressions = _num(line.get("spend")), _num(line.get("impressions"))
+        actions = {a.get("action_type"): _num(a.get("value")) for a in line.get("actions") or []}
+        wanted = RESULT_ACTIONS.get(payload.get("objective"), ())
+        results = _num(line.get("reach")) if payload.get("objective") == "alcance" else next((actions[k] for k in wanted if k in actions), 0.0)
+        item["results"] = {"spend": round(spend, 2), "reach": int(_num(line.get("reach"))), "impressions": int(impressions),
+                           "link_clicks": int(_num(line.get("inline_link_clicks"))),
+                           "ctr": round(_num(line.get("clicks")) / impressions * 100, 2) if impressions else 0.0,
+                           "results": int(results), "result_label": RESULT_LABEL.get(payload.get("objective"), "Resultados"),
+                           "cost_per_result": round(spend / results, 2) if results else None, "checked_at": _now()}
+        return item
+
+    try:
+        account: Optional[Dict[str, str]] = await _ad_account(client_id) if rows else None
+    except StudioError:
+        account = None
+    items = await asyncio.gather(*(one(r) for r in rows))
+    order = {"no_ar": 0, "em_analise": 1, "com_problema": 2, "pausada": 3}
+    items = sorted(items, key=lambda i: order.get(i["state"], 4))
+    return {"campaigns": items, "checked_at": _now(), "read_only": True}
+
+
+async def list_pixels(client_id: str, draft_id: Optional[str] = None) -> Dict[str, Any]:
+    """Conjuntos de dados (pixels) da conta, com o recomendado (o que está recebendo eventos) e o que a campanha usa."""
+    account = await _ad_account(client_id)
+    pixels = await _pixels(account["act"], account["token"])
+    best = best_pixel(pixels)
+    current = None
+    if draft_id:
+        row = await _draft(client_id, draft_id)
+        ids = row.get("meta_ids") or {}
+        current = str(ids.get("pixel_id") or "") or None
+        if not current and ids.get("adset_id"):
+            try:
+                remote = await _graph("GET", f"/{ids['adset_id']}", token=account["token"], params={"fields": "promoted_object"})
+                current = str((remote.get("promoted_object") or {}).get("pixel_id") or "") or None
+            except StudioError:
+                current = None
+    return {"current": current, "recommended": str(best["id"]) if best else None,
+            "pixels": [{"id": str(p["id"]), "name": _text(p.get("name"), 120) or str(p["id"]),
+                        "last_fired_time": p.get("last_fired_time"), "active": bool(p.get("last_fired_time")),
+                        "unavailable": bool(p.get("is_unavailable"))} for p in pixels]}
+
+
+async def set_pixel(client_id: str, draft_id: str, pixel_id: str, *, user_name: str) -> Dict[str, Any]:
+    """Troca o conjunto de dados (pixel) de uma campanha já criada: no conjunto de anúncios (otimização) e no
+    rastreamento de cada anúncio. Não liga nada nem muda verba."""
+    row = await _draft(client_id, draft_id)
+    ids = dict(row.get("meta_ids") or {})
+    payload = clean_payload(row.get("payload") or {})
+    cfg = OBJECTIVES[payload["objective"]]
+    if not ids.get("adset_id"):
+        raise StudioError("AD_NOT_READY", "A campanha ainda não foi criada na Meta.")
+    if not cfg.get("event"):
+        raise StudioError("AD_NOT_READY", "Este objetivo não usa pixel.")
+    account = await _ad_account(client_id)
+    if str(ids.get("ad_account_id") or account["act"]).removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_MISSING")
+    pixels = {str(p["id"]): p for p in await _pixels(account["act"], account["token"])}
+    if str(pixel_id) not in pixels:
+        raise StudioError("AD_PIXEL_MISSING")
+    await _graph("POST", f"/{ids['adset_id']}", token=account["token"],
+                 data={"promoted_object": json.dumps({"pixel_id": str(pixel_id), "custom_event_type": cfg["event"]})})
+    skipped = 0
+    for ad_id in _ads_of(ids):
+        try:
+            await _graph("POST", f"/{ad_id}", token=account["token"], data={"tracking_specs": json.dumps(
+                [{"action.type": ["offsite_conversion"], "fb_pixel": [str(pixel_id)]}])})
+        except StudioError:
+            skipped += 1  # o conjunto já otimiza pelo pixel novo; o rastreamento do anúncio dá para ajustar no Gerenciador
+    ids["pixel_id"] = str(pixel_id)
+    ids["pixel_changed"] = {"by": (user_name or "")[:120], "at": _now(), "name": _text(pixels[str(pixel_id)].get("name"), 120)}
+    await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}, patch={"meta_ids": ids, "updated_at": _now()})
+    print(f"[meta_ads_pixel] client_id={client_id} draft={draft_id} ads={len(_ads_of(ids))} skipped={skipped}")
+    return {**(await list_pixels(client_id, draft_id)), "ads_not_updated": skipped}
+
+
+async def ad_whatsapp_numbers(client_id: str) -> List[Dict[str, str]]:
+    """Números de WhatsApp da marca ligados ao MUGOVERSO (para o anúncio que abre conversa)."""
+    rows = await sb_select("whatsapp_numbers", select="display_phone_number,verified_name,status",
+                           filters={"client_id": f"eq.{client_id}", "status": "eq.active"}, limit=10)
+    out = []
+    for row in rows:
+        digits = re.sub(r"\D", "", str(row.get("display_phone_number") or ""))
+        if 10 <= len(digits) <= 15:
+            out.append({"number": digits, "label": str(row.get("display_phone_number") or digits),
+                        "name": str(row.get("verified_name") or "")})
+    return out
+
+
+# ---------------------------------------------------------------- puxar campanha que já existe na Meta
+
+def objective_from_meta(objective: str, adset: Dict[str, Any]) -> str:
+    """Objetivo da Meta (+ o conjunto) → objetivo da Mídia On."""
+    promoted = adset.get("promoted_object") or {}
+    event = str(promoted.get("custom_event_type") or "").upper()
+    if str(adset.get("destination_type") or "").upper() == "WHATSAPP":
+        return "whatsapp"
+    return {"OUTCOME_LEADS": "leads", "OUTCOME_SALES": "vendas", "OUTCOME_TRAFFIC": "trafego",
+            "OUTCOME_AWARENESS": "alcance", "OUTCOME_ENGAGEMENT": "engajamento"}.get(
+        str(objective or "").upper(), "vendas" if event == "PURCHASE" else "leads" if event == "LEAD" else "trafego")
+
+
+async def _imported_ids(client_id: str) -> set:
+    rows = await sb_select(TABLE, select="meta_ids", filters={"client_id": f"eq.{client_id}"}, limit=200)
+    return {str((r.get("meta_ids") or {}).get("campaign_id") or "") for r in rows} - {""}
+
+
+async def _effective_campaign_delivery(campaign_id: str, token: str) -> str:
+    """Classify ad delivery based on ad effective_status, not campaign ACTIVE alone.
+
+    ACTIVE means an ad is eligible for delivery, not proof of recent impressions.
+    Unknown/incomplete API reads must never become a positive ACTIVE signal.
+    """
+    params: Dict[str, Any] = {"fields": "id,effective_status", "limit": 100}
+    seen: set[str] = set()
+    states: List[str] = []
+    for _ in range(3):
+        body = await _graph("GET", f"/{campaign_id}/ads", token=token, params=params)
+        states.extend(str(ad.get("effective_status") or "").upper() for ad in body.get("data") or [])
+        if "ACTIVE" in states:
+            return "ACTIVE"
+        paging = body.get("paging") or {}
+        cursor = str((paging.get("cursors") or {}).get("after") or "")
+        if not paging.get("next"):
+            break
+        if not cursor or cursor in seen:
+            return "UNKNOWN"
+        seen.add(cursor)
+        params["after"] = cursor
+    else:
+        # More ads might exist. We cannot affirm all are inactive or paused.
+        return "UNKNOWN"
+    if not states:
+        return "NO_ACTIVE_AD"
+    for key in ("WITH_ISSUES", "DISAPPROVED", "PENDING_REVIEW", "IN_PROCESS"):
+        if key in states:
+            return key
+    if all(v in {"PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED"} for v in states):
+        return "PAUSED"
+    return "UNKNOWN"
+
+
+async def list_meta_campaigns(client_id: str, *, include_finished: bool = False) -> List[Dict[str, Any]]:
+    """Campanhas da conta de anúncios; a visão geral inclui arquivadas e datas de encerramento."""
+    account = await _ad_account(client_id)
+    statuses = ["ACTIVE", "PAUSED", "IN_PROCESS", "WITH_ISSUES", "CAMPAIGN_PAUSED",
+                "PENDING_REVIEW", "DISAPPROVED"]
+    if include_finished:
+        statuses.append("ARCHIVED")
+    params = {
+        "fields": "id,name,objective,effective_status,daily_budget,lifetime_budget,created_time,stop_time",
+        "limit": 100 if include_finished else 50,
+        "effective_status": json.dumps(statuses),
+    }
+    known = await _imported_ids(client_id)
+    out: List[Dict[str, Any]] = []
+    seen_cursors: set[str] = set()
+    # Páginas limitadas evitam consultas infinitas em contas grandes.
+    for _ in range(5 if include_finished else 1):
+        body = await _graph("GET", f"/{account['act']}/campaigns", token=account["token"], params=params)
+        for c in body.get("data") or []:
+            budget = _num(c.get("daily_budget")) / 100
+            out.append({"id": str(c["id"]), "name": _text(c.get("name"), 120),
+                        "objective": str(c.get("objective") or ""),
+                        "status": str(c.get("effective_status") or ""), "daily_budget": budget or None,
+                        "created_time": c.get("created_time"), "stop_time": c.get("stop_time"),
+                        "imported": str(c["id"]) in known})
+        if not include_finished:
+            break
+        cursor = str(((body.get("paging") or {}).get("cursors") or {}).get("after") or "")
+        if not cursor or cursor in seen_cursors or not (body.get("paging") or {}).get("next"):
+            break
+        seen_cursors.add(cursor)
+        params["after"] = cursor
+    if include_finished:
+        # A campaign can be ACTIVE while every ad or ad set is paused.
+        # Verify ad effective status for each ACTIVE campaign without modifying delivery.
+        semaphore = asyncio.Semaphore(5)
+
+        async def verify(row: Dict[str, Any]) -> None:
+            if row["status"].upper() != "ACTIVE":
+                row["delivery_checked"] = False
+                return
+            async with semaphore:
+                try:
+                    row["status"] = await _effective_campaign_delivery(row["id"], account["token"])
+                    row["delivery_checked"] = row["status"] != "UNKNOWN"
+                except Exception:
+                    row["status"] = "UNKNOWN"
+                    row["delivery_checked"] = False
+
+        await asyncio.gather(*(verify(row) for row in out))
+    return out
+
+
+async def import_meta_campaign(client_id: str, campaign_id: str, *, user_id: str) -> Dict[str, Any]:
+    """Traz uma campanha que já existe na Meta para a Mídia On: status, ligar/pausar, pixel e resultados no painel.
+    Nada muda na Meta."""
+    if not re.fullmatch(r"\d{5,30}", str(campaign_id or "")):
+        raise StudioError("AD_DRAFT_NOT_FOUND")
+    if campaign_id in await _imported_ids(client_id):
+        raise StudioError("AD_ALREADY_IMPORTED", "Esta campanha já está na Mídia On.")
+    account = await _ad_account(client_id)
+    token, act = account["token"], account["act"]
+    camp = await _graph("GET", f"/{campaign_id}", token=token, params={"fields": "id,name,objective,daily_budget,account_id"})
+    if str(camp.get("account_id") or "").removeprefix("act_") != act.removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_MISSING")
+    adsets = (await _graph("GET", f"/{campaign_id}/adsets", token=token, params={
+        "fields": "id,daily_budget,start_time,end_time,promoted_object,destination_type,targeting", "limit": 25})).get("data") or []
+    ads = (await _graph("GET", f"/{campaign_id}/ads", token=token, params={
+        "fields": "id,adset_id,creative{body,title,thumbnail_url,image_url,call_to_action_type,object_story_spec}", "limit": 50})).get("data") or []
+    first = adsets[0] if adsets else {}
+    budget = _num(camp.get("daily_budget")) / 100 or sum(_num(a.get("daily_budget")) for a in adsets) / 100
+    creative = (ads[0].get("creative") if ads else None) or {}
+    story = creative.get("object_story_spec") or {}
+    link_data = story.get("link_data") or {}
+    targeting = first.get("targeting") or {}
+    genders = targeting.get("genders") or []
+    cta = str(creative.get("call_to_action_type") or "LEARN_MORE")
+    payload = clean_payload({
+        "name": camp.get("name"), "objective": objective_from_meta(str(camp.get("objective") or ""), first),
+        "daily_budget": round(budget, 2), "start_date": str(first.get("start_time") or "")[:10], "end_date": str(first.get("end_time") or "")[:10],
+        "audience": {"age_min": targeting.get("age_min") or 18, "age_max": targeting.get("age_max") or 65,
+                     "gender": "mulheres" if genders == [2] else "homens" if genders == [1] else "todos", "advantage": True},
+        "ad": {"primary_text": creative.get("body") or link_data.get("message") or "", "headline": creative.get("title") or link_data.get("name") or "",
+               "link": link_data.get("link") or "", "image_url": creative.get("image_url") or creative.get("thumbnail_url") or "",
+               "cta": cta if cta in CTAS else "LEARN_MORE"},
+    })
+    ad_ids = [str(a["id"]) for a in ads]
+    pixel = str(((first.get("promoted_object") or {}).get("pixel_id")) or "") or None
+    ids = {"ad_account_id": act, "campaign_id": str(camp["id"]), "adset_id": str(first["id"]) if first else None,
+           "adset_ids": [str(a["id"]) for a in adsets], "ad_ids": ad_ids, "ad_id": ad_ids[0] if ad_ids else None,
+           "pixel_id": pixel, "imported": True}
+    row = await sb_insert(TABLE, {"client_id": client_id, "source_campaign": "Importada da Meta", "payload": payload,
+                                  "status": "publicada", "meta_ids": {k: v for k, v in ids.items() if v is not None},
+                                  "published_at": _now(), "created_by": user_id})
+    if not row:
+        raise StudioError("AD_SAVE_FAILED")
+    print(f"[meta_ads_import] client_id={client_id} campaign={campaign_id} adsets={len(adsets)} ads={len(ad_ids)}")
+    return _view(row)
 
 
 async def delete_draft(client_id: str, draft_id: str) -> None:
@@ -348,6 +1037,114 @@ async def delete_draft(client_id: str, draft_id: str) -> None:
     if row.get("status") == "publicando":
         raise StudioError("AD_ALREADY_PUBLISHED")
     await sb_delete(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}, returning="minimal")
+
+
+async def edit_live_budget(client_id: str, draft_id: str, daily_budget: float) -> Dict[str, Any]:
+    """Update the provider's actual budget level then persist verified value; never activate delivery."""
+    import math
+    if not isinstance(daily_budget, (int, float)) or not math.isfinite(daily_budget) or daily_budget < MIN_DAILY_BRL:
+        raise StudioError("AD_NOT_READY", f"Orçamento mínimo: R$ {MIN_DAILY_BRL:.2f} por dia.")
+    row = await _draft(client_id, draft_id)
+    ids = row.get("meta_ids") or {}
+    if row.get("status") != "publicada" or not ids.get("campaign_id"):
+        raise StudioError("AD_NOT_PUBLISHED_YET")
+    account = await _ad_account(client_id)
+    if ids.get("ad_account_id") and str(ids["ad_account_id"]).removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    campaign = await _graph("GET", f"/{ids['campaign_id']}", token=account["token"],
+                            params={"fields": "id,account_id,daily_budget,status"})
+    if str(campaign.get("account_id") or "").removeprefix("act_") != account["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    target = str(ids["campaign_id"])
+    if not _num(campaign.get("daily_budget")):
+        # Imported campaigns can have budget at ad-set level; never change a different ad set.
+        adset_ids = list(ids.get("adset_ids") or ([ids["adset_id"]] if ids.get("adset_id") else []))
+        if len(adset_ids) != 1:
+            raise StudioError("AD_NOT_READY", "Campanha com múltiplos conjuntos: ajuste de verba exige selecionar o conjunto específico.")
+        target = str(adset_ids[0])
+        adset = await _graph("GET", f"/{target}", token=account["token"],
+                             params={"fields": "id,campaign_id,daily_budget"})
+        if str(adset.get("campaign_id")) != str(ids["campaign_id"]):
+            raise StudioError("AD_ACCOUNT_CHANGED")
+        if not _num(adset.get("daily_budget")):
+            raise StudioError("AD_NOT_READY", "Não foi possível localizar o orçamento diário desta campanha.")
+    cents = int(round(float(daily_budget) * 100))
+    await _graph("POST", f"/{target}", token=account["token"], data={"daily_budget": str(cents)})
+    confirmed = await _graph("GET", f"/{target}", token=account["token"], params={"fields": "id,daily_budget"})
+    if abs(_num(confirmed.get("daily_budget")) - cents) > 1:
+        raise StudioError("AD_NOT_READY", "A Meta não confirmou o novo orçamento. Confira a conta antes de tentar novamente.")
+    payload = dict(row.get("payload") or {})
+    payload["daily_budget"] = cents / 100
+    rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"},
+                           patch={"payload": payload, "updated_at": _now()})
+    return {"draft": _view(rows[0] if rows else {**row, "payload": payload}),
+            "meta_confirmed": True, "budget_level": "campaign" if target == str(ids["campaign_id"]) else "adset"}
+
+
+async def edit_live_single_image(client_id: str, draft_id: str, updated_ad: Dict[str, Any]) -> Dict[str, Any]:
+    """Make a new Meta creative and replace the owned ad's creative. Existing creative is immutable."""
+    row = await _draft(client_id, draft_id)
+    ids = row.get("meta_ids") or {}
+    if row.get("status") != "publicada" or not ids.get("ad_id") or not ids.get("campaign_id"):
+        raise StudioError("AD_NOT_PUBLISHED_YET")
+    if len(_ads_of(ids)) != 1:
+        raise StudioError("AD_NOT_READY", "Campanha com vários anúncios: edite os anúncios individualmente no Gerenciador até termos a seleção de anúncio.")
+    payload = dict(row.get("payload") or {})
+    old_ad = dict(payload.get("ad") or {})
+    if old_ad.get("format") not in (None, "single", "multi") or old_ad.get("media_type") == "video":
+        raise StudioError("AD_NOT_READY", "Edição direta disponível por enquanto para anúncio de imagem única.")
+    candidate = {**old_ad, **{k: v for k, v in updated_ad.items() if k in
+                              {"primary_text", "headline", "description", "cta", "link", "image_url"}}}
+    candidate["format"] = "single"
+    candidate["media_type"] = "image"
+    candidate["instagram_post_id"] = None
+    normalized = clean_payload({**payload, "ad": candidate})["ad"]
+    if not normalized.get("image_url") or not normalized.get("primary_text") or not normalized.get("link"):
+        raise StudioError("AD_NOT_READY", "Informe imagem, texto principal e link de destino.")
+    if normalized.get("cta") not in CTAS:
+        raise StudioError("AD_NOT_READY", "Botão inválido para anúncios da Meta.")
+    ctx = await _context(client_id)
+    if ids.get("ad_account_id") and str(ids["ad_account_id"]).removeprefix("act_") != ctx["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    original = await _graph("GET", f"/{ids['ad_id']}", token=ctx["token"],
+                            params={"fields": "id,account_id,campaign_id,creative{id}"})
+    if str(original.get("account_id") or "").removeprefix("act_") != ctx["act"].removeprefix("act_"):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    # Validate that the requested ad belongs to the selected campaign.
+    if original.get("campaign_id") and str(original["campaign_id"]) != str(ids["campaign_id"]):
+        raise StudioError("AD_ACCOUNT_CHANGED")
+    image_hash = await _image_hash(ctx["act"], normalized["image_url"], ctx["token"])
+    link_data: Dict[str, Any] = {
+        "link": normalized["link"], "message": normalized["primary_text"],
+        "image_hash": image_hash,
+        "call_to_action": {"type": normalized["cta"], "value": {"link": normalized["link"]}},
+    }
+    if normalized.get("headline"):
+        link_data["name"] = normalized["headline"]
+    if normalized.get("description"):
+        link_data["description"] = normalized["description"]
+    story = {"page_id": ctx["page_id"], "link_data": link_data}
+    if ctx.get("ig_id"):
+        story["instagram_user_id"] = ctx["ig_id"]
+    new_creative = await _graph("POST", f"/{ctx['act']}/adcreatives", token=ctx["token"],
+                                data={"name": f"{payload.get('name', 'Campanha')} · edição Mugô Verso",
+                                      "object_story_spec": json.dumps(story),
+                                      **({"url_tags": tracking_suffix(payload["tracking"])} if payload.get("tracking") else {})})
+    creative_id = str(new_creative.get("id") or "")
+    if not creative_id:
+        raise StudioError("AD_NOT_READY", "A Meta não retornou o identificador do novo criativo.")
+    await _graph("POST", f"/{ids['ad_id']}", token=ctx["token"],
+                 data={"creative": json.dumps({"creative_id": creative_id})})
+    verified = await _graph("GET", f"/{ids['ad_id']}", token=ctx["token"],
+                            params={"fields": "id,creative{id}"})
+    if str((verified.get("creative") or {}).get("id") or "") != creative_id:
+        raise StudioError("AD_NOT_READY", "A Meta ainda não confirmou o novo criativo. Confira antes de tentar novamente.")
+    payload["ad"] = normalized
+    next_ids = {**ids, "creative_id": creative_id, "creative_ids": [creative_id]}
+    rows = await sb_update(TABLE, filters={"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"},
+                           patch={"payload": payload, "meta_ids": next_ids, "updated_at": _now()})
+    return {"draft": _view(rows[0] if rows else {**row, "payload": payload, "meta_ids": next_ids}),
+            "meta_confirmed": True, "review_may_be_required": True}
 
 
 # ---------------------------------------------------------------- Graph API
@@ -406,7 +1203,7 @@ async def _context(client_id: str) -> Dict[str, Any]:
     return {**account, "page_id": page_id, "ig_id": ig_id}
 
 
-async def publication_preflight(client_id: str, objective: str = "leads") -> Dict[str, Any]:
+async def publication_preflight(client_id: str, objective: str = "leads", needs_pixel: Optional[bool] = None) -> Dict[str, Any]:
     """Read-only account readiness for creating one PAUSED Meta ad.
 
     No credentials, pixel IDs or other private Meta connection values are returned.
@@ -451,14 +1248,15 @@ async def publication_preflight(client_id: str, objective: str = "leads") -> Dic
         record("page", False, "Conecte a Página do Facebook desta marca em Integrações.")
         record("instagram", False, "Instagram não pôde ser verificado.")
 
-    if OBJECTIVES[objective].get("event"):
+    if needs_pixel if needs_pixel is not None else OBJECTIVES[objective].get("event"):
         try:
-            pixel = await _graph("GET", f"/{act}/adspixels", token=token,
-                                 params={"fields": "id,name", "limit": 5})
-            found = pixel.get("data") or []
-            record("pixel", bool(found), "Pixel associado à conta de anúncios." if found
-                   else "Nenhum pixel associado. É necessário para otimizar esta campanha por evento.",
-                   _text(found[0].get("name"), 120) if found else "")
+            chosen = best_pixel(await _pixels(act, token))
+            active = bool(chosen and chosen.get("last_fired_time"))
+            record("pixel", bool(chosen),
+                   ("Vai usar este conjunto de dados, que está recebendo eventos do site." if active
+                    else "Este conjunto de dados ainda não recebeu eventos do site: a Meta vai pedir para configurar o evento.")
+                   if chosen else "Nenhum pixel associado. É necessário para otimizar esta campanha por evento.",
+                   _text(chosen.get("name"), 120) if chosen else "")
         except StudioError:
             record("pixel", False, "Não foi possível consultar os pixels da conta.")
     else:
@@ -523,12 +1321,93 @@ async def _image_hash(act: str, url: str, token: str) -> str:
     return str(first["hash"])
 
 
-async def _pixel_id(act: str, token: str) -> str:
-    body = await _graph("GET", f"/{act}/adspixels", token=token, params={"fields": "id,name", "limit": 5})
-    pixels = body.get("data") or []
-    if not pixels:
+def best_pixel(pixels: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """O conjunto de dados que está recebendo eventos agora (o mais recente), não o primeiro da lista.
+    Pixel/conjunto sem nenhum evento faz a Meta pedir "Configurar evento de conversão" e o anúncio não otimiza."""
+    usable = [p for p in pixels if not p.get("is_unavailable")]
+    if not usable:
+        return None
+    fired = [p for p in usable if p.get("last_fired_time")]
+    return max(fired, key=lambda p: str(p["last_fired_time"])) if fired else usable[0]
+
+
+VIDEO_MAX_BYTES = 200 * 1024 * 1024
+
+
+async def _upload_video(act: str, unit: Dict[str, Any], token: str, name: str) -> str:
+    """Envia o vídeo para a conta de anúncios. Link de vídeo do Instagram expira: renova pelo post e, se a Meta
+    não conseguir baixar pelo link, o MUGOVERSO baixa e envia o arquivo."""
+    url = unit.get("video_url") or ""
+    if unit.get("instagram_post_id"):
+        try:
+            fresh = await _graph("GET", f"/{unit['instagram_post_id']}", token=token, params={"fields": "media_url,media_type"})
+            if str(fresh.get("media_url") or "").startswith("https://"):
+                url = fresh["media_url"]
+        except StudioError:
+            pass
+    if not url.startswith("https://"):
+        raise MetaAdError("AD_META_REJECTED", "o vídeo não tem um link válido. Escolha o vídeo de novo.")
+    try:
+        made = await _graph("POST", f"/{act}/advideos", token=token, data={"file_url": url, "name": name})
+    except MetaAdError:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=20), follow_redirects=True) as client:
+            got = await client.get(url)
+        if got.status_code >= 400 or not got.content:
+            raise MetaAdError("AD_META_REJECTED", "não consegui baixar o vídeo (o link do Instagram pode ter expirado). Escolha o vídeo de novo.")
+        if len(got.content) > VIDEO_MAX_BYTES:
+            raise MetaAdError("AD_META_REJECTED", "o vídeo passa de 200 MB. Envie uma versão menor.")
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20)) as client:
+            response = await client.post(f"{META_GRAPH_BASE_URL}/{act}/advideos", params={"access_token": token},
+                                         data={"name": name}, files={"source": ("video.mp4", got.content, "video/mp4")})
+        made = response.json() if response.content else {}
+        if response.status_code >= 400:
+            err = (made or {}).get("error") or {}
+            raise MetaAdError("AD_META_REJECTED", str(err.get("error_user_msg") or err.get("message") or "a Meta recusou o vídeo.")[:300])
+    video_id = str((made or {}).get("id") or "")
+    if not video_id:
+        raise MetaAdError("AD_META_REJECTED", "a Meta não devolveu o ID do vídeo.")
+    return video_id
+
+
+async def _video_thumbnail(video_id: str, token: str, tries: int = 6) -> str:
+    """Capa gerada pela Meta para um vídeo enviado sem capa. A Meta leva alguns segundos para processar o vídeo."""
+    for attempt in range(tries):
+        try:
+            body = await _graph("GET", f"/{video_id}/thumbnails", token=token, params={"fields": "uri,is_preferred"})
+        except (MetaAdError, StudioError):
+            body = {}
+        thumbs = [t for t in (body.get("data") or []) if str(t.get("uri") or "").startswith("https://")]
+        if thumbs:
+            return str(next((t for t in thumbs if t.get("is_preferred")), thumbs[0])["uri"])
+        if attempt < tries - 1:
+            await asyncio.sleep(5)
+    return ""
+
+
+async def _pixels(act: str, token: str) -> List[Dict[str, Any]]:
+    body = await _graph("GET", f"/{act}/adspixels", token=token,
+                        params={"fields": "id,name,last_fired_time,is_unavailable", "limit": 50})
+    return list(body.get("data") or [])
+
+
+async def _chosen_pixel(act: str, token: str, wanted: Optional[str]) -> str:
+    """O pixel escolhido na revisão (se for desta conta) ou, sem escolha, o que está recebendo eventos."""
+    pixels = await _pixels(act, token)
+    if wanted:
+        if any(str(p["id"]) == str(wanted) and not p.get("is_unavailable") for p in pixels):
+            return str(wanted)
+        raise StudioError("AD_PIXEL_MISSING", "O pixel escolhido não está nesta conta de anúncios. Escolha outro na revisão.")
+    chosen = best_pixel(pixels)
+    if not chosen:
         raise StudioError("AD_PIXEL_MISSING")
-    return str(pixels[0]["id"])
+    return str(chosen["id"])
+
+
+async def _pixel_id(act: str, token: str) -> str:
+    chosen = best_pixel(await _pixels(act, token))
+    if not chosen:
+        raise StudioError("AD_PIXEL_MISSING")
+    return str(chosen["id"])
 
 
 def audience_rule(pixel_id: str, days: int, event: Optional[str]) -> Dict[str, Any]:
@@ -607,19 +1486,182 @@ def audience_view(row: Dict[str, Any], saved: bool = False) -> Dict[str, Any]:
             "ready": code == 200, "status": _text(status.get("description"), 200) if code != 200 else ""}
 
 
+def foreign_source(row: Dict[str, Any], page_id: str, ig_id: str) -> str:
+    """Público de engajamento criado com OUTRO perfil (ex.: Instagram de um parceiro): o Meta só aceita esse público
+    em anúncio daquele perfil. Devolve o tipo da origem estranha ("instagram"/"facebook") ou "" se está tudo certo."""
+    try:
+        rule = json.loads(row.get("rule") or "{}") if isinstance(row.get("rule"), str) else (row.get("rule") or {})
+    except ValueError:
+        return ""
+    for part in ((rule.get("inclusions") or {}).get("rules") or []) if isinstance(rule, dict) else []:
+        for source in part.get("event_sources") or []:
+            kind, sid = str(source.get("type") or ""), str(source.get("id") or "")
+            if kind == "ig_business" and ig_id and sid and sid != str(ig_id):
+                return "instagram"
+            if kind == "page" and page_id and sid and sid != str(page_id):
+                return "facebook"
+    return ""
+
+
+async def _brand_profiles(client_id: str) -> Dict[str, str]:
+    try:
+        from .ig_engagement import credentials
+        creds = await credentials(client_id)
+        return {"page_id": str(creds.get("page_id") or ""), "ig_id": str(creds.get("ig_user_id") or "")}
+    except Exception:  # noqa: BLE001 - sem o Instagram conectado, não dá para conferir a origem
+        return {"page_id": "", "ig_id": ""}
+
+
 async def list_account_audiences(client_id: str) -> Dict[str, Any]:
     """Públicos que já existem na conta de anúncios do cliente, para escolher em vez de escrever o público."""
     account = await _ad_account(client_id)
     token, act = account["token"], account["act"]
     size = "approximate_count_lower_bound,approximate_count_upper_bound"
-    custom = await _paged(f"/{act}/customaudiences", token, f"id,name,subtype,delivery_status,{size}")
+    custom = await _paged(f"/{act}/customaudiences", token, f"id,name,subtype,delivery_status,rule,{size}")
     try:
         saved = await _paged(f"/{act}/saved_audiences", token, f"id,name,{size}", pages=1)
     except MetaAdError:
         saved = []  # algumas contas não liberam a leitura de públicos salvos; os personalizados seguem
-    views = [audience_view(row) for row in custom if row.get("id")]
+    brand = await _brand_profiles(client_id)
+    views = []
+    for row in custom:
+        if not row.get("id"):
+            continue
+        view = audience_view(row)
+        other = foreign_source(row, brand["page_id"], brand["ig_id"])
+        if other:
+            view["ready"] = False
+            view["foreign"] = True
+            view["status"] = (f"Criado com outro perfil do {'Instagram' if other == 'instagram' else 'Facebook'} (de um parceiro, por exemplo): "
+                              "o Meta só aceita em anúncio daquele perfil. Crie um igual com o perfil da marca.")
+        views.append(view)
     views.sort(key=lambda a: (not a["ready"], a["kind"] != "LOOKALIKE", a["name"].lower()))
     return {"account": act, "saved": [audience_view(row, saved=True) for row in saved if row.get("id")], "custom": views}
+
+
+# ---------------------------------------------------------------- criar público (igual ao Gerenciador)
+
+IG_EVENTS = {"tudo": "ig_business_profile_all", "engajou": "ig_business_profile_engaged",
+             "visitou_perfil": "ig_business_profile_visit", "salvou": "ig_business_profile_ad_saved"}
+FB_EVENTS = {"tudo": "page_engaged", "visitou_perfil": "page_visited"}
+NEW_AUDIENCE_KINDS = ("instagram", "facebook", "site", "compradores", "semelhante", "lista")
+
+
+def _days(value: Any, maximum: int) -> int:
+    try:
+        return max(1, min(maximum, int(value)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def engagement_rule(source_type: str, source_id: str, event: str, days: int) -> Dict[str, Any]:
+    return {"inclusions": {"operator": "or", "rules": [{
+        "event_sources": [{"id": source_id, "type": source_type}], "retention_seconds": days * 86400,
+        "filter": {"operator": "and", "filters": [{"field": "event", "operator": "eq", "value": event}]}}]}}
+
+
+def site_rule(pixel_id: str, days: int, url_contains: str = "") -> Dict[str, Any]:
+    return {"inclusions": {"operator": "or", "rules": [{
+        "event_sources": [{"id": pixel_id, "type": "pixel"}], "retention_seconds": days * 86400,
+        "filter": {"operator": "and", "filters": [{"field": "url", "operator": "i_contains", "value": url_contains}]}}]}}
+
+
+def _sha(value: str) -> str:
+    import hashlib
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+async def _customer_rows(client_id: str) -> List[List[str]]:
+    """Clientes da base do MUGOVERSO (loja e Wake) para a lista do Meta: e-mail e telefone normalizados e com hash
+    SHA-256 (o Meta só recebe o hash)."""
+    from .crypto import decrypt_secret
+    rows: List[List[str]] = []
+    for offset in range(0, 100_000, 1000):
+        chunk = await sb_select("relationship_contacts", select="email_ciphertext,phone_ciphertext", limit=1000, offset=offset,
+                                filters={"client_id": f"eq.{client_id}", "provider": "in.(shopify,fbits)"}, order="identity_hash.asc")
+        for r in chunk:
+            def plain(v: Any) -> str:
+                try:
+                    return decrypt_secret(str(v)) if v else ""
+                except RuntimeError:
+                    return ""
+            email = plain(r.get("email_ciphertext")).strip().lower()
+            phone = re.sub(r"\D", "", plain(r.get("phone_ciphertext")))
+            if len(phone) in (10, 11):
+                phone = "55" + phone
+            if email or phone:
+                rows.append([_sha(email) if "@" in email else "", _sha(phone) if len(phone) >= 12 else ""])
+        if len(chunk) < 1000:
+            break
+    return [r for r in rows if r[0] or r[1]]
+
+
+async def create_account_audience(client_id: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+    """Cria um público na conta de anúncios, como no Gerenciador: engajamento no Instagram/Facebook da MARCA,
+    visitantes do site, compradores (pixel), semelhante (lookalike) ou lista de clientes do MUGOVERSO."""
+    kind = str(spec.get("kind") or "")
+    if kind not in NEW_AUDIENCE_KINDS:
+        raise StudioError("AD_AUDIENCE_INVALID", "Tipo de público inválido.")
+    account = await _ad_account(client_id)
+    token, act = account["token"], account["act"]
+    name = _text(spec.get("name"), 120)
+    data: Dict[str, Any] = {"description": "Criado pela Mídia On (MUGOVERSO)"}
+    if kind in ("instagram", "facebook"):
+        brand = await _brand_profiles(client_id)
+        source_id = brand["ig_id"] if kind == "instagram" else brand["page_id"]
+        if not source_id:
+            raise StudioError("AD_PAGE_MISSING")
+        events = IG_EVENTS if kind == "instagram" else FB_EVENTS
+        event = events.get(str(spec.get("event") or "tudo"), events["tudo"])
+        days = _days(spec.get("days"), 730)
+        data.update({"name": name or f"Mugô · {'Instagram' if kind == 'instagram' else 'Facebook'} · engajou {days} dias",
+                     "rule": json.dumps(engagement_rule("ig_business" if kind == "instagram" else "page", source_id, event, days))})
+    elif kind in ("site", "compradores"):
+        pixel = best_pixel(await _pixels(act, token))
+        if not pixel:
+            raise StudioError("AD_PIXEL_MISSING")
+        days = _days(spec.get("days"), 180)
+        if kind == "site":
+            url = _text(spec.get("url_contains"), 200)
+            data.update({"name": name or f"Mugô · Visitantes do site {days} dias{' · ' + url if url else ''}",
+                         "rule": json.dumps(site_rule(str(pixel["id"]), days, url)), "prefill": "1"})
+        else:
+            data.update({"name": name or f"Mugô · Compradores {days} dias",
+                         "rule": json.dumps(audience_rule(str(pixel["id"]), days, "Purchase")), "prefill": "1"})
+    elif kind == "semelhante":
+        origin = str(spec.get("origin_audience_id") or "")
+        if not re.fullmatch(r"\d{5,30}", origin):
+            raise StudioError("AD_AUDIENCE_INVALID", "Escolha o público de origem do semelhante.")
+        try:
+            ratio = max(1, min(10, int(spec.get("ratio") or 1)))
+        except (TypeError, ValueError):
+            ratio = 1
+        data.update({"name": name or f"Mugô · Semelhante {ratio}% (BR)", "subtype": "LOOKALIKE", "origin_audience_id": origin,
+                     "lookalike_spec": json.dumps({"type": "similarity" if ratio == 1 else "custom_ratio", "ratio": ratio / 100,
+                                                   "country": "BR"})})
+    else:  # lista de clientes do MUGOVERSO
+        people = await _customer_rows(client_id)
+        if len(people) < 100:
+            raise StudioError("AD_AUDIENCE_INVALID", "A lista precisa de pelo menos 100 clientes com e-mail ou telefone. "
+                              "Importe os clientes da loja em Relacionamento.")
+        data.update({"name": name or "Mugô · Clientes da loja", "subtype": "CUSTOM", "customer_file_source": "USER_PROVIDED_ONLY"})
+    try:
+        made = await _graph("POST", f"/{act}/customaudiences", token=token, data=data)
+    except MetaAdError as exc:
+        text = str(exc)
+        if "terms" in text.lower() or "termos" in text.lower():
+            raise StudioError("AD_META_REJECTED", "A conta precisa aceitar os Termos de Públicos Personalizados no Gerenciador "
+                              "(Públicos → Criar público) uma vez. Depois tente de novo.") from None
+        raise
+    audience_id = str(made.get("id") or "")
+    if kind == "lista" and audience_id:
+        for start in range(0, len(people), 10000):
+            batch = people[start:start + 10000]
+            await _graph("POST", f"/{audience_id}/users", token=token, data={"payload": json.dumps(
+                {"schema": ["EMAIL_SHA256", "PHONE_SHA256"], "data": batch})})
+    return {"id": audience_id, "name": data["name"], "kind": kind,
+            "note": "O Meta leva de alguns minutos a algumas horas para preencher o público." if kind != "lista"
+            else f"{len(people)} clientes enviados (só o hash). O Meta leva algumas horas para casar com as contas."}
 
 
 async def saved_targeting(saved_id: str, token: str) -> Dict[str, Any]:
@@ -647,6 +1689,48 @@ def apply_account_audiences(targeting: Dict[str, Any], audience: Dict[str, Any])
     return targeting
 
 
+def cta_for(meta: Dict[str, Any], ad: Dict[str, Any], target: str, *, page_id: str) -> Optional[Dict[str, Any]]:
+    """Botão do anúncio no formato que a API espera para cada local de conversão."""
+    location, apps, chosen = meta["conversion_location"], meta["messaging_apps"], ad["cta"]
+    if location == "MESSAGING":
+        if apps == ["WHATSAPP"]:
+            return {"type": "WHATSAPP_MESSAGE", "value": {"app_destination": "WHATSAPP"}}
+        if apps == ["INSTAGRAM_DIRECT"]:
+            return {"type": "INSTAGRAM_MESSAGE", "value": {"app_destination": "INSTAGRAM_DIRECT"}}
+        if apps == ["MESSENGER"]:
+            return {"type": "MESSAGE_PAGE", "value": {"app_destination": "MESSENGER"}}
+        return {"type": "MESSAGE_PAGE", "value": {}}
+    if location == "PHONE_CALL":
+        return {"type": "CALL_NOW", "value": {"link": f"tel:+{meta['phone_number'] or ''}"}}
+    if location == "ON_AD":
+        return {"type": chosen, "value": {"lead_gen_form_id": (meta["lead_form"] or {}).get("id", "")}}
+    if location == "APP":
+        return {"type": chosen, "value": {"link": target, "application": (meta["app"] or {}).get("id", "")}}
+    if location == "ON_PAGE":
+        return {"type": "LIKE_PAGE", "value": {"page": page_id}}
+    if location == "INSTAGRAM_PROFILE":
+        return {"type": "VIEW_INSTAGRAM_PROFILE", "value": {"link": target}}
+    if chosen == "NO_BUTTON":
+        return None
+    return {"type": chosen, "value": {"link": target}}
+
+
+def without_empty_cta(value: Any) -> Any:
+    """Tira "call_to_action": None (anúncio "Sem botão") em qualquer nível do criativo."""
+    if isinstance(value, dict):
+        return {k: without_empty_cta(v) for k, v in value.items() if not (k == "call_to_action" and v is None)}
+    if isinstance(value, list):
+        return [without_empty_cta(v) for v in value]
+    return value
+
+
+async def _instagram_profile_link(ctx: Dict[str, Any], token: str) -> str:
+    if not ctx.get("ig_id"):
+        raise StudioError("AD_INSTAGRAM_MISSING")
+    profile = await _graph("GET", f"/{ctx['ig_id']}", token=token, params={"fields": "username"})
+    return f"https://www.instagram.com/{profile.get('username') or ''}"
+
+
 def _ts(day: str, end: bool = False) -> str:
     return f"{day}T{'23:59:00' if end else '08:00:00'}-0300"
 
@@ -662,8 +1746,13 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
         raise StudioError("AD_NOT_READY", "Falta: " + "; ".join(missing))
     ctx = await _context(client_id)
     ids: Dict[str, Any] = dict(row.get("meta_ids") or {})
+    if ids.get("joined") and ids.get("ad_account_id") and ids["ad_account_id"] != ctx["act"]:
+        raise StudioError("AD_ACCOUNT_CHANGED", "A conta de anúncios mudou desde a campanha original. Use Duplicar campanha.")
     ids["ad_account_id"] = ctx["act"]
-    cfg = OBJECTIVES[payload["objective"]]
+    meta = payload["meta"]
+    # Retenção/remarketing (rascunhos antigos): públicos do pixel criados automaticamente.
+    auto_audience = OBJECTIVES.get(payload["objective"], {}).get("audience")
+    needs_pixel = ms.needs_event(meta["performance_goal"], meta["conversion_location"])
     filters = {"client_id": f"eq.{client_id}", "id": f"eq.{draft_id}"}
     await sb_update(TABLE, filters=filters, patch={"status": "publicando", "error": None, "updated_at": _now()})
     async def checkpoint() -> None:
@@ -671,27 +1760,32 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
         # This avoids creating a second campaign when a later adset/creative request is rejected.
         await sb_update(TABLE, filters=filters, patch={"meta_ids": ids, "updated_at": _now()})
 
+    level = "campaign"
     try:
         token, act, ad = ctx["token"], ctx["act"], payload["ad"]
         if not ids.get("campaign_id"):
-            camp = await _graph("POST", f"/{act}/campaigns", token=token, data={
-                "name": payload["name"], "objective": cfg["objective"], "status": "PAUSED", "special_ad_categories": "[]",
-                "daily_budget": str(int(round(payload["daily_budget"] * 100))), "bid_strategy": "LOWEST_COST_WITHOUT_CAP"})
+            camp = await _graph("POST", f"/{act}/campaigns", token=token, data=ms.campaign_fields(meta, payload["name"]))
             ids["campaign_id"] = str(camp["id"])
             await checkpoint()
+        level = "adset"
         if not ids.get("adset_id"):
             saved = payload["audience"].get("saved_audience")
             if saved:
                 # Público salvo da conta: usa a segmentação dele (idade, locais, interesses) no lugar da escrita.
                 targeting = await saved_targeting(saved["id"], token)
             else:
-                interests = await _interest_ids(payload["audience"]["interests"], token)
+                refs = payload["audience"]["interest_refs"]
+                known = {r["name"].lower() for r in refs}
+                typed = [n for n in payload["audience"]["interests"] if n.lower() not in known]
+                interests = refs + await _interest_ids(typed, token)
                 regions = await _region_keys(payload["audience"]["regions"], token)
                 targeting = targeting_for(payload, interests, regions)
-            pixel = await _pixel_id(act, token) if cfg.get("event") else ""
-            if cfg.get("audience"):
+            pixel = await _chosen_pixel(act, token, payload.get("pixel_id")) if needs_pixel or auto_audience else ""
+            if pixel:
+                ids["pixel_id"] = pixel
+            if auto_audience:
                 # Retenção/remarketing: o público é a lista (não amplia com Advantage+ nem interesses).
-                key = cfg["audience"]
+                key = auto_audience
                 ids.setdefault("audiences", {})[key] = await ensure_audience(act, token, key, pixel)
                 targeting.pop("flexible_spec", None)
                 targeting["targeting_automation"] = {"advantage_audience": 0}
@@ -704,69 +1798,178 @@ async def publish(client_id: str, draft_id: str) -> Dict[str, Any]:
             placements = payload["placements"]
             if placements["mode"] == "manual":
                 targeting["publisher_platforms"] = placements["platforms"]
-                if "instagram" in placements["platforms"]:
-                    if not ctx["ig_id"]:
-                        raise StudioError("AD_INSTAGRAM_MISSING")
-                    targeting["instagram_positions"] = placements["instagram"]
-                if "facebook" in placements["platforms"]:
-                    targeting["facebook_positions"] = placements["facebook"]
-                targeting.pop("messenger_positions", None)
-                targeting.pop("audience_network_positions", None)
+                for platform in ("facebook", "instagram", "messenger", "audience_network"):
+                    targeting.pop(f"{platform}_positions", None)
+                if "instagram" in placements["platforms"] and not ctx["ig_id"]:
+                    raise StudioError("AD_INSTAGRAM_MISSING")
+                for platform in placements["platforms"]:
+                    targeting[f"{platform}_positions"] = placements[platform]
             adset = {"name": f"{payload['name']} · público", "campaign_id": ids["campaign_id"], "status": "PAUSED",
-                     "billing_event": "IMPRESSIONS", "optimization_goal": cfg["optimization"],
-                     "targeting": json.dumps(targeting),
-                     "start_time": _ts(payload["start_date"]), "end_time": _ts(payload["end_date"], end=True)}
-            if cfg.get("destination"):
-                adset["destination_type"] = cfg["destination"]
-            if cfg.get("event"):
-                adset["promoted_object"] = json.dumps({"pixel_id": pixel, "custom_event_type": cfg["event"]})
+                     "billing_event": ms.billing_event(meta), "optimization_goal": meta["performance_goal"],
+                     "targeting": json.dumps(targeting), "start_time": _ts(payload["start_date"]),
+                     **ms.adset_budget_fields(meta)}
+            if meta["has_end_date"]:
+                adset["end_time"] = _ts(payload["end_date"], end=True)
+            destination = ms.destination_type(meta)
+            if destination:
+                adset["destination_type"] = destination
+            promoted = ms.promoted_object(meta, pixel_id=pixel, page_id=ctx["page_id"], whatsapp_number=ad["whatsapp_number"])
+            if promoted:
+                adset["promoted_object"] = json.dumps(promoted)
             ids["adset_id"] = str((await _graph("POST", f"/{act}/adsets", token=token, data=adset))["id"])
             await checkpoint()
-        if not ids.get("creative_id"):
-            link = ad["link"] or f"https://www.facebook.com/{ctx['page_id']}"
-            if ad["media_type"] == "video":
-                video_id = ids.get("video_id")
-                if not video_id:
-                    uploaded = await _graph("POST", f"/{act}/advideos", token=token,
-                                            data={"file_url": ad["video_url"], "name": f"{payload['name']} · vídeo"})
-                    video_id = str(uploaded.get("id") or "")
-                    if not video_id:
-                        raise MetaAdError("AD_META_REJECTED", "A Meta não devolveu o ID do vídeo.")
-                    ids["video_id"] = video_id
-                    await checkpoint()
-                video_data: Dict[str, Any] = {
-                    "video_id": video_id, "message": ad["primary_text"],
-                    "title": ad["headline"] or payload["name"],
-                    "call_to_action": {"type": ad["cta"], "value": {"link": link}},
-                }
-                spec: Dict[str, Any] = {"page_id": ctx["page_id"], "video_data": video_data}
-            else:
-                image_hash = await _image_hash(act, ad["image_url"], token)
-                link_data: Dict[str, Any] = {
-                    "link": link, "message": ad["primary_text"], "image_hash": image_hash,
-                    "call_to_action": {"type": ad["cta"], "value": {"link": link}}}
-                if ad["headline"]:
-                    link_data["name"] = ad["headline"]
-                if ad["description"]:
-                    link_data["description"] = ad["description"]
-                spec = {"page_id": ctx["page_id"], "link_data": link_data}
+        elif needs_pixel and payload.get("pixel_id") and ids.get("pixel_id") != payload["pixel_id"]:
+            # Criação que parou no meio e o pixel foi trocado na revisão: o conjunto passa a otimizar pelo escolhido.
+            chosen = await _chosen_pixel(act, token, payload["pixel_id"])
+            await _graph("POST", f"/{ids['adset_id']}", token=token,
+                         data={"promoted_object": json.dumps({"pixel_id": chosen, "custom_event_type": meta["conversion_event"] or "PURCHASE"})})
+            ids["pixel_id"] = chosen
+            await checkpoint()
+        level = "ad"
+        location, apps = meta["conversion_location"], meta["messaging_apps"]
+        to_whatsapp = location == "MESSAGING" and apps == ["WHATSAPP"]
+        page_link = f"https://www.facebook.com/{ctx['page_id']}"
+        if to_whatsapp:
+            link = WHATSAPP_LINK
+        elif location == "APP" and meta["app"]:
+            link = meta["app"]["store_url"]
+        elif location == "ON_AD":
+            link = "https://fb.me/"
+        elif location == "INSTAGRAM_PROFILE":
+            link = await _instagram_profile_link(ctx, token)
+        elif location in ("MESSAGING", "PHONE_CALL", "ON_PAGE"):
+            link = page_link
+        else:
+            link = ad["link"] or page_link
+        fixed_target = location != "WEBSITE" and location not in ("NONE", "ON_POST")
+
+        def cta(target: str) -> Optional[Dict[str, Any]]:
+            return cta_for(meta, ad, target, page_id=ctx["page_id"])
+        tags = {"url_tags": tracking_suffix(payload["tracking"])} if payload["tracking"] else {}
+
+        async def make_creative(name: str, link_or_video: Dict[str, Any]) -> str:
+            if "existing_post" in link_or_video:
+                made = await _graph("POST", f"/{act}/adcreatives", token=token, data={"name": name, **link_or_video["existing_post"], **tags})
+                return str(made["id"])
+            spec = without_empty_cta({"page_id": ctx["page_id"], **link_or_video})
             if ctx["ig_id"]:
                 spec["instagram_user_id"] = ctx["ig_id"]
-            creative = await _graph("POST", f"/{act}/adcreatives", token=token,
-                                    data={"name": f"{payload['name']} · criativo", "object_story_spec": json.dumps(spec),
-                                          **({"url_tags": tracking_suffix(payload["tracking"])} if payload["tracking"] else {})})
-            ids["creative_id"] = str(creative["id"])
-            await checkpoint()
-        if not ids.get("ad_id"):
+            made = await _graph("POST", f"/{act}/adcreatives", token=token,
+                                data={"name": name, "object_story_spec": json.dumps(spec), **tags})
+            return str(made["id"])
+
+        async def make_ad(name: str, creative_id: str) -> str:
             made = await _graph("POST", f"/{act}/ads", token=token, data={
-                "name": f"{payload['name']} · anúncio", "adset_id": ids["adset_id"], "status": "PAUSED",
-                "creative": json.dumps({"creative_id": ids["creative_id"]})})
-            ids["ad_id"] = str(made["id"])
-            await checkpoint()
+                "name": name, "adset_id": ids["adset_id"], "status": "PAUSED",
+                "creative": json.dumps({"creative_id": creative_id})})
+            return str(made["id"])
+
+        def link_data_for(image_hash: str, headline: str, target: str) -> Dict[str, Any]:
+            data: Dict[str, Any] = {"link": target, "message": ad["primary_text"], "image_hash": image_hash,
+                                    "call_to_action": cta(target)}
+            if headline:
+                data["name"] = headline
+            if ad["description"]:
+                data["description"] = ad["description"]
+            return {"link_data": data}
+
+        async def body_for(unit: Dict[str, Any], index: int) -> Dict[str, Any]:
+            if index == 0 and meta.get("use_existing_post") and ad.get("instagram_post_id"):
+                # "Usar publicação existente": o anúncio é o próprio post do Instagram (curtidas e comentários ficam juntos).
+                post: Dict[str, Any] = {"object_id": ctx["page_id"], "source_instagram_media_id": ad["instagram_post_id"]}
+                if ctx["ig_id"]:
+                    post["instagram_user_id"] = ctx["ig_id"]
+                button = cta(link)
+                if button and location not in ("NONE", "ON_POST"):
+                    post["call_to_action"] = json.dumps(button)
+                return {"existing_post": post}
+            headline = unit.get("headline") or ad["headline"]
+            target = link if fixed_target else (unit.get("link") or link)
+            if unit["format"] == "carousel":
+                children = []
+                for card in unit["cards"]:
+                    card_link = link if fixed_target else (card["link"] or link)
+                    child: Dict[str, Any] = {"link": card_link, "image_hash": await _image_hash(act, card["image_url"], token),
+                                             "call_to_action": cta(card_link)}
+                    if card["headline"] or ad["headline"]:
+                        child["name"] = card["headline"] or ad["headline"]
+                    if card["description"]:
+                        child["description"] = card["description"]
+                    children.append(child)
+                return {"link_data": {
+                    "link": link, "message": ad["primary_text"], "child_attachments": children,
+                    "multi_share_optimized": False, "multi_share_end_card": False,
+                    "call_to_action": cta(link)}}
+            if unit["media_type"] == "video":
+                videos = dict(ids.get("video_ids") or ({"0": ids["video_id"]} if ids.get("video_id") else {}))
+                # Vídeo já enviado na prévia oficial: reaproveita, sem enviar de novo.
+                video_id = videos.get(str(index)) or (ids.get("preview_videos") or {}).get(unit_key(unit))
+                if not video_id:
+                    video_id = await _upload_video(act, unit, token, f"{payload['name']} · vídeo {index + 1}")
+                    videos[str(index)] = video_id
+                    ids["video_ids"] = videos
+                    if index == 0:
+                        ids["video_id"] = video_id
+                    await checkpoint()
+                video: Dict[str, Any] = {"video_id": video_id, "message": ad["primary_text"], "title": headline or payload["name"],
+                                         "call_to_action": cta(target)}
+                if unit.get("image_url"):
+                    # A Meta exige capa no anúncio de vídeo.
+                    try:
+                        video["image_hash"] = await _image_hash(act, unit["image_url"], token)
+                    except StudioError:
+                        video["image_url"] = unit["image_url"]
+                else:
+                    cover = await _video_thumbnail(video_id, token)
+                    if cover:
+                        video["image_url"] = cover
+                return {"video_data": video}
+            return link_data_for(await _image_hash(act, unit["image_url"], token), headline, target)
+
+        # Todos os anúncios do conjunto (1 ou vários; cada um imagem, vídeo ou carrossel). Retoma de onde parou:
+        # o que já foi criado na Meta é reconhecido pela arte, então tirar um anúncio que falhou e mandar de novo funciona.
+        units = ad_units(ad)
+        single = len(units) == 1
+        made: Dict[str, Dict[str, str]] = dict(ids.get("made") or {})
+        if not made:
+            old_creatives = list(ids.get("creative_ids") or ([ids["creative_id"]] if ids.get("creative_id") else []))
+            old_ads = list(ids.get("ad_ids") or ([ids["ad_id"]] if ids.get("ad_id") else []))
+            for i, unit in enumerate(units[:len(old_creatives)]):
+                made[unit_key(unit)] = {"creative_id": str(old_creatives[i]), **({"ad_id": str(old_ads[i])} if i < len(old_ads) else {})}
+        for index, unit in enumerate(units):
+            key, suffix = unit_key(unit), ("" if single else f" {index + 1}")
+            entry = made.get(key) or {}
+            try:
+                if not entry.get("creative_id"):
+                    entry["creative_id"] = await make_creative(f"{payload['name']} · criativo{suffix}", await body_for(unit, index))
+                    made[key] = entry
+                    ids["made"] = made
+                    await checkpoint()
+                if not entry.get("ad_id"):
+                    entry["ad_id"] = await make_ad(f"{payload['name']} · anúncio{suffix}", entry["creative_id"])
+                    made[key] = entry
+                    ids["made"] = made
+                    await checkpoint()
+            except MetaAdError as exc:
+                if single:
+                    raise
+                raise MetaAdError(exc.code, f"Anúncio {index + 1}: {exc}. Os outros anúncios já criados ficam guardados; "
+                                            f"troque ou tire o anúncio {index + 1} e clique em Criar de novo.") from None
+        ids["creative_ids"] = [made[unit_key(u)]["creative_id"] for u in units]
+        ids["ad_ids"] = [made[unit_key(u)]["ad_id"] for u in units]
+        ids["creative_id"], ids["ad_id"] = ids["creative_ids"][0], ids["ad_ids"][0]
+        await checkpoint()
     except StudioError as exc:
         message = str(exc) if str(exc) != exc.code else exc.code
+        if exc.code == "AD_META_REJECTED":
+            # Mostra em que nível do Gerenciador a Meta recusou (Campanha, Conjunto ou Anúncio).
+            message = f"{ms.ERROR_LEVEL_HINTS[level]}: {message}"
+            ids["error_level"] = level
         await sb_update(TABLE, filters=filters, patch={"status": "erro", "meta_ids": ids, "error": str(message)[:600], "updated_at": _now()})
+        if exc.code == "AD_META_REJECTED":
+            raise MetaAdError(exc.code, message) from None
         raise
+    ids.pop("error_level", None)
     rows = await sb_update(TABLE, filters=filters, patch={"status": "publicada", "meta_ids": ids, "error": None,
                                                           "published_at": _now(), "updated_at": _now()})
     print(f"[meta_ads_publish] client_id={client_id} draft={draft_id} status=published campaign={ids.get('campaign_id')}")

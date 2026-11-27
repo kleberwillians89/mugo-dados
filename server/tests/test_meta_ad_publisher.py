@@ -136,3 +136,351 @@ class AudienceTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+CARDS = [{"image_url": f"https://cdn/{n}.jpg", "headline": f"Peça {n}"} for n in range(1, 5)]
+
+
+class MultiCreativeTests(unittest.IsolatedAsyncioTestCase):
+    def _row(self, fmt, ids=None):
+        return {"id": "d2", "client_id": "roove", "status": "rascunho", "meta_ids": ids or {},
+                "payload": {**READY, "ad": {**READY["ad"], "image_url": "", "format": fmt, "cards": CARDS}}}
+
+    def test_cards_are_cleaned_and_required(self):
+        p = pub.clean_payload({**READY, "ad": {**READY["ad"], "format": "carousel",
+                                               "cards": [{"image_url": "http://x"}, CARDS[0], CARDS[0]] + CARDS * 4}}, today=date(2026, 11, 10))
+        self.assertEqual(len(p["ad"]["cards"]), 4)  # sem http, sem repetidos
+        one = pub.clean_payload({**READY, "ad": {**READY["ad"], "format": "multi", "cards": CARDS[:1]}}, today=date(2026, 11, 10))
+        self.assertIn("Pelo menos 2 imagens", " ".join(pub.readiness(one)))
+        self.assertEqual(pub.clean_payload({**READY, "ad": {**READY["ad"], "format": "x"}}, today=date(2026, 11, 10))["ad"]["format"], "single")
+
+    async def _publish(self, row):
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or {}))
+            if path == "/search":
+                return {"data": [{"id": "6003", "name": "Perfume"}]}
+            return {"id": f"id{len(calls)}"}
+        hashes = AsyncMock(side_effect=lambda act, url, token: "h-" + url.rsplit("/", 1)[-1])
+        update = AsyncMock(return_value=[{**row, "status": "publicada"}])
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_image_hash", hashes), \
+             patch.object(pub, "sb_update", update), redirect_stdout(io.StringIO()):
+            await pub.publish("roove", "d2")
+        return [(p, d) for m, p, d in calls if m == "POST"], update.await_args_list[-1].kwargs["patch"]
+
+    async def test_carousel_is_one_ad_with_cards_in_order(self):
+        posts, final = await self._publish(self._row("carousel"))
+        self.assertEqual([p for p, _ in posts][-2:], ["/act_123/adcreatives", "/act_123/ads"])
+        children = json.loads(posts[-2][1]["object_story_spec"])["link_data"]["child_attachments"]
+        self.assertEqual([c["image_hash"] for c in children], ["h-1.jpg", "h-2.jpg", "h-3.jpg", "h-4.jpg"])
+        self.assertEqual(children[1]["name"], "Peça 2")
+        self.assertEqual(final["status"], "publicada")
+
+    async def test_multi_makes_one_paused_ad_per_image_and_resumes(self):
+        posts, final = await self._publish(self._row("multi"))
+        self.assertEqual(sum(p.endswith("/ads") for p, _ in posts), 4)
+        self.assertTrue(all(d["status"] == "PAUSED" for p, d in posts if p.endswith("/ads")))
+        self.assertEqual(len(final["meta_ids"]["ad_ids"]), 4)
+        # retomada: 2 já criados → só cria os outros 2
+        done = {"campaign_id": "c", "adset_id": "s", "creative_ids": ["k1", "k2"], "ad_ids": ["a1", "a2"]}
+        posts, final = await self._publish(self._row("multi", done))
+        self.assertEqual(sum(p.endswith("/ads") for p, _ in posts), 2)
+        self.assertEqual(final["meta_ids"]["ad_ids"][:2], ["a1", "a2"])
+
+
+class SameCampaignTests(unittest.IsolatedAsyncioTestCase):
+    PUBLISHED = {"id": "d1", "client_id": "roove", "status": "publicada", "payload": READY, "month": "2026-11",
+                 "meta_ids": {"ad_account_id": "act_123", "campaign_id": "c9", "adset_id": "s9", "creative_id": "k9", "ad_id": "a9"}}
+
+    async def test_new_ad_reuses_campaign_and_adset_only(self):
+        insert = AsyncMock(side_effect=lambda table, row: {**row, "id": "d3"})
+        with patch.object(pub, "_draft", AsyncMock(return_value=self.PUBLISHED)), patch.object(pub, "sb_insert", insert):
+            view = await pub.duplicate_draft("roove", "d1", "u1", into_campaign=True)
+        ids = insert.await_args.args[1]["meta_ids"]
+        self.assertEqual((ids["campaign_id"], ids["adset_id"], ids.get("ad_id"), ids.get("creative_id")), ("c9", "s9", None, None))
+        self.assertTrue(view["joined"])
+        self.assertIn("novo anúncio", view["payload"]["name"])
+        ad = view["payload"]["ad"]
+        self.assertEqual((ad["image_url"], ad["video_url"], ad["cards"], ad["extra_ads"]), ("", "", [], []))
+
+    async def test_explicit_adset_requires_campaign_and_account_match(self):
+        context = (self.PUBLISHED, {"act": "act_123", "token": "test"}, {})
+        remote = {"id": "12345", "campaign_id": "other", "account_id": "123"}
+        insert = AsyncMock(side_effect=lambda table, row: {**row, "id": "d3"})
+        graph = AsyncMock(return_value=remote)
+        with patch.object(pub, "_draft", AsyncMock(return_value=self.PUBLISHED)), \
+             patch.object(pub, "_campaign_editor_context", AsyncMock(return_value=context)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "sb_insert", insert):
+            with self.assertRaises(StudioError):
+                await pub.duplicate_draft("roove", "d1", "u1", into_campaign=True, adset_id="12345")
+            insert.assert_not_awaited()
+            remote["campaign_id"] = "c9"
+            next_draft = await pub.duplicate_draft("roove", "d1", "u1", into_campaign=True, adset_id="12345")
+        self.assertEqual(next_draft["meta_ids"]["adset_id"], "12345")
+
+
+    async def test_new_ad_needs_a_published_campaign(self):
+        with patch.object(pub, "_draft", AsyncMock(return_value={**self.PUBLISHED, "status": "rascunho", "meta_ids": {}})):
+            with self.assertRaises(StudioError) as caught:
+                await pub.duplicate_draft("roove", "d1", "u1", into_campaign=True)
+        self.assertEqual(caught.exception.code, "AD_NOT_PUBLISHED_YET")
+
+    async def test_publish_joined_creates_only_creative_and_ad(self):
+        row = {"id": "d3", "client_id": "roove", "status": "rascunho", "payload": READY,
+               "meta_ids": {"ad_account_id": "act_123", "campaign_id": "c9", "adset_id": "s9", "joined": True}}
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or {}))
+            return {"id": f"id{len(calls)}"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_image_hash", AsyncMock(return_value="h")), \
+             patch.object(pub, "sb_update", AsyncMock(return_value=[row])), redirect_stdout(io.StringIO()):
+            await pub.publish("roove", "d3")
+        posts = [(p, d) for m, p, d in calls if m == "POST"]
+        self.assertEqual([p for p, _ in posts], ["/act_123/adcreatives", "/act_123/ads"])
+        self.assertEqual(posts[1][1]["adset_id"], "s9")
+        moved = {**row, "meta_ids": {**row["meta_ids"], "ad_account_id": "act_999"}}
+        with patch.object(pub, "_draft", AsyncMock(return_value=moved)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)):
+            with self.assertRaises(StudioError):
+                await pub.publish("roove", "d3")
+
+
+class AdsWithOwnFormatTests(unittest.IsolatedAsyncioTestCase):
+    async def test_carousel_plus_single_image_ad_in_same_adset(self):
+        ad = {**READY["ad"], "image_url": "", "format": "carousel", "cards": CARDS[:3],
+              "extra_ads": [{"format": "single", "image_url": "https://cdn/solo.jpg"}, {"format": "carousel", "cards": CARDS[:1]}]}
+        p = pub.clean_payload({**READY, "ad": ad}, today=date(2026, 11, 10))
+        self.assertEqual(pub.readiness(p), ["Anúncio 3: pelo menos 2 imagens no carrossel"])
+        ad["extra_ads"] = ad["extra_ads"][:1]
+        row = {"id": "d4", "client_id": "roove", "status": "rascunho", "meta_ids": {}, "payload": {**READY, "ad": ad}}
+        posts, final = await MultiCreativeTests._publish(self, row)
+        creatives = [json.loads(d["object_story_spec"]) for p_, d in posts if p_.endswith("/adcreatives")]
+        self.assertEqual(len(creatives[0]["link_data"]["child_attachments"]), 3)
+        self.assertEqual(creatives[1]["link_data"]["image_hash"], "h-solo.jpg")
+        ads = [d for p_, d in posts if p_.endswith("/ads")]
+        self.assertEqual([d["name"] for d in ads], ["Black Friday · anúncio 1", "Black Friday · anúncio 2"])
+        self.assertEqual(len(final["meta_ids"]["ad_ids"]), 2)
+
+
+class DeliveryTests(unittest.IsolatedAsyncioTestCase):
+    ROW = {"id": "d1", "client_id": "roove", "status": "publicada", "payload": READY,
+           "meta_ids": {"ad_account_id": "act_123", "campaign_id": "c9", "adset_id": "s9", "ad_id": "a1", "ad_ids": ["a1", "a2"]}}
+    ACCOUNT = {"token": "t", "act": "act_123"}
+
+    async def _run(self, row, **kw):
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or params or {}))
+            if method == "GET" and path.endswith("/insights"):
+                return {"data": [{"spend": "42.5", "impressions": "1000", "reach": "800", "clicks": "50", "inline_link_clicks": "30",
+                                  "actions": [{"action_type": "link_click", "value": "30"}, {"action_type": "offsite_conversion.fb_pixel_lead", "value": "5"}]}]}
+            return {"id": path.strip("/"), "status": "ACTIVE", "effective_status": "ACTIVE", "account_id": "123"}
+        update = AsyncMock(return_value=[row])
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_ad_account", AsyncMock(return_value=self.ACCOUNT)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "sb_update", update), redirect_stdout(io.StringIO()):
+            out = await (pub.live_results("roove", "d1") if kw.pop("results", False) else pub.set_delivery("roove", "d1", **kw))
+        return out, [(m, p, d) for m, p, d in calls if m == "POST"], update
+
+    async def test_activate_needs_budget_confirmation(self):
+        with self.assertRaises(StudioError) as caught:
+            await self._run(self.ROW, active=True, user_name="K", confirm_daily_budget=500)
+        self.assertEqual(caught.exception.code, "AD_CONFIRM_BUDGET")
+
+    async def test_activate_turns_on_ads_then_adset_then_campaign(self):
+        out, posts, update = await self._run(self.ROW, active=True, user_name="Kleber", confirm_daily_budget=50)
+        self.assertEqual([p for _, p, _ in posts], ["/a1", "/a2", "/s9", "/c9"])
+        self.assertTrue(all(d == {"status": "ACTIVE"} for _, _, d in posts))
+        self.assertEqual(update.await_args.kwargs["patch"]["meta_ids"]["delivery"]["state"], "ativa")
+        self.assertIn("ad_2", out["objects"])
+
+    async def test_pause_stops_campaign_only(self):
+        _, posts, _ = await self._run(self.ROW, active=False, user_name="K")
+        self.assertEqual(posts, [("POST", "/c9", {"status": "PAUSED"})])
+
+    async def test_joined_ad_toggles_only_its_ads(self):
+        row = {**self.ROW, "meta_ids": {**self.ROW["meta_ids"], "joined": True, "ad_ids": ["a7"], "ad_id": "a7"}}
+        _, posts, _ = await self._run(row, active=True, user_name="K")
+        self.assertEqual([p for _, p, _ in posts], ["/a7"])
+
+    async def test_results_count_leads_and_cost(self):
+        r, _, _ = await self._run({**self.ROW, "payload": {**READY, "objective": "leads"}}, results=True)
+        self.assertEqual((r["spend"], r["results"], r["result_label"], r["cost_per_result"], r["ctr"]), (42.5, 5, "Cadastros", 8.5, 5.0))
+
+
+class PixelAndVideoFixTests(unittest.IsolatedAsyncioTestCase):
+    def test_uses_dataset_receiving_events_not_the_first(self):
+        pixels = [{"id": "1", "name": "https://roove.com.br"}, {"id": "2", "name": "Roove Web Official", "last_fired_time": "2026-11-19T12:00:00+0000"},
+                  {"id": "3", "name": "Antigo", "last_fired_time": "2025-01-01T00:00:00+0000"}, {"id": "4", "is_unavailable": True, "last_fired_time": "2026-12-01"}]
+        self.assertEqual(pub.best_pixel(pixels)["id"], "2")
+        self.assertEqual(pub.best_pixel([{"id": "9"}])["id"], "9")
+        self.assertIsNone(pub.best_pixel([]))
+
+    async def test_removing_failed_ad_finishes_and_keeps_created_ones(self):
+        ad = {**READY["ad"], "image_url": "https://cdn/1.jpg", "extra_ads": [{"format": "single", "image_url": "https://cdn/2.jpg"}]}
+        # já criados pelo código anterior (por posição): anúncios 1 e 2; o 3 (vídeo) falhou e foi tirado
+        ids = {"campaign_id": "c", "adset_id": "s", "creative_ids": ["k1", "k2"], "ad_ids": ["a1", "a2"], "creative_id": "k1", "ad_id": "a1"}
+        row = {"id": "d5", "client_id": "roove", "status": "erro", "meta_ids": ids, "payload": {**READY, "ad": ad}}
+        posts, final = await MultiCreativeTests._publish(self, row)
+        self.assertEqual(posts, [])
+        self.assertEqual((final["status"], final["meta_ids"]["ad_ids"]), ("publicada", ["a1", "a2"]))
+
+    async def test_video_error_names_the_ad(self):
+        ad = {**READY["ad"], "image_url": "https://cdn/1.jpg",
+              "extra_ads": [{"format": "single", "media_type": "video", "video_url": "https://ig/v.mp4", "image_url": "https://ig/capa.jpg"}]}
+        row = {"id": "d6", "client_id": "roove", "status": "rascunho", "meta_ids": {"campaign_id": "c", "adset_id": "s"}, "payload": {**READY, "ad": ad}}
+
+        async def graph(method, path, *, token, data=None, params=None):
+            if path.endswith("/advideos"):
+                raise pub.MetaAdError("AD_META_REJECTED", "Não foi possível buscar o arquivo de vídeo da URL.")
+            return {"id": "x"}
+
+        class Down:
+            def __init__(self, **kw): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def get(self, url): return type("R", (), {"status_code": 403, "content": b""})()
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_image_hash", AsyncMock(return_value="h")), \
+             patch.object(pub.httpx, "AsyncClient", Down), patch.object(pub, "sb_update", AsyncMock(return_value=[row])), redirect_stdout(io.StringIO()):
+            with self.assertRaises(StudioError) as caught:
+                await pub.publish("roove", "d6")
+        self.assertIn("Anúncio 2:", str(caught.exception))
+        self.assertIn("link do Instagram", str(caught.exception))
+
+
+class PixelSwitchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_switch_pixel_updates_adset_and_ads(self):
+        row = {"id": "d1", "client_id": "roove", "status": "erro", "payload": {**READY, "objective": "leads"},
+               "meta_ids": {"ad_account_id": "act_123", "campaign_id": "c", "adset_id": "s9", "ad_ids": ["a1", "a2"], "pixel_id": "111"}}
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or {}))
+            if path.endswith("/adspixels"):
+                return {"data": [{"id": "111", "name": "https://roove.com.br"}, {"id": "222", "name": "Roove Web Official", "last_fired_time": "2026-11-19T10:00:00+0000"}]}
+            return {"success": True}
+        update = AsyncMock(return_value=[row])
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_ad_account", AsyncMock(return_value={"token": "t", "act": "act_123"})), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "sb_update", update), redirect_stdout(io.StringIO()):
+            out = await pub.set_pixel("roove", "d1", "222", user_name="Kleber")
+            with self.assertRaises(StudioError):
+                await pub.set_pixel("roove", "d1", "999", user_name="Kleber")
+        posts = [(p, d) for m, p, d in calls if m == "POST"]
+        self.assertEqual(posts[0], ("/s9", {"promoted_object": json.dumps({"pixel_id": "222", "custom_event_type": "LEAD"})}))
+        self.assertEqual([p for p, _ in posts[1:3]], ["/a1", "/a2"])
+        self.assertEqual(update.await_args.kwargs["patch"]["meta_ids"]["pixel_id"], "222")
+        self.assertEqual(out["recommended"], "222")
+
+
+class PixelChoiceTests(unittest.IsolatedAsyncioTestCase):
+    PIXELS = {"data": [{"id": "11111", "name": "https://roove.com.br"},
+                       {"id": "22222", "name": "Roove Web Official", "last_fired_time": "2026-11-19T10:00:00+0000"}]}
+
+    async def _publish(self, row):
+        calls = []
+
+        async def graph(method, path, *, token, data=None, params=None):
+            calls.append((method, path, data or {}))
+            if path.endswith("/adspixels"):
+                return self.PIXELS
+            if path == "/search":
+                return {"data": []}
+            return {"id": f"id{len(calls)}"}
+        with patch.object(pub, "_draft", AsyncMock(return_value=row)), patch.object(pub, "_context", AsyncMock(return_value=PublishTests.CTX)), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "_image_hash", AsyncMock(return_value="h")), \
+             patch.object(pub, "sb_update", AsyncMock(return_value=[row])), redirect_stdout(io.StringIO()):
+            await pub.publish("roove", row["id"])
+        return [(p, d) for m, p, d in calls if m == "POST"]
+
+    async def test_uses_pixel_chosen_in_review(self):
+        row = {"id": "d7", "client_id": "roove", "status": "rascunho", "meta_ids": {},
+               "payload": {**READY, "objective": "leads", "pixel_id": "11111"}}
+        posts = await self._publish(row)
+        adset = next(d for p, d in posts if p.endswith("/adsets"))
+        self.assertEqual(json.loads(adset["promoted_object"])["pixel_id"], "11111")
+
+    async def test_halfway_campaign_switches_adset_to_chosen_pixel(self):
+        row = {"id": "d8", "client_id": "roove", "status": "erro",
+               "meta_ids": {"campaign_id": "c", "adset_id": "s9", "pixel_id": "11111"},
+               "payload": {**READY, "objective": "leads", "pixel_id": "22222"}}
+        posts = await self._publish(row)
+        self.assertEqual(posts[0][0], "/s9")
+        self.assertEqual(json.loads(posts[0][1]["promoted_object"])["pixel_id"], "22222")
+
+    def test_pixel_id_is_cleaned(self):
+        self.assertIsNone(pub.clean_payload({**READY, "pixel_id": "abc"}, today=date(2026, 11, 10))["pixel_id"])
+        self.assertEqual(pub.clean_payload({**READY, "pixel_id": "22222"}, today=date(2026, 11, 10))["pixel_id"], "22222")
+
+
+class ClickToWhatsAppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_whatsapp_campaign_opens_conversation_with_chosen_number(self):
+        ad = {**READY["ad"], "link": "", "whatsapp_number": "+55 11 94470-6392", "format": "carousel", "cards": CARDS[:2], "image_url": ""}
+        row = {"id": "d9", "client_id": "roove", "status": "rascunho", "meta_ids": {},
+               "payload": {**READY, "objective": "whatsapp", "ad": ad}}
+        p = pub.clean_payload(row["payload"], today=date(2026, 11, 10))
+        self.assertEqual(pub.readiness(p), [])  # sem link de site
+        posts, _ = await MultiCreativeTests._publish(self, row)
+        camp = next(d for x, d in posts if x.endswith("/campaigns"))
+        adset = next(d for x, d in posts if x.endswith("/adsets"))
+        self.assertEqual(camp["objective"], "OUTCOME_ENGAGEMENT")
+        self.assertEqual((adset["destination_type"], adset["optimization_goal"]), ("WHATSAPP", "CONVERSATIONS"))
+        self.assertEqual(json.loads(adset["promoted_object"]), {"page_id": "999", "whatsapp_phone_number": "5511944706392"})
+        spec = json.loads(next(d for x, d in posts if x.endswith("/adcreatives"))["object_story_spec"])
+        self.assertEqual(spec["link_data"]["call_to_action"], {"type": "WHATSAPP_MESSAGE", "value": {"app_destination": "WHATSAPP"}})
+        self.assertTrue(all(c["link"] == pub.WHATSAPP_LINK for c in spec["link_data"]["child_attachments"]))
+
+
+class ImportCampaignTests(unittest.IsolatedAsyncioTestCase):
+    async def test_imports_campaign_with_adsets_ads_and_pixel(self):
+        async def graph(method, path, *, token, data=None, params=None):
+            if path == "/120234":
+                return {"id": "120234", "name": "BlackFriday_Roove_Leads · Criada pelo Gerenciador", "objective": "OUTCOME_LEADS",
+                        "daily_budget": "2000", "account_id": "123"}
+            if path == "/120234/adsets":
+                return {"data": [{"id": "s1", "start_time": "2026-11-19T13:30:00-0300", "end_time": "2026-11-26T23:59:00-0300",
+                                  "promoted_object": {"pixel_id": "1644209869983881", "custom_event_type": "LEAD"},
+                                  "targeting": {"age_min": 22, "age_max": 50, "genders": [2]}}]}
+            if path == "/120234/ads":
+                return {"data": [{"id": "a1", "creative": {"body": "Você já escolhe…", "title": "FIRST ACCESS", "call_to_action_type": "SIGN_UP",
+                                                           "object_story_spec": {"link_data": {"link": "https://www.roove.com.br/pages/x"}}}},
+                                 {"id": "a2", "creative": {}}]}
+            raise AssertionError(path)
+        insert = AsyncMock(side_effect=lambda table, row: {**row, "id": "d10"})
+        with patch.object(pub, "_ad_account", AsyncMock(return_value={"token": "t", "act": "act_123"})), \
+             patch.object(pub, "_graph", graph), patch.object(pub, "sb_select", AsyncMock(return_value=[])), \
+             patch.object(pub, "sb_insert", insert), redirect_stdout(io.StringIO()):
+            view = await pub.import_meta_campaign("roove", "120234", user_id="u")
+        row = insert.await_args.args[1]
+        self.assertEqual(row["status"], "publicada")
+        self.assertEqual((row["meta_ids"]["campaign_id"], row["meta_ids"]["ad_ids"], row["meta_ids"]["pixel_id"]),
+                         ("120234", ["a1", "a2"], "1644209869983881"))
+        self.assertEqual((view["payload"]["objective"], view["payload"]["daily_budget"], view["payload"]["audience"]["gender"]), ("leads", 20.0, "mulheres"))
+        self.assertEqual(view["payload"]["ad"]["cta"], "SIGN_UP")
+
+    async def test_refuses_campaign_already_in_midia_on(self):
+        with patch.object(pub, "sb_select", AsyncMock(return_value=[{"meta_ids": {"campaign_id": "120234"}}])):
+            with self.assertRaises(StudioError) as caught:
+                await pub.import_meta_campaign("roove", "120234", user_id="u")
+        self.assertEqual(caught.exception.code, "AD_ALREADY_IMPORTED")
+
+    async def test_activate_imported_turns_on_every_adset(self):
+        row = {**DeliveryTests.ROW, "meta_ids": {**DeliveryTests.ROW["meta_ids"], "adset_ids": ["s9", "s10"], "imported": True}}
+        _, posts, _ = await DeliveryTests._run(DeliveryTests(), row, active=True, user_name="K", confirm_daily_budget=50)
+        self.assertEqual([p for _, p, _ in posts], ["/a1", "/a2", "/s9", "/s10", "/c9"])
+
+
+class VideoThumbnailTests(unittest.IsolatedAsyncioTestCase):
+    async def test_espera_a_meta_gerar_a_capa_e_usa_a_preferida(self):
+        graph = AsyncMock(side_effect=[{"data": []}, {"data": [
+            {"uri": "https://scontent/a.jpg", "is_preferred": False}, {"uri": "https://scontent/b.jpg", "is_preferred": True}]}])
+        with patch.object(pub, "_graph", graph), patch.object(pub.asyncio, "sleep", AsyncMock()):
+            self.assertEqual(await pub._video_thumbnail("v1", "tok"), "https://scontent/b.jpg")
+        self.assertEqual(graph.await_count, 2)
+
+    async def test_sem_capa_devolve_vazio(self):
+        with patch.object(pub, "_graph", AsyncMock(return_value={"data": []})), patch.object(pub.asyncio, "sleep", AsyncMock()):
+            self.assertEqual(await pub._video_thumbnail("v1", "tok", tries=2), "")

@@ -28,6 +28,17 @@ class BuilderTests(unittest.TestCase):
         self.assertIn('href="https://loja.com/c?a=1&amp;b=2"', html)
         self.assertIn("Comprar (https://loja.com/c?a=1&b=2)", text)
 
+    def test_button_accepts_existing_wrapped_http_url_without_weakening_url_checks(self):
+        broken = "{{https://www.curavino.com.br/}}"
+        design = {"blocks": [{"type": "botao", "label": "Quero aproveitar", "href": broken}]}
+        html, plain = eb.render(design, {}, {})
+        self.assertIn('href="https://www.curavino.com.br/"', html)
+        self.assertIn("Quero aproveitar (https://www.curavino.com.br/)", plain)
+        self.assertEqual(eb.normalize_design(design)["blocks"][0]["href"], "https://www.curavino.com.br/")
+        self.assertEqual(eb.normalize_design({"blocks": [{"type": "botao", "href": "{{link_loja}}"}]})["blocks"][0]["href"], "{{link_loja}}")
+        unsafe, _ = eb.render({"blocks": [{"type": "botao", "label": "Malicioso", "href": "{{javascript:alert(1)}}"}]}, {}, {})
+        self.assertNotIn("Malicioso", unsafe)
+
     def test_unsafe_links_and_unknown_blocks_are_dropped(self):
         design = {"blocks": [{"type": "botao", "label": "x", "href": "javascript:alert(1)"}, {"type": "html", "text": "<b>"},
                              {"type": "imagem", "url": "data:image/png;base64,xx"}]}
@@ -125,6 +136,55 @@ class AudienceTests(unittest.TestCase):
         self.assertTrue(em.clean_audience({"segment": "todos"})["only_consent"])
 
 
+class UnifiedLeadAudienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_preview_unifies_origins_and_applies_email_eligibility(self):
+        from services.whatsapp_insights import phone_key
+
+        opted_in = em.email_hash("ana@example.com")
+        blocked = em.email_hash("bia@example.com")
+        spreadsheet_only = em.email_hash("caio@example.com")
+        no_consent = em.email_hash("davi@example.com")
+        phone = "5511999998888"
+        contacts = [
+            {"hash": opted_in, "consent": True, "phone": phone},
+            {"hash": blocked, "consent": True},
+            {"hash": no_consent, "consent": False},
+        ]
+        pages = {
+            "relationship_contacts": [{"email_hash": opted_in}, {"email_hash": spreadsheet_only}],
+            "lead_capture_events": [{"email_ciphertext": email} for email in
+                                    ("ana@example.com", "bia@example.com", "davi@example.com")],
+            "whatsapp_threads": [{"phone_key": phone_key(phone)}],
+        }
+
+        async def paged(table, **kwargs):
+            self.assertEqual(kwargs["filters"]["client_id"], "eq.roove")
+            return pages[table], False
+
+        with patch("services.sales_by_origin._paged", side_effect=paged), \
+             patch("services.crypto.decrypt_secret", side_effect=lambda address: address), \
+             patch.object(em, "load_contacts", return_value=("shopify", contacts)), \
+             patch.object(em, "suppressed", return_value={blocked}):
+            result = await em.audience_preview("roove", {"segment": "leads_unificados"})
+
+        self.assertEqual(result["source_count"], 4)
+        self.assertEqual(result["count"], 1)
+
+
+class ExcelConsentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_import_without_phone_and_conflicting_rows(self):
+        raw = ("Nome,E-mail,Aceita Novidades\nAna,ana@example.com,Sim\n"
+               "Bia,bia@example.com,Sim\nBia,bia@example.com,Não\n"
+               "Caio,caio@example.com,on\n").encode()
+        with patch("services.crypto.encrypt_secret", side_effect=lambda value: f"encrypted:{value}"), \
+             patch.object(em, "sb_upsert") as upsert:
+            result = await em.import_email_consents("roove", "leads.csv", raw, "operator")
+        self.assertEqual(result, {"with_consent": 1, "recorded": 2})
+        rows = upsert.await_args.args[1]
+        self.assertEqual([row["consent"] for row in rows], [True, False])
+        self.assertTrue(all(row["client_id"] == "roove" and row["confirmed_by"] == "operator" for row in rows))
+
+
 class CommerceConsentTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_shopify_unsubscribe_overrides_old_accepts_flag(self):
         from services import commerce_context as cc
@@ -133,7 +193,7 @@ class CommerceConsentTests(unittest.IsolatedAsyncioTestCase):
                   "phone": None, "first_name": "Ana", "last_name": "S",
                   "orders_count": 0, "consent": "unsubscribed", "accepts": "true"}
         with patch.object(cc, "resolve_commerce_provider", AsyncMock(return_value={"provider": "shopify"})), \
-             patch.object(sbo, "_paged", AsyncMock(side_effect=[([person], False), ([], False)])):
+             patch.object(sbo, "_paged", AsyncMock(side_effect=[([person], False), ([], False), ([], False)])):
             provider, contacts = await em.load_contacts("roove")
         self.assertEqual(provider, "shopify")
         self.assertEqual(len(contacts), 1)
@@ -216,10 +276,18 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await em.handle_event({"type": "email.opened", "data": {"email_id": "x"}}), {"ignored": True})
 
 
+def approved_campaign(campaign, settings):
+    return {**campaign, "updated_at": "2026-11-26T12:00:00+00:00", "internal_review": {
+        "status": "approved", "versions": [{"version": 1, "decision": "approved",
+                                            "snapshot": em.review_snapshot(campaign, settings)}],
+    }}
+
+
 class CampaignPreflightTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_audience_blocks_preflight_and_schedule(self):
         campaign = {"status": "rascunho", "subject": "Novidades", "name": "Novembro",
                     "audience": {"segment": "consentimento", "only_consent": True}}
+        campaign = approved_campaign(campaign, {"from_email": "contato@roove.com.br"})
         audience = {"count": 0, "base": 3, "with_consent": 0, "blocked": 1,
                     "consent_known": True, "audience": em.clean_audience(campaign["audience"])}
         with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \
@@ -235,6 +303,7 @@ class CampaignPreflightTests(unittest.IsolatedAsyncioTestCase):
     async def test_preflight_warns_when_consent_is_not_confirmed(self):
         campaign = {"status": "rascunho", "subject": "Novidades", "name": "Novembro",
                     "audience": {"segment": "todos", "only_consent": False}}
+        campaign = approved_campaign(campaign, {"from_email": "contato@roove.com.br"})
         audience = {"count": 8, "base": 10, "with_consent": 0, "blocked": 2,
                     "consent_known": False, "audience": em.clean_audience(campaign["audience"])}
         with patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \
@@ -250,24 +319,23 @@ class CampaignSendTests(unittest.IsolatedAsyncioTestCase):
         campaign = {"id": "c1", "client_id": "roove", "status": "agendada", "name": "Black", "subject": "Oi {{primeiro_nome}}", "preheader": "",
                     "design": {"blocks": [{"type": "texto", "text": "Promo"}]}, "custom_html": None, "audience": {"segment": "consentimento"}}
         contacts = [contact("a"), contact("b", consent=False), contact("c")]
-        queued = []
-
-        async def insert_ignore(rows):
-            queued.extend(rows)
+        campaign = approved_campaign(campaign, {"from_name": "Roove", "from_email": "oi@roove.com.br"})
+        claimed = {**campaign, "status": "enviando"}
+        claim = AsyncMock(return_value=[claimed])
 
         sends_pending = [{"id": f"id{i}", "client_id": "roove", "kind": "campanha", "campaign_id": "c1", "email_hash": r["email_hash"],
                           "idem_key": r["idem_key"]} for i, r in enumerate([{"email_hash": "a" * 32, "idem_key": "k1"}, {"email_hash": "c" * 32, "idem_key": "k2"}])]
         select = AsyncMock(side_effect=[sends_pending, []])
         send_batch = AsyncMock(return_value=["re_1", "re_2"])
-        upsert, update = AsyncMock(), AsyncMock()
+        upsert, update = AsyncMock(), AsyncMock(return_value=[claimed])
         with patch.dict(os.environ, ENV), \
              patch.object(em, "get_settings", AsyncMock(return_value={"from_name": "Roove", "from_email": "oi@roove.com.br"})), \
              patch.object(em, "load_contacts", AsyncMock(return_value=("shopify", contacts))), \
-             patch.object(em, "suppressed", AsyncMock(return_value=set())), patch.object(em, "_insert_ignore", side_effect=insert_ignore), \
+             patch.object(em, "suppressed", AsyncMock(return_value=set())), patch.object(em, "sb_rpc", claim), patch.object(em, "get_campaign", AsyncMock(return_value=claimed)), \
              patch.object(em, "sb_select", select), patch.object(em, "sb_upsert", upsert), patch.object(em, "sb_update", update), \
              patch.object(em, "campaign_stats", AsyncMock(return_value={"sent": 2})), patch.object(er, "send_batch", send_batch):
             out = await em._process_campaign(campaign, "roove")
-        self.assertEqual([r["idem_key"] for r in queued], [f"campanha/c1/{'a' * 32}", f"campanha/c1/{'c' * 32}"])
+        self.assertEqual(claim.await_args.args[1]["p_hashes"], ["a" * 32, "c" * 32])
         self.assertEqual(out["sent"], 2)
         messages = send_batch.await_args.args[0]
         self.assertEqual(messages[0]["to"], ["a@x.com"])
@@ -278,6 +346,7 @@ class CampaignSendTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_retryable_error_keeps_queue_for_next_run(self):
         campaign = {"id": "c1", "client_id": "roove", "status": "enviando", "name": "x", "subject": "x", "design": {"blocks": []}, "audience": {}}
+        campaign.update(legacy_dispatch=True, updated_at="2026-11-26T12:00:00+00:00")
         pending = [{"id": "id1", "client_id": "roove", "kind": "campanha", "campaign_id": "c1", "email_hash": "a" * 32, "idem_key": "k"}]
         upsert, update = AsyncMock(), AsyncMock()
         with patch.dict(os.environ, ENV), \
@@ -285,7 +354,7 @@ class CampaignSendTests(unittest.IsolatedAsyncioTestCase):
              patch.object(em, "load_contacts", AsyncMock(return_value=("shopify", [contact("a")]))), \
              patch.object(em, "suppressed", AsyncMock(return_value=set())), \
              patch.object(em, "sb_select", AsyncMock(side_effect=[pending, [{"id": "id1"}]])), patch.object(em, "sb_upsert", upsert), \
-             patch.object(em, "sb_update", update), \
+             patch.object(em, "sb_update", update), patch.object(em, "get_campaign", AsyncMock(return_value=campaign)), \
              patch.object(er, "send_batch", AsyncMock(side_effect=er.ResendError("HTTP_503", "x", retryable=True))):
             out = await em._process_campaign(campaign, "roove")
         self.assertEqual(out["sent"], 0)

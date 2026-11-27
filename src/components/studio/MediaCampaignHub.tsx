@@ -10,6 +10,7 @@ type Props = {
   onSelect: (id: string) => void;
   onRefresh: () => void;
   onEditBrief: () => void;
+  channel?: "meta" | "google";
   onMeta: (brief: Brief) => void;
   onGoogle: (brief: Brief) => void;
 };
@@ -19,7 +20,7 @@ const formatBudget = (value?: number | null) => typeof value === "number" && val
   ? value.toLocaleString("pt-BR", {style: "currency", currency: "BRL"}) : "Definir no editor";
 
 export default function MediaCampaignHub({
-  briefs, selectedId, loading, error, canManage, busy, onSelect, onRefresh, onEditBrief, onMeta, onGoogle,
+  briefs, selectedId, loading, error, canManage, busy, onSelect, onRefresh, onEditBrief, onMeta, onGoogle, channel,
 }: Props) {
   const available = briefs.filter(eligible);
   const selected = available.find((b) => b.id === selectedId) || null;
@@ -70,12 +71,12 @@ export default function MediaCampaignHub({
         <span className="mediaHubStep">02 / PREPARAR CAMPANHA</span>
         <h3>Escolha onde anunciar</h3>
         <p>Os dados do briefing serão usados como ponto de partida. Os ajustes finais continuam nos editores já existentes.</p>
-        <button type="button" className="mediaHubAction" disabled={!selected || busy || !canManage} onClick={() => { if(selected) onMeta(selected); }}>
+        {channel !== "google" ? <button type="button" className="mediaHubAction" disabled={!selected || busy || !canManage} onClick={() => { if(selected) onMeta(selected); }}>
           <span><b>Meta Ads</b><small>Montar campanha, público e criativos</small></span><span aria-hidden="true">↗</span>
-        </button>
-        <button type="button" className="mediaHubAction is-google" disabled={!selected || busy || !canManage} onClick={() => { if(selected) onGoogle(selected); }}>
+        </button> : null}
+        {channel !== "meta" ? <button type="button" className="mediaHubAction is-google" disabled={!selected || busy || !canManage} onClick={() => { if(selected) onGoogle(selected); }}>
           <span><b>Google Ads</b><small>Iniciar rascunho de Pesquisa com o briefing</small></span><span aria-hidden="true">↗</span>
-        </button>
+        </button> : null}
         <p className="mediaHubSafety">A criação de rascunhos não publica anúncios. A revisão e a publicação continuam exigindo confirmação.</p>
       </div>
     </div>

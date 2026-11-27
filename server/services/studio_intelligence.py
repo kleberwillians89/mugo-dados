@@ -6,7 +6,10 @@ IA escreva a partir de fatos da conta e não de clichês:
 
 * perfil da marca e contexto do negócio (escritos pela equipe);
 * KPIs do período e campanhas que mais venderam (snapshot da Inteligência);
-* posts que mais e menos alcançaram em relação ao próprio formato;
+* posts que mais e menos alcançaram em relação ao próprio formato, com curtidas, comentários, salvamentos e
+  compartilhamentos separados, dia e hora, e a pauta do MUGOVERSO que gerou o post;
+* anúncio por anúncio nos últimos 12 meses (não só a campanha): melhores e piores, até quando rodaram, e o texto
+  e o título dos criados no Mídia On;
 * melhores dias e horários (posting_times);
 * metas do mês e a última análise salva;
 * aprendizado com o cliente: o que ele aprovou e o que pediu para ajustar;
@@ -16,7 +19,8 @@ IA escreva a partir de fatos da conta e não de clichês:
 * MUNDO DO CLIENTE: saúde da marca (índice, sentimento, assuntos e alertas), voz do público
   (comentários, Direct e notícias agregados), concorrentes do Clipping e produtos que mais vendem.
 * O QUE A EQUIPE JÁ DECIDIU: briefings aprovados, planejamentos (grande ideia, estratégia, fases, KPIs) e
-  eventos que vêm por aí, e o acervo da Biblioteca (produto, logo, fotos, vídeos e referências por nome).
+  eventos que vêm por aí, e o material da marca na Biblioteca (logo, identidade, produto, fotos e vídeos da marca,
+  referências e documentos, por nome). Arte de post não conta.
 
 Nada é cortado em silêncio: quando o pacote passa do limite do prompt, as seções menos importantes são
 RESUMIDAS primeiro (listas e textos encurtados) e só depois omitidas, e o prompt diz à IA o que foi resumido.
@@ -123,19 +127,170 @@ async def _snapshot(client_id: str, start: str, end: str) -> Dict[str, Any]:
             "qualidade": (snap.get("quality") or {}).get("status")}
 
 
+WEEKDAYS = ("segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo")
+BREAKDOWN = (("curtidas", "likes"), ("comentarios", "comments"), ("salvamentos", "saved"), ("compartilhamentos", "shares"))
+TOP_POSTS, WORST_POSTS = 10, 5
+
+
+def _int(value: Any) -> Optional[int]:
+    number = _num(value)
+    return int(number) if number is not None else None
+
+
+async def _pautas_by_media(client_id: str, media_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Pauta do Calendário que gerou cada post publicado pelo MUGOVERSO (pauta, gancho, pilar)."""
+    ids = [m for m in media_ids if re.fullmatch(r"\d{5,40}", str(m or ""))]
+    if not ids:
+        return {}
+    rows = await sb_select("studio_calendar_items", select="published_media_id,title,hook,pillar,format", limit=len(ids),
+                           filters={"client_id": f"eq.{client_id}", "published_media_id": f"in.({','.join(ids)})"})
+    return {str(r["published_media_id"]): {k: v for k, v in {
+        "pauta": clean_text(r.get("title"), 160), "gancho": clean_text(r.get("hook"), 160),
+        "pilar": clean_text(r.get("pillar"), 80)}.items() if v} for r in rows if r.get("published_media_id")}
+
+
 async def _posts(client_id: str, days: int) -> Dict[str, Any]:
+    """Posts do Instagram que mais e menos alcançaram em relação ao próprio formato, com curtidas, comentários,
+    salvamentos e compartilhamentos separados, dia e hora, e a pauta do MUGOVERSO que gerou o post (quando gerou)."""
     from .posting_times import score_posts
     since = datetime.now(timezone.utc).date() - timedelta(days=days)
-    rows = await sb_select("ig_media", select="media_type,media_product_type,timestamp,insights_json,caption",
+    rows = await sb_select("ig_media", select="media_id,media_type,media_product_type,timestamp,insights_json,caption",
                            filters={"client_id": f"eq.{client_id}", "timestamp": f"gte.{since.isoformat()}"},
                            order="timestamp.desc", limit=300)
+    insights = {str(r.get("media_id")): (r.get("insights_json") or {}) for r in rows if r.get("media_id")}
     scored = sorted(score_posts(rows, start=since, end=date.max), key=lambda p: p["reach_index"], reverse=True)
+    best = scored[:TOP_POSTS]
+    worst = scored[max(TOP_POSTS, len(scored) - WORST_POSTS):]
+    try:
+        pautas = await _pautas_by_media(client_id, [str(p.get("media_id")) for p in best + worst])
+    except Exception:  # noqa: BLE001 - sem a ligação com a pauta, o resto segue
+        pautas = {}
+
+    def counts(p: Dict[str, Any]) -> Dict[str, int]:
+        data = insights.get(str(p.get("media_id"))) or {}
+        return {label: value for label, key in BREAKDOWN if (value := _int(data.get(key))) is not None}
 
     def view(p: Dict[str, Any]) -> Dict[str, Any]:
-        return {"formato": p["format"], "alcance_vs_media_do_formato": round(p["reach_index"], 2),
-                "interacoes": p.get("interactions"), "legenda": clean_text(p.get("caption"), 220)}
-    return {"analisados": len(scored), "melhores": [view(p) for p in scored[:6]],
-            "piores": [view(p) for p in scored[-3:]] if len(scored) >= 8 else []}
+        detail = counts(p)
+        out: Dict[str, Any] = {"formato": p["format"], "alcance": p["reach"], "alcance_vs_media_do_formato": round(p["reach_index"], 2),
+                               "interacoes": p.get("interactions"), **detail,
+                               "dia": WEEKDAYS[p["weekday"]], "hora": p["hour"], "legenda": clean_text(p.get("caption"), 220)}
+        if detail.get("salvamentos") is not None and p["reach"]:
+            out["salvamentos_por_mil_alcance"] = round(detail["salvamentos"] / p["reach"] * 1000, 1)
+        pauta = pautas.get(str(p.get("media_id")))
+        if pauta:
+            out["pauta_do_mugoverso"] = pauta
+        return out
+
+    averages: Dict[str, float] = {}
+    for label, key in BREAKDOWN:
+        values = [v for p in scored if (v := _int((insights.get(str(p.get("media_id"))) or {}).get(key))) is not None]
+        if values:
+            averages[label] = round(sum(values) / len(values), 1)
+    return {"analisados": len(scored), "media_por_post": averages, "melhores": [view(p) for p in best],
+            "piores": [view(p) for p in worst],
+            "ligados_a_pauta": len(pautas)}
+
+
+PAID_DAYS = 365
+PAGE = 1000          # o Supabase devolve no máximo 1000 linhas por vez
+MAX_PAGES = 30
+PAID_SECONDS = 8.0     # abaixo do limite de 12 s por fonte
+
+
+async def _paid_creatives(client_id: str, days: int = PAID_DAYS) -> Dict[str, Any]:
+    """Anúncio por anúncio (não só a campanha), nos últimos 12 meses: o que performou melhor e pior, até quando rodou,
+    e o texto e o título quando o anúncio foi criado no Mídia On."""
+    since = (datetime.now(SAO_PAULO).date() - timedelta(days=days)).isoformat()
+    rows: List[Dict[str, Any]] = []
+    started = time.monotonic()
+    for page in range(MAX_PAGES):  # mais recentes primeiro: se a conta for enorme, o que fica de fora é o mais antigo
+        if page and time.monotonic() - started > PAID_SECONDS:
+            break  # fica com o que leu (o mais recente) em vez de perder a seção inteira no limite de tempo
+        chunk = await sb_select("ad_daily_stats", select="ad_id,ad_name,campaign_name,stat_date,spend,impressions,clicks,conversions,revenue",
+                                filters={"client_id": f"eq.{client_id}", "stat_date": f"gte.{since}"},
+                                order="stat_date.desc", limit=PAGE, offset=page * PAGE)
+        rows.extend(chunk)
+        if len(chunk) < PAGE:
+            break
+    ads: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        ad_id = str(r.get("ad_id") or "")
+        if not ad_id:
+            continue
+        a = ads.setdefault(ad_id, {"anuncio": clean_text(r.get("ad_name"), 120), "campanha": clean_text(r.get("campaign_name"), 120),
+                                   "investimento": 0.0, "impressoes": 0.0, "cliques": 0.0, "conversoes": 0.0, "receita": 0.0,
+                                   "rodou_de": None, "rodou_ate": None})
+        for field, key in (("investimento", "spend"), ("impressoes", "impressions"), ("cliques", "clicks"),
+                           ("conversoes", "conversions"), ("receita", "revenue")):
+            a[field] += _num(r.get(key)) or 0.0
+        day = str(r.get("stat_date") or "")[:10]
+        if day and (_num(r.get("spend")) or 0) > 0:
+            a["rodou_de"] = min(a["rodou_de"] or day, day)
+            a["rodou_ate"] = max(a["rodou_ate"] or day, day)
+    spent = [dict(a, ad_id=k) for k, a in ads.items() if a["investimento"] >= 20]
+    if not spent:
+        return {}
+    for a in spent:
+        a["ctr_pct"] = round(a["cliques"] / a["impressoes"] * 100, 2) if a["impressoes"] else None
+        a["custo_por_conversao"] = round(a["investimento"] / a["conversoes"], 2) if a["conversoes"] else None
+        a["roas"] = round(a["receita"] / a["investimento"], 2) if a["receita"] else None
+        for key in ("investimento", "receita"):
+            a[key] = round(a[key], 2)
+        for key in ("impressoes", "cliques", "conversoes"):
+            a[key] = int(a[key])
+    if any(a["roas"] for a in spent):
+        metric, rank = "roas", lambda a: a["roas"] or 0
+    elif any(a["conversoes"] for a in spent):
+        metric, rank = "custo_por_conversao", lambda a: -(a["custo_por_conversao"] or 1e12)
+    else:
+        metric, rank = "ctr_pct", lambda a: a["ctr_pct"] or 0
+    spent.sort(key=rank, reverse=True)
+    best, worst = spent[:6], spent[max(6, len(spent) - 3):]
+    try:
+        copies = await _mugo_ad_copies(client_id)
+    except Exception:  # noqa: BLE001
+        copies = {}
+
+    def view(a: Dict[str, Any]) -> Dict[str, Any]:
+        out = {k: v for k, v in a.items() if k != "ad_id" and v not in (None, "")}
+        if a["ad_id"] in copies:
+            out["criado_no_mugoverso"] = copies[a["ad_id"]]
+        return out
+    return {"periodo": f"últimos {days} dias", "comparado_por": metric, "anuncios_com_gasto": len(spent),
+            "melhores": [view(a) for a in best], "piores": [view(a) for a in worst]}
+
+
+async def _brand_lessons(client_id: str) -> List[Dict[str, Any]]:
+    """Conclusões guardadas pelo ciclo fechado (brand_learnings): o que cada post e anúncio rendeu contra a média."""
+    from .brand_learnings import recent
+    return await recent(client_id)
+
+
+async def _mugo_ad_copies(client_id: str) -> Dict[str, Dict[str, Any]]:
+    """Texto, título e formato de cada anúncio que o Mídia On criou (ID do anúncio na Meta → criativo)."""
+    from .meta_ad_publisher import ad_units, clean_payload
+    rows = await sb_select("studio_ad_drafts", select="payload,meta_ids", limit=100,
+                           filters={"client_id": f"eq.{client_id}", "meta_ids": "not.is.null"}, order="updated_at.desc")
+    out: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        ids = r.get("meta_ids") or {}
+        ad_ids = [str(x) for x in (ids.get("ad_ids") or ([ids["ad_id"]] if ids.get("ad_id") else []))]
+        if not ad_ids:
+            continue
+        try:
+            payload = clean_payload(r.get("payload") or {})
+        except Exception:  # noqa: BLE001 - rascunho antigo fora do formato
+            continue
+        ad = payload["ad"]
+        units = ad_units(ad)
+        for i, ad_id in enumerate(ad_ids):
+            unit = units[i] if i < len(units) else {}
+            fmt = "carrossel" if unit.get("format") == "carousel" else "vídeo" if unit.get("media_type") == "video" else "imagem"
+            out[ad_id] = {k: v for k, v in {"objetivo": payload.get("objective"), "formato": fmt,
+                                            "texto": clean_text(ad.get("primary_text"), 300), "titulo": clean_text(ad.get("headline"), 80),
+                                            "botao": ad.get("cta")}.items() if v}
+    return out
 
 
 async def _timing(client_id: str) -> Dict[str, Any]:
@@ -202,7 +357,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
     month = today.replace(day=1)
     (profile, business, snap, posts, timing, goals, analysis, learnings,
      origin, media, campaigns, clipping, calendar_month, references,
-     health, voice, competitors, products, briefs, plans, library, whatsapp) = await asyncio.gather(
+     health, voice, competitors, products, briefs, plans, library, whatsapp, creatives, brand_lessons) = await asyncio.gather(
         _safe("perfil_da_marca", gaps, lambda: _profile(client_id), {}),
         _safe("contexto_do_negocio", gaps, lambda: _business(client_id), {}),
         _safe("kpis_e_campanhas", gaps, lambda: _snapshot(client_id, start, end), {}),
@@ -225,6 +380,8 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         _safe("planos_aprovados", gaps, lambda: _plans(client_id, today), {}),
         _safe("biblioteca", gaps, lambda: _library(client_id), {}),
         _safe("whatsapp", gaps, lambda: _whatsapp(client_id), {}),
+        _safe("criativos_pagos", gaps, lambda: _paid_creatives(client_id), {}),
+        _safe("aprendizados_da_marca", gaps, lambda: _brand_lessons(client_id), []),
     )
     package = {
         "periodo": {"inicio": start, "fim": end, "dias": days},
@@ -234,6 +391,8 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "negocio": business,
         "kpis": snap.get("metricas") or [],
         "campanhas_que_mais_venderam": snap.get("campanhas") or [],
+        "criativos_pagos": creatives,
+        "aprendizados_da_marca": brand_lessons,
         "funil_do_site": snap.get("funil_do_site") or {},
         "posts": posts,
         "horarios": timing,
@@ -255,6 +414,7 @@ async def build_content_intelligence(client_id: str, *, days: int = 90, use_cach
         "planos_aprovados": plans,
         "biblioteca": library,
         "lacunas":sorted(set(gaps) | _empty_sections(profile, business, snap, posts, goals)),
+        "_client_id": client_id,  # só para o registro de tamanho do contexto; não vai para a IA
     }
     _CACHE[key] = (time.monotonic(), package)
     return package
@@ -497,13 +657,15 @@ async def _plans(client_id: str, today: date) -> Dict[str, Any]:
 
 
 async def _library(client_id: str) -> Dict[str, Any]:
-    """Acervo da Biblioteca por nome e categoria: o designer acha pelo nome; a IA cita o arquivo certo."""
+    """Material da MARCA na Biblioteca, por nome e categoria (logo, identidade, produto, fotos e vídeos da marca,
+    referências, documentos). Arte de post e de anúncio não conta: a IA aprende com o que foi publicado e o resultado."""
+    from .studio_library import POST_NOTES
     rows = await sb_select("studio_library", select="kind,category,title,note,side,mime_type", order="created_at.desc",
                            limit=80, filters={"client_id": f"eq.{client_id}"})
     groups: Dict[str, List[str]] = {}
     for r in rows:
         name = clean_text(r.get("title"), 100)
-        if not name:
+        if not name or str(r.get("note") or "").strip() in POST_NOTES:
             continue
         kind = "link" if r.get("kind") == "link" else str(r.get("mime_type") or "arquivo").split("/")[0]
         note = clean_text(r.get("note"), 120)
@@ -540,9 +702,13 @@ async def passages_for(client_id: str, *texts: str, limit: int = 4) -> str:
     return "\n".join(out)
 
 
-LIBRARY_RULE = ("Se a BIBLIOTECA dos DADOS tiver o arquivo certo (foto do produto, logo, vídeo bruto, referência), cite-o pelo "
-                "nome exato na ideia de imagem para a equipe achar; não invente arquivo que não está lá.")
-PLANS_RULE = ("Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
+LIBRARY_RULE = ("A BIBLIOTECA dos DADOS é só material da marca (logo, identidade, produto, fotos e vídeos da marca, referências). "
+                "Se tiver o arquivo certo, cite-o pelo nome exato na ideia de imagem para a equipe achar; não invente arquivo "
+                "que não está lá. O que funcionou vem dos posts, anúncios e aprovações, não da Biblioteca.")
+PLANS_RULE = ("Use os aprendizados_da_marca (o que já funcionou ou não nesta marca) antes de qualquer ideia nova. No 'por que' de "
+              "cada post, pauta ou anúncio, comece com 'Baseado em:' e cite o aprendizado, post ou anúncio dos DADOS que sustenta "
+              "a ideia (ex.: 'Baseado em: Reels de 12/11 com 2,1× o alcance médio'); se for teste sem histórico, diga 'Teste: ...'. "
+              "Briefings aprovados e planejamentos dos DADOS mandam: siga a grande ideia, as mensagens, a fase do momento e o "
               "que está em 'nao_fazer'. Evento próximo vira pauta de antes, durante e depois. As perguntas reais dos clientes "
               "(seção whatsapp e voz_do_publico) são ponto de partida para pauta, FAQ e objeção a quebrar. Ao usar um trecho de "
               "documento da marca, cite o nome do documento (entre colchetes nos trechos) na justificativa.")
@@ -559,6 +725,7 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
         "kpis": len(package.get("kpis") or []),
         "campanhas": len(package.get("campanhas_que_mais_venderam") or []),
         "posts_analisados": (package.get("posts") or {}).get("analisados", 0),
+        "anuncios_analisados": (package.get("criativos_pagos") or {}).get("anuncios_com_gasto", 0),
         "metas": len(package.get("metas_do_mes") or []),
         "aprovados": len((package.get("aprendizados") or {}).get("aprovados") or []),
         "ajustes": len((package.get("aprendizados") or {}).get("ajustes_pedidos") or []),
@@ -570,10 +737,13 @@ def coverage(package: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "referencias_do_cliente", "aprendizados",
-                "biblioteca", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia", "posts", "kpis",
-                "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes", "clipping",
-                "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas"]
+# Ordem de importância: quando o contexto passa do limite, o FIM da lista é resumido (e, se preciso, omitido) primeiro.
+# Resultado real (aprovações, posts, anúncios) vem logo depois da marca e do que a equipe decidiu; a lista de arquivos
+# da Biblioteca fica por último.
+PROMPT_ORDER = ["marca", "negocio", "briefings_aprovados", "planos_aprovados", "aprendizados", "aprendizados_da_marca", "posts", "criativos_pagos",
+                "referencias_do_cliente", "voz_do_publico", "whatsapp", "campanhas_ativas", "produtos_mais_vendidos", "plano_de_midia",
+                "kpis", "saude_da_marca", "concorrentes", "campanhas_que_mais_venderam", "vendas_por_origem", "metas_do_mes",
+                "clipping", "calendario_do_mes", "ultima_analise", "funil_do_site", "horarios", "lacunas", "biblioteca"]
 
 
 def _shrink(value: Any) -> Any:
@@ -596,6 +766,7 @@ def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, 
     cada, de trás para frente) e só então omite; o prompt avisa a IA do que foi resumido ou omitido."""
     order = sections or PROMPT_ORDER
     data = {k: package.get(k) for k in order if package.get(k)}
+    full = len(_dump(data))
     budget = max(200, limit - 220)  # espaço para o aviso
     resumed: List[str] = []
     dropped: List[str] = []
@@ -626,4 +797,8 @@ def to_prompt(package: Dict[str, Any], *, sections: Optional[List[str]] = None, 
     if resumed or dropped:
         data["_aviso"] = {"resumidas": [k for k in resumed if k not in dropped], "omitidas_por_tamanho": dropped}
         text = _dump(data)
+    # Registro para medir se o contexto está sendo cortado em cada marca (só nomes de seção e tamanhos, nada de dado).
+    print(f"[studio][intel][prompt] cliente={package.get('_client_id') or '?'} secoes={len(order)} "
+          f"tamanho_completo={full} enviado={min(len(text), limit)} limite={limit} "
+          f"resumidas={','.join(k for k in resumed if k not in dropped) or '-'} omitidas={','.join(dropped) or '-'}")
     return text[:limit]

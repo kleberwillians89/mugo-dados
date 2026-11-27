@@ -171,4 +171,27 @@ async def search_products(client_id: str, query: str, catalog_id: Optional[str] 
                     "sku": row.get("retailer_id"), "review_status": row.get("review_status") or None,
                     "variants": [{"product_id": str(v.get("product_id")), "name": v.get("variant_name")}
                                  for v in row.get("product_variants") or [] if v.get("product_id")][:20]})
+    await _add_link_and_price(out, creds["token"])
     return out
+
+
+async def _add_link_and_price(products: List[Dict[str, Any]], token: str) -> None:
+    """Link e preço do produto no catálogo (usados no anúncio da Mídia On). Sem permissão de leitura do catálogo,
+    os produtos seguem sem eles: a marcação no post não precisa disso."""
+    for product in products:
+        product.setdefault("url", None)
+        product.setdefault("price", None)
+    ids = [p["product_id"] for p in products if p["product_id"].isdigit()][:50]
+    if not ids:
+        return
+    try:
+        data = await _get("/", token=token, params={"ids": ",".join(ids), "fields": "url,price,sale_price"})
+    except StudioError:
+        return
+    for product in products:
+        row = data.get(product["product_id"]) if isinstance(data, dict) else None
+        if not isinstance(row, dict):
+            continue
+        url = str(row.get("url") or "")
+        product["url"] = url if url.startswith("https://") else None
+        product["price"] = str(row.get("sale_price") or row.get("price") or "")[:30] or None

@@ -147,7 +147,10 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)), "Migration filenames must be unique")
         logical_numbers = [int(name.split("_", 2)[1]) for name in names]
         unique_numbers = sorted(set(logical_numbers))
-        self.assertEqual(unique_numbers, list(range(1, max(unique_numbers) + 1)))
+        # 000123 a 000129 ficaram em branches que nunca entraram no main: buraco conhecido, não reutilizar.
+        never_published = set(range(123, 130))
+        expected = [n for n in range(1, max(unique_numbers) + 1) if n not in never_published]
+        self.assertEqual(unique_numbers, expected)
 
         # Existing collision: both scripts were already published.
         # Never rename or reapply them solely to make a test pass.
@@ -164,7 +167,7 @@ class MigrationBootstrapContractTests(unittest.TestCase):
         })
         self.assertEqual(
             [int(name.split("_", 2)[1]) for name in names if int(name.split("_", 2)[1]) > 117],
-            list(range(118, max(unique_numbers) + 1)),
+            [n for n in range(118, max(unique_numbers) + 1) if n not in never_published],
         )
 
     def test_shopify_coverage_uses_completed_query_end(self):

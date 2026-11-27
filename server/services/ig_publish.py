@@ -32,6 +32,8 @@ VIDEO_FORMATS = {"reels", "video"}
 CAROUSEL_FORMATS = {"carrossel", "carousel"}
 STORY_FORMATS = {"stories", "story"}
 VIDEO_EXT = (".mp4", ".mov")
+CONVERT_EXT = (".png", ".webp", ".gif", ".heic", ".heif")
+JPEG_MAX_BYTES = 30 * 1024 * 1024
 _DRIVE = re.compile(r"^https://drive\.google\.com/(?:file/d/([\w-]{10,})|open\?id=([\w-]{10,})|uc\?(?:.*&)?id=([\w-]{10,}))")
 
 
@@ -52,7 +54,10 @@ def _asset(url: str) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
         return {"kind": "video", "url": url}, None
     if path.endswith((".jpg", ".jpeg")):
         return {"kind": "image", "url": url}, None
-    return None, "Arte precisa ser JPG (imagem) ou MP4/MOV (vídeo): envie pelo modal ou cole o link do Drive."
+    if path.endswith(CONVERT_EXT):
+        # O Instagram só aceita JPG: PNG/WebP/HEIC viram JPG na hora de publicar (ensure_jpeg).
+        return {"kind": "image", "url": url, "convert": "1"}, None
+    return None, "Arte precisa ser imagem (JPG, PNG, WebP) ou vídeo (MP4/MOV): envie pelo modal ou cole o link do Drive."
 
 
 def _media_fields(asset: Dict[str, str], fmt_is_video: bool) -> Dict[str, str]:
@@ -64,6 +69,14 @@ def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[
     """Plano de publicação ({"type", "fields", "children"}) ou o motivo para ficar manual.
     Colaboradores (até 3 @) vão no contêiner principal de imagem, Reels e carrossel; Stories não aceitam."""
     plan, problem = _media_plan(item)
+    if plan and plan["type"] == "story":
+        manual_sticker = story_manual_instruction(item)
+        if manual_sticker:
+            return None, manual_sticker
+    if plan and plan["type"] != "reels":
+        music_problem = _music_outside_reels(item, plan["type"])
+        if music_problem:
+            return None, music_problem
     collaborators = clean_collaborators(item.get("collaborators"))
     if plan and collaborators and plan["type"] != "story":
         plan["fields"]["collaborators"] = json.dumps(collaborators)
@@ -75,6 +88,39 @@ def media_for(item: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[
         if warning:
             plan["warning"] = warning
     return plan, problem
+
+
+def story_manual_instruction(item: Dict[str, Any]) -> Optional[str]:
+    """Stories com sticker nativo só podem ser finalizados no aplicativo do Instagram."""
+    if str(item.get("channel") or "instagram") != "instagram" or str(item.get("format") or "").lower() not in STORY_FORMATS:
+        return None
+    opts = item.get("reels_options")
+    if not isinstance(opts, dict):
+        return None
+    sticker = opts.get("story_sticker")
+    labels = {"poll": "enquete", "question": "caixa de perguntas", "quiz": "quiz",
+              "emoji_slider": "controle de emoji", "link": "link clicável",
+              "countdown": "contagem regressiva", "music": "música"}
+    if sticker not in labels:
+        return None
+    instruction = str(opts.get("story_instruction") or "").strip()[:180]
+    return (f"Story interativo ({labels[sticker]}): publique manualmente pelo Instagram e adicione o sticker nativo. "
+            + (f"Instrução: {instruction}. " if instruction else "")
+            + "Depois marque como publicado no Mugô Verso.")
+
+
+def _music_outside_reels(item: Dict[str, Any], kind: str) -> Optional[str]:
+    """A API da Meta só aceita música no Reels. Em Stories, imagem ou carrossel com música escolhida, o post não sai
+    sozinho sem ela: fica para a equipe publicar à mão no app do Instagram, com a música anotada."""
+    from .ig_reels import clean_music
+    raw = item.get("reels_options")
+    music = clean_music(raw.get("music")) if isinstance(raw, dict) else None
+    if not music:
+        return None
+    label = {"story": "Stories", "image": "post de imagem", "carousel": "carrossel"}.get(kind, kind)
+    name = " · ".join(x for x in (music.get("title"), music.get("artist")) if x) or f"áudio {music['audio_id']}"
+    return (f"Música em {label} não vai pela API da Meta (só no Reels). Publique à mão no app do Instagram "
+            f"com a música “{name}” e marque como publicado.")
 
 
 def _apply_product_tags(plan: Dict[str, Any], raw: Any) -> None:
@@ -194,6 +240,56 @@ async def publish(creds: Dict[str, Any], plan: Dict[str, Any], *, wait_seconds: 
     return {"media_id": media_id, "permalink": permalink}
 
 
+def _to_jpeg(data: bytes) -> bytes:
+    """Imagem → JPG que o Instagram aceita (RGB, fundo branco na transparência, até 1440 px de largura)."""
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    try:
+        import pillow_heif  # type: ignore
+        pillow_heif.register_heif_opener()
+    except Exception:  # noqa: BLE001 - HEIC é opcional
+        pass
+    try:
+        image = ImageOps.exif_transpose(Image.open(BytesIO(data)))
+    except Exception as exc:  # noqa: BLE001
+        raise StudioError("IG_PUBLISH_FAILED", "Não consegui abrir a imagem para converter em JPG. Envie a arte de novo.") from exc
+    if image.mode in ("RGBA", "LA", "P"):
+        image = image.convert("RGBA")
+        flat = Image.new("RGB", image.size, (255, 255, 255))
+        flat.paste(image, mask=image.split()[-1])
+        image = flat
+    else:
+        image = image.convert("RGB")
+    if image.width > 1440:
+        image = image.resize((1440, round(image.height * 1440 / image.width)), Image.LANCZOS)
+    out = BytesIO()
+    image.save(out, "JPEG", quality=92, optimize=True)
+    return out.getvalue()
+
+
+async def ensure_jpeg(plan: Dict[str, Any], client_id: str) -> int:
+    """Troca no plano as imagens que não são JPG por uma cópia JPG pública (Storage do MUGOVERSO). Devolve quantas trocou."""
+    import hashlib
+    from .ig_supabase import sb_upload_public
+    targets = [(plan["fields"], "image_url"), (plan["fields"], "cover_url"), *((c, "image_url") for c in plan.get("children", []))]
+    changed = 0
+    for target, key in targets:
+        url = target.get(key)
+        if not url or "drive.google.com" in url or url.split("?", 1)[0].lower().endswith((".jpg", ".jpeg")):
+            continue
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            got = await client.get(url)
+        if got.status_code >= 400 or not got.content:
+            raise StudioError("IG_PUBLISH_FAILED", "Não consegui baixar a arte para converter em JPG. Confira se o link está público.")
+        if len(got.content) > JPEG_MAX_BYTES:
+            raise StudioError("IG_PUBLISH_FAILED", "Imagem maior que 30 MB: envie uma versão menor.")
+        jpeg = _to_jpeg(got.content)
+        safe = re.sub(r"[^a-zA-Z0-9_-]", "", client_id)[:80]
+        target[key] = await sb_upload_public(f"ig-publish/{safe}/{hashlib.sha1(url.encode()).hexdigest()[:20]}.jpg", jpeg, "image/jpeg")
+        changed += 1
+    return changed
+
+
 async def _set(item: Dict[str, Any], patch: Dict[str, Any], *, expect: Optional[str] = None) -> bool:
     filters = {"id": f"eq.{item['id']}", "client_id": f"eq.{item['client_id']}"}
     filters["publish_status"] = f"eq.{expect}" if expect else "is.null"
@@ -226,6 +322,15 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         creds = creds_cache[client_id]
         if creds["scopes"] and PUBLISH_SCOPE not in creds["scopes"]:
             raise StudioError("IG_PUBLISH_FAILED", "A conexão do Instagram desta marca não tem a permissão de publicar. Reconecte em Integrações.")
+        from .ig_carousel_video import ensure_carousel_videos, resolve_drive_children
+        await resolve_drive_children(container)  # slide do Drive que é vídeo entra como vídeo
+        converted = await ensure_jpeg(container, client_id)
+        # Vídeo no carrossel: a Meta só aceita 4:5 a 16:9, até 60 s, H.264 — converte sem cortar a cena.
+        videos_ready = await ensure_carousel_videos(container, client_id)
+        if container["type"] == "reels":
+            # Diagnóstico: quais opções foram no contêiner (nomes dos campos, sem token nem links).
+            print(f"[ig_publish] reels item={item['id']} fields={sorted(container['fields'])} "
+                  f"options={sorted((item.get('reels_options') or {}).keys()) if isinstance(item.get('reels_options'), dict) else 'sem_coluna'}")
         from .ig_shop import TAG_SCOPE, has_tags, strip_tags
         untagged = None
         if has_tags(container) and creds["scopes"] and TAG_SCOPE not in creds["scopes"]:
@@ -242,12 +347,25 @@ async def publish_item(item: Dict[str, Any], *, creds_cache: Dict[str, Any]) -> 
         if untagged:
             await record(item["client_id"], item["id"], f"publicou sem marcar os produtos da loja: {untagged}",
                          actor_name="Publicação automática", side="sistema")
+        if videos_ready:
+            await record(item["client_id"], item["id"],
+                         f"ajustou {videos_ready} vídeo(s) do carrossel ao padrão da Meta (proporção do 1º slide, até 60 s, MP4)",
+                         actor_name="Publicação automática", side="sistema")
+        if converted:
+            await record(item["client_id"], item["id"], f"converteu {converted} imagem(ns) para JPG (o Instagram só aceita JPG)",
+                         actor_name="Publicação automática", side="sistema")
+        from .ig_reels import describe
+        sent = describe(container, item.get("reels_options"))
+        if sent:
+            await record(item["client_id"], item["id"], sent, actor_name="Publicação automática", side="sistema")
         if container.get("warning"):
             await record(item["client_id"], item["id"], f"publicou o Reels, mas {container['warning']}",
                          actor_name="Publicação automática", side="sistema")
         await _first_comment(creds, item, out.get("media_id"))
         await _set(item, {"publish_status": "publicado", "status": "publicado", "published_at": datetime.now(timezone.utc).isoformat(),
                           "published_media_id": out["media_id"], "published_permalink": out.get("permalink")}, expect="publicando")
+        from .studio_tasks import sync_calendar_item  # post publicado: a tarefa ligada (se houver) fecha junto
+        await sync_calendar_item(item["client_id"], {**item, "status": "publicado"})
         return "publicado"
     except StudioError as exc:
         await _set(item, {"publish_status": "falhou", "publish_error": (str(exc) if str(exc) != exc.code else exc.code)[:300]}, expect="publicando")
@@ -283,6 +401,7 @@ async def publish_due(*, now: Optional[datetime] = None) -> Dict[str, int]:
             items = await sb_select(ITEMS_TABLE, select=f"{base}{extra}", **query)
             break
         except Exception:  # noqa: BLE001
+            print(f"[ig_publish] select_sem_colunas extra={extra} (migração pendente: música/capa/produtos podem não ir)")
             continue
     if items is None:
         items = await sb_select(ITEMS_TABLE, select=base, **query)

@@ -11,6 +11,7 @@ from api_support import (
     _started,
     _structured_error_response,
 )
+from services.ga4_client import run_ga4_report
 from services.ga4_reporting import (
     build_ga4_campaigns_report,
     build_ga4_channels_report,
@@ -29,6 +30,7 @@ router = APIRouter(tags=["google"])
 GOOGLE_ENDPOINTS = [
     "POST /api/google/ga4/sync",
     "GET /api/google/ga4/report",
+    "GET /api/google/ga4/hourly",
     "GET /api/google/ga4/channels",
     "GET /api/google/ga4/campaigns",
     "GET /api/google/ga4/events",
@@ -91,6 +93,44 @@ async def _ga4_request_context(
         f"auth_mode={context.auth_mode} connection_id={context.connection_id or '-'}"
     )
     return context.client_id, context.property_id, context.connection_id
+
+
+@router.get("/api/google/ga4/hourly")
+async def ga4_hourly(
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+    days: int = Query(default=30, ge=1, le=366),
+    client_id: str | None = Query(default=None),
+    connection_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+    authorization: str | None = Header(default=None),
+):
+    await require_user_id(authorization)
+    cid, property_id, selected_connection_id = await _ga4_request_context(
+        client_id, x_client_id, authorization, connection_id,
+    )
+    period = resolve_ga4_report_period(start=start, end=end, days=days)
+    if not selected_connection_id:
+        raise HTTPException(status_code=409, detail="Selecione uma conexão GA4 ativa.")
+    token = await get_google_access_token(cid, selected_connection_id)
+    report = await run_ga4_report(
+        property_id=property_id, access_token=token,
+        start_date=period.start.isoformat(), end_date=period.end.isoformat(),
+        dimensions=["hour"], metrics=["sessions", "ecommercePurchases"],
+        dimension_filter={"filter": {"fieldName": "platform", "stringFilter": {"value": "web"}}},
+    )
+    by_hour = {hour: {"hour": hour, "sessions": 0, "purchases": 0} for hour in range(24)}
+    for row in report["rows"]:
+        values = row["values"]
+        hour = str(values.get("hour", ""))
+        if hour.isdecimal() and int(hour) in by_hour:
+            by_hour[int(hour)]["sessions"] = int(values["sessions"])
+            by_hour[int(hour)]["purchases"] = int(values["ecommercePurchases"])
+    return {
+        "hours": list(by_hour.values()),
+        "time_zone": report["metadata"]["time_zone"],
+        "complete": report["collection_complete"],
+    }
 
 
 @router.post("/api/google/ga4/sync")

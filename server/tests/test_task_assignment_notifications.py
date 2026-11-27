@@ -92,7 +92,7 @@ def test_explicit_opt_in_still_checks_whatsapp_eligibility(monkeypatch):
     async def update(table, *, filters, patch, **kwargs):
         sends.append(patch)
         return [patch]
-    async def dispatch(client_id, user_id, body):
+    async def dispatch(client_id, user_id, body, task_id):
         assert client_id == "roove"
         assert user_id == "user-1"
         return ("not_opted_in", None)
@@ -104,3 +104,20 @@ def test_explicit_opt_in_still_checks_whatsapp_eligibility(monkeypatch):
     }, send_whatsapp=True))
     assert count == 1
     assert sends[0]["whatsapp_status"] == "not_opted_in"
+
+
+def test_task_notice_uses_mugozap_template_for_opted_in_assignee(monkeypatch):
+    monkeypatch.setenv("TASKS_WHATSAPP_SENDER_CLIENT_ID", "mugo")
+    monkeypatch.setenv("TASKS_WHATSAPP_TEMPLATE", "nova_tarefa")
+    monkeypatch.setenv("TASKS_WHATSAPP_TRANSPORT", "mugozap")
+    monkeypatch.setattr(notices, "sb_select", AsyncMock(return_value=[{"opted_in": True}]))
+    monkeypatch.setattr(notices, "_verified_auth_phone", AsyncMock(return_value="5511999990000"))
+    monkeypatch.setattr("services.studio_messages.mugozap_config", lambda: {"url": "https://example.com"})
+    send = AsyncMock(return_value={"ok": True, "provider_message_id": "wamid.test"})
+    monkeypatch.setattr("services.studio_messages.mugozap_send", send)
+    out = asyncio.run(notices._whatsapp_dispatch("mugo", "u1", "Nova tarefa\nVeja o cartão", "task-1"))
+    assert out == ("sent", "wamid.test")
+    assert send.await_args.kwargs["components"] == [
+        {"type": "body", "parameters": [{"type": "text", "text": "Nova tarefa Veja o cartão"}]},
+    ]
+    assert send.await_args.kwargs["idempotency_key"].startswith("dados-")

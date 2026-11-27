@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Lightbulb } from "lucide-react";
-import { confirmLearning, getContextHealth, suggestLearning, type LearningSuggestion } from "../../app/brandContext";
+import AutoReplyReview from "./AutoReplyReview";
+import { confirmLearning, discardPendingLearning, getContextHealth, getPendingLearning, suggestLearning, type LearningSuggestion } from "../../app/brandContext";
 
 /**
  * Aprender com o uso: ajustes, comentários e reescritas do cliente, o que ele aprovou e o que os consumidores
@@ -15,15 +16,29 @@ export default function BrandLearning({ onLearned }: { onLearned?: () => void })
   const [busy, setBusy] = useState<"suggest" | "confirm" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
-  useEffect(() => { getContextHealth().then((h) => setSignals(h.learning.new_signals)).catch(() => setSignals(null)); }, []);
+  function show(res: LearningSuggestion) {
+    setResult(res); setEdits({});
+    setSelected(new Set(res.facts.map((f, i) => (f.confianca === "alta" ? i : -1)).filter((i) => i >= 0)));
+  }
+
+  useEffect(() => {
+    getContextHealth().then((h) => setSignals(h.learning.new_signals)).catch(() => setSignals(null));
+    // O job de segunda já deixou os aprendizados da semana prontos: aparecem direto, só para revisar.
+    getPendingLearning().then((res) => {
+      if (!res.pending?.facts.length) return;
+      setPendingId(res.pending.id);
+      show({ ok: true, facts: res.pending.facts, signals: res.pending.signals, since: null, message: null });
+    }).catch(() => undefined);
+  }, []);
 
   async function search() {
     setBusy("suggest"); setError(null); setDone(null);
     try {
       const res = await suggestLearning();
-      setResult(res); setEdits({});
-      setSelected(new Set(res.facts.map((f, i) => (f.confianca === "alta" ? i : -1)).filter((i) => i >= 0)));
+      setPendingId(null);
+      show(res);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível buscar aprendizados agora."); }
     finally { setBusy(null); }
   }
@@ -34,19 +49,25 @@ export default function BrandLearning({ onLearned }: { onLearned?: () => void })
     if (!facts.length) return;
     setBusy("confirm"); setError(null);
     try {
-      const res = await confirmLearning(facts);
+      const res = await confirmLearning(facts, pendingId);
       setDone(`${res.saved} aprendizado(s) entraram na memória da marca. A IA já usa nas próximas pautas, briefings e respostas.`);
-      setResult(null); setSignals(0);
+      setResult(null); setSignals(0); setPendingId(null);
       onLearned?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar."); }
     finally { setBusy(null); }
+  }
+
+  async function discard() {
+    const id = pendingId;
+    setResult(null); setPendingId(null);
+    if (id) await discardPendingLearning(id).catch(() => undefined);
   }
 
   return <section className="bcCard bcLearning" aria-labelledby="bc-learning-title" data-testid="brand-learning">
     <header className="bcCardHead"><div>
       <h2 id="bc-learning-title"><Lightbulb size={18} aria-hidden="true" /> Aprender com o uso</h2>
       <p className="libHint">A IA lê os ajustes e comentários do cliente, os textos que ele reescreveu, o que aprovou e o que os consumidores
-        perguntam no WhatsApp, e sugere o que guardar na memória da marca. Nada entra sem você marcar.</p>
+        perguntam no WhatsApp, e sugere o que guardar na memória da marca. Toda segunda ela separa os aprendizados da semana sozinha. Nada entra sem você marcar.</p>
     </div>
       <button type="button" className="ds-button is-primary" disabled={Boolean(busy)} onClick={() => void search()}>
         {busy === "suggest" ? "Lendo os sinais…" : signals ? `Buscar aprendizados (${signals} sinais novos)` : "Buscar aprendizados"}</button>
@@ -55,7 +76,7 @@ export default function BrandLearning({ onLearned }: { onLearned?: () => void })
     {done ? <p role="status" className="studioOk">{done}</p> : null}
     {result && !result.facts.length ? <p className="libHint" role="status">{result.message}</p> : null}
     {result && result.facts.length ? <div className="bcLearnList">
-      <p className="libHint">{result.facts.length} sugestão(ões) a partir de {result.signals} sinal(is). Os de confiança alta já vêm marcados; ajuste o texto se precisar.</p>
+      <p className="libHint">{pendingId ? "A IA separou os aprendizados desta semana sozinha. " : ""}{result.facts.length} sugestão(ões) a partir de {result.signals} sinal(is). Os de confiança alta já vêm marcados; ajuste o texto se precisar.</p>
       {result.facts.map((fact, i) => <div key={i} className={`bcField${selected.has(i) ? " is-checked" : ""}`} data-fact={i}>
         <div className="bcFieldHead">
           <label><input type="checkbox" checked={selected.has(i)} onChange={() => setSelected((cur) => { const next = new Set(cur); if (next.has(i)) next.delete(i); else next.add(i); return next; })} />
@@ -69,8 +90,9 @@ export default function BrandLearning({ onLearned }: { onLearned?: () => void })
       <div className="kbRow">
         <button type="button" className="ds-button is-primary" disabled={!selected.size || Boolean(busy)} onClick={() => void save()}>
           {busy === "confirm" ? "Guardando…" : `Guardar ${selected.size} na memória`}</button>
-        <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => setResult(null)}>Descartar</button>
+        <button type="button" className="ds-button" disabled={Boolean(busy)} onClick={() => void discard()}>Descartar</button>
       </div>
     </div> : null}
+    <AutoReplyReview />
   </section>;
 }

@@ -133,7 +133,7 @@ export default function GlobalTaskChat() {
         if (suppressClickRef.current) { suppressClickRef.current = false; return; }
         setOpen((o) => !o); void refresh();
       }}>
-      Chat de tarefas {pending ? <span>{pending}</span> : null}{unread ? <b>{unread} novas</b> : null}
+      <i className="gtcFull">Chat de tarefas</i><i className="gtcShort">Tarefas</i> {pending ? <span>{pending}</span> : null}{unread ? <b>{unread} novas</b> : null}
     </button>
     {open ? <section id="global-task-chat-panel" className="globalTaskChatPanel"
       style={panel} aria-label="Tarefas da empresa ativa">

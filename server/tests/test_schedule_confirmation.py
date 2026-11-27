@@ -19,7 +19,9 @@ class ConfirmScheduleTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_approved_future_posts(self):
         future = datetime.now(timezone.utc) + timedelta(days=2)
         item, update = await self.confirm("aprovado", future)
-        self.assertEqual(update.await_args.kwargs["filters"], {"client_id": "eq.roove", "id": "eq.i1", "status": "eq.aprovado"})
+        self.assertEqual(update.await_args.kwargs["filters"], {
+            "client_id": "eq.roove", "id": "eq.i1", "status": "eq.aprovado", "deleted_at": "is.null",
+        })
         self.assertEqual(update.await_args.kwargs["patch"]["schedule_confirmed_by"], "u1")
         for status, when, code in (("em_revisao", future, "SCHEDULE_NEEDS_APPROVAL"),
                                    ("aprovado", datetime.now(timezone.utc) - timedelta(hours=1), "SCHEDULE_IN_PAST")):

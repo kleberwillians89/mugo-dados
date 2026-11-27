@@ -15,13 +15,16 @@ type Props = {
   videoUrl: string | null;
   itemId: string | null;
   disabled?: boolean;
+  /** "capa" logo depois da arte; "extras" (onde aparece, áudio original, 1º comentário) depois dos produtos. Sem part: tudo. */
+  part?: "capa" | "extras";
 };
 
 /**
  * Capa e opções do Reels no modal do post. Vale só para Reels no Instagram; tudo vai junto na publicação
  * automática (capa por frame = thumb_offset; capa por imagem = cover_url, que vence o frame).
  */
-export default function ReelsOptions({ value, onChange, videoUrl, itemId, disabled }: Props) {
+export default function ReelsOptions({ value, onChange, videoUrl, itemId, disabled, part }: Props) {
+  const showCover = part !== "extras", showExtras = part !== "capa";
   const mode = value.cover_mode || "frame";
   const offset = value.thumb_offset_ms ?? 0;
   const [duration, setDuration] = useState<number | null>(null);
@@ -53,7 +56,7 @@ export default function ReelsOptions({ value, onChange, videoUrl, itemId, disabl
   }
 
   return <div className="reelsOpts">
-    <section className="reelsOptsBlock" aria-labelledby="reels-cover-title">
+    {showCover ? <section className="reelsOptsBlock" aria-labelledby="reels-cover-title">
       <span className="postArtTitle" id="reels-cover-title">Capa do Reels</span>
       <div className="reelsSeg" role="group" aria-label="Origem da capa">
         <button type="button" className={mode === "frame" ? "is-on" : ""} aria-pressed={mode === "frame"} disabled={disabled}
@@ -101,9 +104,10 @@ export default function ReelsOptions({ value, onChange, videoUrl, itemId, disabl
         </div>
       </div> : null}
       {error ? <small className="studioError" role="alert">{error}</small> : null}
-    </section>
+    </section> : null}
 
-    <section className="reelsOptsBlock" aria-labelledby="reels-where-title">
+    {/* A música saiu daqui: fica no modal do post (vale para qualquer formato do Instagram). */}
+    {showExtras ? <section className="reelsOptsBlock" aria-labelledby="reels-where-title">
       <span className="postArtTitle" id="reels-where-title">Onde aparece</span>
       <label className="reelsCheck">
         <input type="checkbox" checked={value.share_to_feed ?? true} disabled={disabled} onChange={(e) => set({ share_to_feed: e.target.checked })} />
@@ -119,14 +123,14 @@ export default function ReelsOptions({ value, onChange, videoUrl, itemId, disabl
           <option value="manual">A equipe decide no Instagram se vai para os seguidores</option>
           <option value="auto">Vai sozinho para os seguidores se performar bem</option>
         </select></label> : null}
-      <label>Nome do áudio original
+      {value.music ? null : <label>Nome do áudio original
         <input maxLength={100} value={value.audio_name || ""} placeholder="Áudio original" disabled={disabled}
-          onChange={(e) => set({ audio_name: e.target.value || undefined })} /></label>
+          onChange={(e) => set({ audio_name: e.target.value || undefined })} /></label>}
       <label>Primeiro comentário
         <textarea rows={2} maxLength={2200} value={value.first_comment || ""} disabled={disabled}
           placeholder="Sai logo depois da publicação (link, cupom, hashtags extras)"
           onChange={(e) => set({ first_comment: e.target.value || undefined })} /></label>
-      <small className="libHint">Música da biblioteca do Instagram, texto, figurinha e filtro não vão pela API: precisam vir prontos no vídeo.</small>
-    </section>
+      <small className="libHint">Texto, figurinha e filtro não vão pela API: precisam vir prontos no vídeo.</small>
+    </section> : null}
   </div>;
 }

@@ -2,6 +2,7 @@ import { CalendarDays, CircleDashed, Clapperboard, GalleryHorizontal, Image as I
 import { useState, type DragEvent } from "react";
 import { STUDIO_CHANNELS, STUDIO_FORMATS, localParts, type CalendarItem, type StudioFormat } from "../../app/studio";
 import { addDays, fromKey, mondayOf, todayKey } from "../../app/studioCalendar";
+import { publishState } from "./publishState";
 
 const FORMAT_ICON: Record<StudioFormat, LucideIcon> = { reels: Clapperboard, carrossel: GalleryHorizontal, imagem: ImageIcon, stories: CircleDashed, video: Video };
 const WEEKDAYS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
@@ -47,6 +48,7 @@ function Chip({ item, canManage, onOpen, compact }: { item: CalendarItem; canMan
     onClick={() => onOpen(item)} title={`${when.time} · ${item.channel && item.channel !== "instagram" ? `${STUDIO_CHANNELS[item.channel]} · ` : ""}${STUDIO_FORMATS[item.format]} · ${item.title}`}>
     <span className="calChipMeta">{when.time} {item.channel && item.channel !== "instagram" ? <span className={`calChipPlatform is-${item.channel}`}>{STUDIO_CHANNELS[item.channel]}</span> : null} <span aria-label={STUDIO_FORMATS[item.format]}>{(() => { const F = FORMAT_ICON[item.format] || ImageIcon; return <F className="uiGlyph" size={12} aria-hidden="true" />; })()}</span>{item.signals?.seasonal ? <> <CalendarDays className="uiGlyph" size={12} aria-hidden="true" /></> : null}{item.boost ? <span className="calChipBoost" aria-label={`Impulsionar a partir de ${item.boost.start.slice(8, 10)}/${item.boost.start.slice(5, 7)}`}> <Zap className="uiGlyph" size={12} aria-hidden="true" /></span> : null}</span>
     <span className="calChipTitle">{item.title}</span>
+    {(() => { const st = publishState(item); return st ? <span className={`calChipPublish is-${st.tone}`}>{st.label}</span> : null; })()}
     {!compact && item.pillar ? <span className="calChipPillar">{item.pillar}</span> : null}
   </button>;
 }

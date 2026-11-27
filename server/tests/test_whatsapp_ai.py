@@ -82,7 +82,7 @@ class DecisionTests(unittest.TestCase):
                            "summary": "Quer legging, ligar 11 99999-0000"}}
         out = ai.clean_decision(raw, catalog())
         self.assertEqual(out["reply"], "Separei duas opções, olha só.")
-        self.assertEqual(out["buttons"], ["Para treinar", "Dia a dia e treino"])
+        self.assertEqual(out["buttons"], ["Para treinar"])  # o de 25 letras sai inteiro, em vez de cortado
         self.assertEqual([p["handle"] for p in out["products"]], ["legging-twist", "capri"])
         self.assertEqual(out["insight"]["objections"], ["preco"])
         self.assertIn("[número]", out["insight"]["summary"])
@@ -181,5 +181,144 @@ class ProcessThreadTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ai_paused_until", updates[-1][1])
 
 
+class AdGroupAndClaudeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_group_link_only_for_ad_and_only_once(self):
+        settings = {**SETTINGS, "ad_group_link": "https://chat.whatsapp.com/ABC", "ad_group_message": "Entra no grupo VIP: {link}"}
+        calls = []
+
+        async def select(table, **kw):
+            calls.append(table)
+            if table == "whatsapp_threads":
+                return [{"ai_group_sent_at": None}]
+            return [{"headline": "First Access Black Friday", "ad_id": "1"}]
+        with patch.object(ai, "sb_select", side_effect=select):
+            plan = await ai.ad_group_plan("roove", {"id": "t1"}, settings)
+        self.assertEqual(plan["text"], "Entra no grupo VIP: https://chat.whatsapp.com/ABC")
+        self.assertEqual(plan["headline"], "First Access Black Friday")
+
+        async def already(table, **kw):
+            return [{"ai_group_sent_at": "2026-11-19T10:00:00Z"}] if table == "whatsapp_threads" else [{"headline": ""}]
+        with patch.object(ai, "sb_select", side_effect=already):
+            self.assertIsNone(await ai.ad_group_plan("roove", {"id": "t1"}, settings))
+
+        async def organic(table, **kw):
+            return [{"ai_group_sent_at": None}] if table == "whatsapp_threads" else []
+        with patch.object(ai, "sb_select", side_effect=organic):
+            self.assertIsNone(await ai.ad_group_plan("roove", {"id": "t1"}, settings))
+        self.assertIsNone(await ai.ad_group_plan("roove", {"id": "t1"}, SETTINGS))  # sem link configurado
+
+    async def test_auto_sends_reply_then_group_invite_and_marks(self):
+        decision = ai.clean_decision({"reply": "Oi! Que bom te ver.", "buttons": [], "products": [], "handoff": False, "insight": {}}, catalog())
+        updates = []
+
+        async def update(table, *, filters, patch, returning="representation"):
+            updates.append(patch)
+        with patch.object(ai, "_thread_messages", AsyncMock(return_value=ProcessThreadTests.messages)), \
+             patch.object(ai, "_number", AsyncMock(return_value={"id": "n1", "phone_number_id": "pn", "access_token": "tok"})), \
+             patch.object(ai, "_commerce", AsyncMock(return_value=(catalog(), None, None))), \
+             patch.object(ai, "ad_group_plan", AsyncMock(return_value={"text": "Grupo: https://chat.whatsapp.com/ABC", "headline": "BF"})), \
+             patch.object(ai, "decide", AsyncMock(return_value=decision)) as decide, \
+             patch.object(ai, "send_decision", AsyncMock(return_value=1)) as send, \
+             patch.object(ai, "sb_update", side_effect=update):
+            await ai.process_thread("roove", dict(ProcessThreadTests.thread), SETTINGS)
+        self.assertEqual(send.await_count, 2)
+        self.assertEqual(send.await_args_list[1].args[3]["reply"], "Grupo: https://chat.whatsapp.com/ABC")
+        self.assertIn("anúncio", decide.await_args.kwargs["origin_note"])
+        self.assertIn("ai_group_sent_at", updates[-1])
+
+    async def test_claude_answers_and_falls_back_to_platform(self):
+        raw = {"reply": "Oi do Claude", "buttons": [], "products": [], "handoff": False, "handoff_reason": "", "insight": {}}
+        settings = {**SETTINGS, "_claude_secret": "enc", "claude_model": "claude-sonnet-5-5"}
+        with patch.object(ai, "_brand", AsyncMock(return_value="")), patch("services.crypto.decrypt_secret", return_value="sk-ant-x"), \
+             patch.object(ai, "_claude", AsyncMock(return_value=raw)) as claude, \
+             patch("services.studio_llm.llm_json", AsyncMock(return_value={**raw, "reply": "Oi da plataforma"})) as platform:
+            out = await ai.decide("roove", settings=settings, catalog=catalog(), thread={}, messages=ProcessThreadTests.messages)
+        self.assertEqual(out["reply"], "Oi do Claude")
+        platform.assert_not_awaited()
+        self.assertEqual(claude.await_args.kwargs["model"], "claude-sonnet-5-5")
+        with patch.object(ai, "_brand", AsyncMock(return_value="")), patch("services.crypto.decrypt_secret", return_value="sk-ant-x"), \
+             patch.object(ai, "_claude", AsyncMock(side_effect=ai.WhatsAppAiError("CLAUDE_FAILED", "sem crédito"))), \
+             patch("services.studio_llm.llm_json", AsyncMock(return_value={**raw, "reply": "Oi da plataforma"})):
+            out = await ai.decide("roove", settings=settings, catalog=catalog(), thread={}, messages=ProcessThreadTests.messages)
+        self.assertEqual(out["reply"], "Oi da plataforma")
+
+    async def test_rejects_key_that_is_not_claude(self):
+        with self.assertRaises(ai.WhatsAppAiError) as caught:
+            await ai.save_claude_key("roove", api_key="sk-openai-123456789012345", model="claude-sonnet-5-5", user_id="u")
+        self.assertEqual(caught.exception.code, "INVALID_KEY")
+
+
+class PozzeCarouselTests(unittest.IsolatedAsyncioTestCase):
+    def test_products_go_as_image_cards_with_link_button(self):
+        prods = [p for p in catalog()["products"] if p["available"]]
+        for i, p in enumerate(prods):
+            p["image"] = f"https://cdn.shopify.com/{i}.jpg"
+        prods[0]["compare_at"], prods[0]["price_min"] = 399.0, 279.0
+        decision = {"reply": "Olha estas:", "buttons": [], "products": prods[:3], "handoff": False}
+        out = ai.outgoing_payloads(decision, meta=None, match=None, style="carrossel", button="Garantir meu look")
+        carousel = out[1][0]["interactive"]
+        self.assertEqual(carousel["type"], "carousel")
+        cards = carousel["action"]["cards"]
+        self.assertEqual(len(cards), min(3, len(prods)))
+        self.assertIn("~R$", cards[0]["body"]["text"])
+        self.assertEqual(cards[0]["action"]["parameters"], {"display_text": "Garantir meu look", "url": prods[0]["url"]})
+        self.assertEqual(cards[0]["header"]["image"]["link"], "https://cdn.shopify.com/0.jpg")
+        single = ai.outgoing_payloads({**decision, "products": prods[:1]}, meta=None, match=None, style="carrossel", button="Ver peça")
+        self.assertEqual(single[1][0]["interactive"]["type"], "cta_url")
+
+    async def test_claude_key_from_render_env(self):
+        import os
+        with patch.dict(os.environ, {"CLAUDE_API_KEY_ROOVE": "sk-ant-envkey1234"}), \
+             patch.object(ai, "_settings_row", AsyncMock(return_value={"mode": "auto"})):
+            settings = await ai.get_settings("roove", with_secret=True)
+        self.assertEqual((settings["has_claude_key"], settings["claude_key_source"], settings["claude_key_hint"]), (True, "render", "1234"))
+        self.assertEqual(settings["_claude_raw"], "sk-ant-envkey1234")
+        with patch.object(ai, "_brand", AsyncMock(return_value="")), \
+             patch.object(ai, "_claude", AsyncMock(return_value={"reply": "Oi", "buttons": [], "products": [], "handoff": False, "insight": {}})) as claude:
+            await ai.decide("roove", settings=settings, catalog=catalog(), thread={}, messages=ProcessThreadTests.messages)
+        self.assertEqual(claude.await_args.args[0], "sk-ant-envkey1234")
+
+
+class HumanReplyTests(unittest.IsolatedAsyncioTestCase):
+    def test_long_reply_becomes_short_blocks_with_question_alone(self):
+        text = ("A tecnologia Roove Skinwear usa o fio inteligente Emana®, que oferece benefícios cosméticos para a pele. "
+                "Ela ajuda na elasticidade e na recuperação muscular enquanto você veste. Tudo pensado para unir conforto, "
+                "design e cuidado na sua rotina. Quer que eu te mostre algumas peças com essa tecnologia?")
+        out = ai.space_out(text)
+        blocks = out.split("\n\n")
+        self.assertEqual(len(blocks), 3)
+        self.assertEqual(blocks[-1], "Quer que eu te mostre algumas peças com essa tecnologia?")
+        self.assertEqual(ai.space_out("Oi! Tudo bem?"), "Oi! Tudo bem?")
+        self.assertEqual(ai.space_out("Bloco um.\n\nBloco dois?"), "Bloco um.\n\nBloco dois?")
+
+    def test_buttons_never_cut(self):
+        self.assertEqual(ai.whole_buttons(["Sim, mostre as peças", "Quero saber mais da tecnologia", "Outra dúvida"]),
+                         ["Sim, mostre as peças", "Outra dúvida"])
+
+    async def test_typing_indicator_marks_read(self):
+        with patch.object(ai, "_graph", AsyncMock(return_value={})) as graph:
+            await ai.typing({"phone_number_id": "pn", "access_token": "t"}, "wamid.ABC")
+            await ai.typing({"phone_number_id": "pn", "access_token": "t"}, None)
+        graph.assert_awaited_once()
+        self.assertEqual(graph.await_args.kwargs["json_body"]["typing_indicator"], {"type": "text"})
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class GroupQuickReplyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_roove_usa_link_na_mensagem_sem_chamar_modelo(self):
+        invite = "https://chat.whatsapp.com/example"
+        settings = {**SETTINGS, "mode": "auto", "ad_group_link": invite, "ad_group_message": "Convite: {link}"}
+        incoming = [{**ProcessThreadTests.messages[0], "type": "button", "text": "Entrar no grupo"}]
+        with patch.object(ai, "_thread_messages", AsyncMock(return_value=incoming)), \
+             patch.object(ai, "_number", AsyncMock(return_value={"id": "n1"})), \
+             patch.object(ai, "decide", AsyncMock()) as decide, \
+             patch.object(ai, "send_decision", AsyncMock(return_value=1)) as send, \
+             patch.object(ai, "_save_insight", AsyncMock()):
+            self.assertEqual(await ai.process_thread("roove", dict(ProcessThreadTests.thread), settings), "respondida")
+        self.assertEqual(send.await_args.args[3]["reply"], f"Convite: {invite}")
+        payload, _, _ = ai.outgoing_payloads(send.await_args.args[3], meta=None, match=None)[0]
+        self.assertEqual(payload["type"], "text")
+        decide.assert_not_awaited()

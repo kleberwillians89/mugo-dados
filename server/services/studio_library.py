@@ -2,7 +2,7 @@
 
 - A equipe e o cliente enviam arquivos (direto do navegador para o Storage, com link assinado: o arquivo não passa
   pelo servidor) ou colam links (Drive, Canva, Figma, site).
-- "Aprovados": a arte dos posts aprovados/publicados entra sozinha, lida do Calendário (não duplica aqui).
+- Só material de marca. Arte de post e de anúncio é enviada no próprio post (Calendário/Mídia On) e não entra aqui.
 - Quem enviou (equipe ou cliente) fica marcado; o cliente só apaga o que ele mesmo enviou.
 """
 from __future__ import annotations
@@ -18,8 +18,10 @@ from .ig_supabase import sb_delete, sb_insert, sb_select
 from .studio_calendar import ITEMS_TABLE, StudioError
 
 TABLE = "studio_library"
-CATEGORIES = {"produto": "Produto", "logo": "Logo", "referencia": "Referência", "foto": "Foto", "video": "Vídeo bruto",
-              "documento": "Documento", "outro": "Outro"}
+CATEGORIES = {"logo": "Logo e identidade", "produto": "Produto", "foto": "Fotos da marca", "video": "Vídeos da marca",
+              "referencia": "Referência", "documento": "Documento", "outro": "Outro"}
+# Arte enviada para post/anúncio antes da Biblioteca virar só marca: não é material de marca e a IA não lê.
+POST_NOTES = ("Criativo de mídia paga", "Capa do vídeo")
 TYPES = {
     "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/svg+xml": "svg",
     "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm",

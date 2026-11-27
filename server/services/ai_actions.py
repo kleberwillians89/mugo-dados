@@ -106,7 +106,7 @@ async def _write_copy(client_id: str, proposal: Dict[str, Any], brand: str) -> D
     try:
         from .studio_llm import llm_json, obj
         schema = obj({"title": {"type": "string"}, "rationale": {"type": "string"}, "subject": {"type": "string"}, "text": {"type": "string"}})
-        data = await llm_json(
+        data = await llm_json(brand="conteudo",
             instructions=("Você é a analista de CRM da agência Mugô. Escreva em português do Brasil, direto, sem exagero. "
                           "Use só os números dados; não invente desconto, prazo nem promoção. Título com até 70 caracteres; "
                           "explicação com até 3 frases dizendo o que os dados mostram e o que a ação faz. "

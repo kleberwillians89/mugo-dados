@@ -25,6 +25,8 @@ export type CrmTask = {
   assignees?: Array<{ name: string; color: string | null; user_id?: string | null }>;
   /** Tarefas do Mugoverso: aparece também para o cliente. */
   visible_to_client?: boolean;
+  /** Último pedido de ajuste (só nas tarefas em Ajustes): o card mostra o que mudar sem abrir. */
+  change_note?: string;
   /** Link da entrega (Drive, Canva, Figma…) que vai para aprovação. */
   deliverable_url?: string | null;
   needs_client_approval?: boolean;
@@ -52,7 +54,7 @@ export function listCrmTasks(status?: TaskStatus) {
   return http<Result<{ tasks: CrmTask[]; scope?: TaskScope }>>(base(`/tasks${status ? `?status=${status}` : ""}`));
 }
 /** Integrantes ativos da empresa (responsável da tarefa e para quem mandar o briefing). */
-export type Person = { user_id: string; name: string };
+export type Person = { user_id: string; name: string; departments?: string[] };
 export function listAssignees() { return http<{ available: boolean; people: Person[] }>(base("/assignees")); }
 /** Tarefas guardadas no Mugoverso (criar, editar, mover de etapa, excluir). */
 export type TaskInput = Partial<{ title: string; notes: string | null; status: TaskStatus; priority: string | null; due_date: string | null;

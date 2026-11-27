@@ -76,9 +76,10 @@ export function DataHealthSummary({onReconnect}: {onReconnect?: () => void}) {
   const health = useDataHealth();
   if (!health) return null;
   const sources = health.data?.sources.filter(source => source.connected || source.last_successful_sync_at || source.last_data_at || source.state === "attention") || [];
-  return <details className="ds-caption" style={{margin: "12px 24px"}}>
+  // Abrir a seção já consulta o status salvo de novo (o botão "Consultar status persistido" saiu).
+  return <details className="ds-caption" style={{margin: "12px 24px"}}
+    onToggle={(event) => { if ((event.currentTarget as HTMLDetailsElement).open && !health.loading) void health.reload(); }}>
     <summary>Saúde dos dados{health.error ? " · leitura indisponível" : health.loading ? " · verificando" : ""}</summary>
-    <button type="button" onClick={() => void health.reload()} disabled={health.loading}>Consultar status persistido</button>
     <p>Sincronização e cobertura são evidências diferentes. Agendamentos automáticos ainda exigem confirmação operacional.</p>
     {!sources.length ? <p>Disponibilidade das fontes não confirmada.</p> : <ul>{sources.map(source => <li key={source.provider}><strong>{SOURCE_LABELS[source.provider] || source.provider}: </strong><DataFreshness provider={source.provider} />{source.state === "reauth_required" && onReconnect ? <> <button type="button" onClick={onReconnect}>Reconectar</button></> : null}</li>)}</ul>}
   </details>;
